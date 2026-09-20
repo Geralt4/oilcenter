@@ -1,0 +1,8 @@
+{
+  "name": "oilcenter-railway-config",
+  "private": true,
+  "description": "SDK needed only to evaluate railway.ts (railway config plan / apply). Kept out of the app's package.json so it never reaches the production image.",
+  "dependencies": {
+    "railway": "^3.11.0"
+  }
+}
