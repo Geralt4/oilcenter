@@ -43,6 +43,7 @@ export default async function ProductPage({ params }: Props) {
     stockLeft: v.trackStock ? v.stock : null,
     imageUrl: v.imageUrl,
     weightGrams: v.weightGrams,
+    priceVerified: v.priceVerified,
   }));
 
   const rows: Array<[string, React.ReactNode]> = [];

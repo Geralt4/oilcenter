@@ -62,6 +62,10 @@ orders. The admin dashboard (`/admin`) shows a live checklist of what is still m
    They are not legal advice — have a lawyer review them.
 9. **E-mail**: set the `SMTP_*` variables. Without them, e-mails are written to `data/outbox/*.html` instead of sent.
 10. **Card payments**: see below. Until a provider is configured the "card" option is simply not offered.
+10b. **Online ordering is closed** (*Ρυθμίσεις → Λειτουργία καταστήματος → «Το κατάστημα δέχεται online παραγγελίες»*,
+    off by default). Visitors can browse, see prices and fill a cart, but the cart and `/checkout` show "οι online
+    παραγγελίες ανοίγουν σύντομα — καλέστε μας" and the `placeOrder` action refuses them server-side. A logged-in admin
+    still gets the full checkout, and whatever they place is flagged as a test order — that is how to test before launch.
 11. Turn **demo mode off last** (*Ρυθμίσεις → Λειτουργία καταστήματος*). Product structured data (prices) is only
     exposed to search engines once demo mode is off.
 

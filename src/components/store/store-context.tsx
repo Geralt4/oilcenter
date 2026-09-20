@@ -10,6 +10,10 @@ export type PublicStoreConfig = {
   vatRate: number;
   cardProviderConfigured: boolean;
   demoMode: boolean;
+  /** can THIS visitor check out? false while ordering is closed to the public (pre-launch) */
+  canOrder: boolean;
+  /** ordering is closed to the public but this visitor is a logged-in admin placing test orders */
+  adminTestOrders: boolean;
   lowStockThreshold: number;
   phone: string;
 };

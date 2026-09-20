@@ -49,6 +49,8 @@ export type ShopSettings = {
   storefront: {
     /** shows a site-wide "demo / indicative prices" ribbon and flags orders as test orders */
     demoMode: boolean;
+    /** false = the public can browse and fill a cart but not check out (pre-launch). A logged-in admin can still place test orders. */
+    ordersEnabled: boolean;
     announcement: string;
     lowStockThreshold: number;
   };
@@ -113,6 +115,7 @@ export const DEFAULT_SETTINGS: ShopSettings = {
   },
   storefront: {
     demoMode: true,
+    ordersEnabled: false,
     announcement: 'Δωρεάν μεταφορικά για αγορές άνω των 60 € · Παραλαβή από το κατάστημα χωρίς χρέωση',
     lowStockThreshold: 3,
   },

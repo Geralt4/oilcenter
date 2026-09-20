@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import { ShoppingCart, Trash2, Truck, X } from 'lucide-react';
 import { buttonClass } from '@/components/ui/button';
+import { OrdersClosedNotice } from '@/components/store/orders-closed';
 import { QuantityStepper } from '@/components/store/quantity-stepper';
 import { useStoreConfig } from '@/components/store/store-context';
 import { cartCount, cartSubtotalCents, cartWeightGrams, useCart, useHydrated, type CartLine } from '@/lib/cart-store';
@@ -59,6 +60,7 @@ export function CartDrawer() {
   const hydrated = useHydrated();
   const pathname = usePathname();
   const { lines, isOpen, lastAdded, close, setQuantity, remove } = useCart();
+  const { canOrder, phone } = useStoreConfig();
   const panelRef = useRef<HTMLDivElement>(null);
 
   // close on navigation
@@ -145,9 +147,13 @@ export function CartDrawer() {
                 <span className="tabular text-xl font-bold text-ink-900">{formatPrice(subtotal)}</span>
               </div>
               <p className="text-xs text-ink-500">Οι τιμές περιλαμβάνουν ΦΠΑ. Τα μεταφορικά υπολογίζονται στο ταμείο.</p>
-              <Link href="/checkout" onClick={close} className={buttonClass({ size: 'lg', full: true })}>
-                Ολοκλήρωση παραγγελίας
-              </Link>
+              {canOrder ? (
+                <Link href="/checkout" onClick={close} className={buttonClass({ size: 'lg', full: true })}>
+                  Ολοκλήρωση παραγγελίας
+                </Link>
+              ) : (
+                <OrdersClosedNotice phone={phone} compact onNavigate={close} />
+              )}
               <Link href="/cart" onClick={close} className={buttonClass({ variant: 'outline', full: true })}>
                 Προβολή καλαθιού
               </Link>

@@ -1,7 +1,7 @@
 'use server';
 
 import { eq } from 'drizzle-orm';
-import { getCustomer } from '@/lib/auth/session';
+import { getAdmin, getCustomer } from '@/lib/auth/session';
 import { resolveCartLines } from '@/lib/catalog';
 import { db } from '@/lib/db';
 import { orders } from '@/lib/db/schema';
@@ -19,6 +19,10 @@ export type PlaceOrderResult =
 export async function placeOrder(raw: unknown): Promise<PlaceOrderResult> {
   const limited = rateLimit(`checkout:${await clientIp()}`, 8, 10 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά ή καλέστε μας.` };
+
+  // Pre-launch the checkout is closed to the public. The page already hides the form; this is the check that counts.
+  const [{ storefront, shop }, admin] = await Promise.all([getSettings(), getAdmin()]);
+  if (!storefront.ordersEnabled && !admin) return { ok: false, message: `Οι online παραγγελίες δεν έχουν ανοίξει ακόμη. Για αγορές καλέστε μας στο ${shop.phone}.` };
 
   const parsed = CheckoutSchema.safeParse(raw);
   if (!parsed.success) {

@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import { ArrowRight, LoaderCircle, ShoppingCart, Trash2 } from 'lucide-react';
 import { FreeShippingMeter, syncCartWithServer } from '@/components/store/cart-drawer';
 import { QuantityStepper } from '@/components/store/quantity-stepper';
+import { OrdersClosedNotice } from '@/components/store/orders-closed';
 import { useStoreConfig } from '@/components/store/store-context';
 import { buttonClass } from '@/components/ui/button';
 import { cartSubtotalCents, cartWeightGrams, useCart, useHydrated } from '@/lib/cart-store';
@@ -81,10 +82,14 @@ export function CartView() {
           {config.shipping.pickupEnabled && <div className="flex justify-between"><dt className="text-ink-600">Παραλαβή από το κατάστημα</dt><dd className="font-medium">Δωρεάν</dd></div>}
         </dl>
         <p className="mt-4 text-xs text-ink-500">Οι τιμές περιλαμβάνουν ΦΠΑ {config.vatRate}%. Τρόπο αποστολής, πληρωμής και κουπόνι επιλέγετε στο επόμενο βήμα.</p>
-        <Link href="/checkout" className={buttonClass({ size: 'lg', full: true, className: 'mt-5' })}>
-          Ολοκλήρωση παραγγελίας
-          <ArrowRight className="h-5 w-5" />
-        </Link>
+        {config.canOrder ? (
+          <Link href="/checkout" className={buttonClass({ size: 'lg', full: true, className: 'mt-5' })}>
+            Ολοκλήρωση παραγγελίας
+            <ArrowRight className="h-5 w-5" />
+          </Link>
+        ) : (
+          <OrdersClosedNotice phone={config.phone} compact className="mt-5" />
+        )}
       </aside>
     </div>
   );

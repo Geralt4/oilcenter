@@ -90,6 +90,8 @@ export async function createOrder(input: CheckoutInput, settings: ShopSettings, 
 
   // 2. Methods must be ones the owner has switched on.
   const { shipping, payments, tax, storefront } = settings;
+  // While ordering is closed to the public only an admin gets this far (see placeOrder): that is a test order too.
+  const isTest = storefront.demoMode || !storefront.ordersEnabled;
   const shippingAllowed = input.shippingMethod === 'courier' ? shipping.courierEnabled : shipping.pickupEnabled;
   if (!shippingAllowed || !availablePaymentMethods(input.shippingMethod, payments, opts.cardProviderConfigured).includes(input.paymentMethod)) {
     return { ok: false, reason: 'invalid_method', message: 'Ο τρόπος αποστολής ή πληρωμής δεν είναι διαθέσιμος. Ανανεώστε τη σελίδα και δοκιμάστε ξανά.' };
@@ -156,7 +158,7 @@ export async function createOrder(input: CheckoutInput, settings: ShopSettings, 
           vatRate: tax.vatRate,
           couponCode: coupon?.code ?? null,
           totalWeightGrams: weightGrams,
-          isTest: storefront.demoMode,
+          isTest,
         })
         .returning();
 
@@ -179,7 +181,7 @@ export async function createOrder(input: CheckoutInput, settings: ShopSettings, 
           weightGrams: l.unitWeightGrams,
         })),
       );
-      await tx.insert(orderEvents).values({ orderId: created.id, type: 'created', message: `Η παραγγελία καταχωρήθηκε${storefront.demoMode ? ' (δοκιμαστική λειτουργία)' : ''}.`, actor: 'customer' });
+      await tx.insert(orderEvents).values({ orderId: created.id, type: 'created', message: `Η παραγγελία καταχωρήθηκε${isTest ? ' (δοκιμαστική)' : ''}.`, actor: 'customer' });
       return { ...created, number };
     });
     return { ok: true, order };

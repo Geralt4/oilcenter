@@ -23,10 +23,17 @@ export function Header({ settings, tree, brands, customerName }: Props) {
 
   return (
     <header className="sticky top-0 z-40">
-      {storefront.demoMode && (
+      {!storefront.ordersEnabled ? (
         <div className="bg-petrol-700 px-4 py-1.5 text-center text-xs font-medium text-white">
-          Δοκιμαστική λειτουργία — οι τιμές είναι ενδεικτικές και οι παραγγελίες δεν εκτελούνται.
+          Το ηλεκτρονικό κατάστημα ετοιμάζεται — οι online παραγγελίες δεν έχουν ανοίξει ακόμη. Για αγορές καλέστε στο{' '}
+          <a href={telHref(shop.phone)} className="tabular font-semibold whitespace-nowrap underline underline-offset-2">{shop.phone}</a>.
         </div>
+      ) : (
+        storefront.demoMode && (
+          <div className="bg-petrol-700 px-4 py-1.5 text-center text-xs font-medium text-white">
+            Δοκιμαστική λειτουργία — οι τιμές είναι ενδεικτικές και οι παραγγελίες δεν εκτελούνται.
+          </div>
+        )
       )}
 
       {/* Utility bar: the two things a local customer wants most — call and find us */}

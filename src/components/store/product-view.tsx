@@ -20,6 +20,8 @@ export type ViewVariant = {
   stockLeft: number | null;
   imageUrl: string | null;
   weightGrams: number;
+  /** false = placeholder price the owner has not confirmed yet */
+  priceVerified: boolean;
 };
 
 type Props = {
@@ -117,7 +119,8 @@ export function ProductView({ product, images, variants }: Props) {
             με ΦΠΑ{perLitre && variant.volumeMl !== 1000 ? <> · <span className="tabular">{formatPrice(perLitre)}</span> / λίτρο</> : null}
           </p>
         </div>
-        {config.demoMode && <p className="mt-1 text-sm font-medium text-petrol-500">Ενδεικτική τιμή — καλέστε μας για την τρέχουσα τιμή.</p>}
+        {/* only for prices the owner has not confirmed yet (Admin → Τιμές) */}
+        {!variant.priceVerified && <p className="mt-1 text-sm font-medium text-petrol-500">Ενδεικτική τιμή — καλέστε μας για την τρέχουσα τιμή.</p>}
 
         {variants.length > 1 && (
           <fieldset className="mt-7">

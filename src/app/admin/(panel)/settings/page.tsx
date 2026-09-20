@@ -21,6 +21,7 @@ export default async function AdminSettingsPage() {
       <AdminForm action={saveSettings} submitLabel="Αποθήκευση ρυθμίσεων" stickyBar className="space-y-6">
         <Card title="Λειτουργία καταστήματος">
           <div id="storefront" className="space-y-4">
+            <Check name="ordersEnabled" label="Το κατάστημα δέχεται online παραγγελίες" defaultChecked={storefront.ordersEnabled} hint="Όσο είναι κλειστό, οι επισκέπτες βλέπουν προϊόντα και τιμές και γεμίζουν το καλάθι, αλλά αντί για ταμείο βλέπουν «οι online παραγγελίες ανοίγουν σύντομα — καλέστε μας». Κανείς δεν μπορεί να καταχωρήσει παραγγελία, εκτός από εσάς: όσο είστε συνδεδεμένος εδώ, το ταμείο δουλεύει για δοκιμές και οι παραγγελίες σας σημειώνονται ως δοκιμαστικές." />
             <Check name="demoMode" label="Δοκιμαστική λειτουργία" defaultChecked={storefront.demoMode} hint="Εμφανίζει προειδοποίηση «οι τιμές είναι ενδεικτικές» σε όλο το κατάστημα και σημειώνει τις παραγγελίες ως δοκιμαστικές. Απενεργοποιήστε την ΜΟΝΟ όταν έχετε επιβεβαιώσει τιμές, ωράριο και στοιχεία επιχείρησης." />
             <Field label="Μήνυμα ανακοίνωσης" hint="Προαιρετικό."><input name="announcement" defaultValue={storefront.announcement} className="field" /></Field>
             <Field label="Ένδειξη «τελευταία τεμάχια» κάτω από" className="max-w-xs"><input name="lowStockThreshold" inputMode="numeric" defaultValue={storefront.lowStockThreshold} className="field tabular" /></Field>

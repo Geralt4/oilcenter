@@ -5,7 +5,7 @@ import { CookieNotice } from '@/components/store/cookie-notice';
 import { Footer } from '@/components/store/footer';
 import { Header } from '@/components/store/header';
 import { StoreProvider, type PublicStoreConfig } from '@/components/store/store-context';
-import { getCustomer } from '@/lib/auth/session';
+import { getAdmin, getCustomer } from '@/lib/auth/session';
 import { getBrands, getCategoryTree } from '@/lib/catalog';
 import { cardProvider } from '@/lib/payments';
 import { mapsDirectionsUrl } from '@/lib/settings';
@@ -22,15 +22,18 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function StoreLayout({ children }: { children: React.ReactNode }) {
-  const [settings, tree, brands, customer] = await Promise.all([getSettings(), getCategoryTree(), getBrands(), getCustomer()]);
+  const [settings, tree, brands, customer, admin] = await Promise.all([getSettings(), getCategoryTree(), getBrands(), getCustomer(), getAdmin()]);
 
   const { bankAccounts: _bankAccounts, ...payments } = settings.payments;
+  const { ordersEnabled } = settings.storefront;
   const config: PublicStoreConfig = {
     shipping: settings.shipping,
     payments,
     vatRate: settings.tax.vatRate,
     cardProviderConfigured: cardProvider() !== null,
     demoMode: settings.storefront.demoMode,
+    canOrder: ordersEnabled || admin !== null,
+    adminTestOrders: !ordersEnabled && admin !== null,
     lowStockThreshold: settings.storefront.lowStockThreshold,
     phone: settings.shop.phone,
   };
