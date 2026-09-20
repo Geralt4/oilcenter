@@ -1,11 +1,10 @@
 import type { ProductDetail } from '@/lib/catalog';
 import type { ShopSettings } from '@/lib/settings';
+import { siteUrl } from '@/lib/site-url';
 
 const DAY_SCHEMA = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-export function siteUrl(): string {
-  return (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/, '');
-}
+export { siteUrl };
 
 /** schema.org AutoPartsStore — feeds Google's local panel with phone, address, geo and opening hours. */
 export function localBusinessJsonLd(settings: ShopSettings) {

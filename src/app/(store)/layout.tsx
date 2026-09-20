@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { BottomBar } from '@/components/store/bottom-bar';
 import { CartDrawer } from '@/components/store/cart-drawer';
 import { CookieNotice } from '@/components/store/cookie-notice';
@@ -13,6 +14,12 @@ import { telHref } from '@/lib/utils';
 
 // Every storefront page reads live prices / stock from the database.
 export const dynamic = 'force-dynamic';
+
+/** Demo mode = placeholder prices. Tell search engines to stay away until the owner switches it off. */
+export async function generateMetadata(): Promise<Metadata> {
+  const { storefront } = await getSettings();
+  return storefront.demoMode ? { robots: { index: false, follow: false } } : {};
+}
 
 export default async function StoreLayout({ children }: { children: React.ReactNode }) {
   const [settings, tree, brands, customer] = await Promise.all([getSettings(), getCategoryTree(), getBrands(), getCustomer()]);

@@ -1,3 +1,4 @@
+import { siteUrl } from '@/lib/site-url';
 import { stripeConfigured, stripeCreateCheckout } from './stripe';
 import { vivaConfigured, vivaCreateOrder } from './viva';
 
@@ -10,9 +11,7 @@ export function cardProvider(): CardProvider | null {
   return null;
 }
 
-export function siteUrl(): string {
-  return (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/, '');
-}
+export { siteUrl };
 
 export async function startCardPayment(order: {
   id: number;

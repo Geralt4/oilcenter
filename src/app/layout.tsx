@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Commissioner, Sofia_Sans_Condensed } from 'next/font/google';
+import { siteUrl } from '@/lib/site-url';
 import './globals.css';
 
 // Both families ship a proper Greek subset, which most display faces do not.
@@ -16,7 +17,7 @@ const display = Sofia_Sans_Condensed({
   display: 'swap',
 });
 
-const SITE_URL = process.env.SITE_URL || 'http://localhost:3000';
+const SITE_URL = siteUrl();
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

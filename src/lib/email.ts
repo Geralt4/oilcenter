@@ -5,6 +5,7 @@ import type { OrderWithItems } from '@/lib/orders';
 import { ORDER_STATUS_LABELS } from '@/lib/orders';
 import { PAYMENT_LABELS, SHIPPING_LABELS } from '@/lib/pricing';
 import { fullAddress, mapsDirectionsUrl, type ShopSettings } from '@/lib/settings';
+import { siteUrl } from '@/lib/site-url';
 import { formatDateTime, formatPrice } from '@/lib/utils';
 
 /*
@@ -15,8 +16,7 @@ import { formatDateTime, formatPrice } from '@/lib/utils';
 
 type Mail = { to: string; subject: string; html: string; replyTo?: string };
 
-const siteUrl = () => (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/, '');
-const from = () => process.env.MAIL_FROM || 'Oil Center <no-reply@oilcenter.gr>';
+const from =() => process.env.MAIL_FROM || 'Oil Center <no-reply@oilcenter.gr>';
 
 let transport: Transporter | null = null;
 function smtp(): Transporter | null {

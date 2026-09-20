@@ -118,7 +118,7 @@ async function main() {
     if (found) console.log(`Admin ${email} already exists.`);
     else {
       await db.insert(adminUsers).values({ email, passwordHash: await hashPassword(password), name: 'Διαχειριστής' });
-      console.log(`Admin user created: ${email} (password from ADMIN_PASSWORD in .env.local)`);
+      console.log(`Admin user created: ${email} (password = the ADMIN_PASSWORD environment variable)`);
     }
   }
 }
