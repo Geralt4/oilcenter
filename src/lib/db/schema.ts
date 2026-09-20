@@ -139,6 +139,24 @@ export const variants = sqliteTable(
   (t) => [uniqueIndex('variants_sku_uq').on(t.sku), index('variants_product_idx').on(t.productId)],
 );
 
+export type PriceChangeSource = 'editor' | 'product' | 'csv' | 'skroutz';
+
+/** Audit trail of price edits. Prices move every few days: the owner needs to see what changed, when, and what it was before. */
+export const priceChanges = sqliteTable(
+  'price_changes',
+  {
+    id: id(),
+    variantId: integer('variant_id')
+      .notNull()
+      .references(() => variants.id, { onDelete: 'cascade' }),
+    oldCents: integer('old_cents').notNull(),
+    newCents: integer('new_cents').notNull(),
+    source: text('source').$type<PriceChangeSource>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('price_changes_variant_idx').on(t.variantId), index('price_changes_created_idx').on(t.createdAt)],
+);
+
 // ─── Customers ───────────────────────────────────────────────────────────────
 export const customers = sqliteTable(
   'customers',
@@ -362,7 +380,8 @@ export type Category = typeof categories.$inferSelect;
 export type Product = typeof products.$inferSelect;
 export type ProductImage = typeof productImages.$inferSelect;
 export type Variant = typeof variants.$inferSelect;
-export type Order = typeof orders.$inferSelect;
+export type PriceChange = typeof priceChanges.$inferSelect;
+export type Order =typeof orders.$inferSelect;
 export type OrderItem = typeof orderItems.$inferSelect;
 export type OrderEvent = typeof orderEvents.$inferSelect;
 export type Coupon = typeof coupons.$inferSelect;

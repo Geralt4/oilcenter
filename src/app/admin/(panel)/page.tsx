@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { and, count, desc, eq, gte, isNotNull, ne, sql } from 'drizzle-orm';
-import { CircleAlert, CircleCheck } from 'lucide-react';
+import { BadgeEuro, CircleAlert, CircleCheck } from 'lucide-react';
 import { Card, PageHeader, PaymentBadge, StatusBadge, td, th } from '@/components/admin/ui';
+import { buttonClass } from '@/components/ui/button';
 import { db } from '@/lib/db';
 import { orders, products, variants } from '@/lib/db/schema';
 import { releaseAbandonedCardOrders } from '@/lib/orders';
@@ -36,6 +37,7 @@ export default async function AdminDashboard() {
     { done: flagged.n === 0, label: 'Έλεγχος στοιχείων προϊόντων', detail: flagged.n ? `${flagged.n} προϊόντα έχουν σημείωση προς έλεγχο (π.χ. συσκευασία που δεν φαινόταν στη φωτογραφία).` : 'Κανένα προϊόν δεν περιμένει έλεγχο.', href: '/admin/products?filter=review' },
     { done: shop.hoursVerified, label: 'Ωράριο λειτουργίας', detail: shop.hoursVerified ? 'Επιβεβαιωμένο.' : 'Το ωράριο είναι ενδεικτικό. Διορθώστε το και σημειώστε το ως επιβεβαιωμένο.', href: '/admin/settings#hours' },
     { done: Boolean(shop.vatNumber && shop.gemi), label: 'ΑΦΜ & Αρ. ΓΕΜΗ', detail: 'Ο νόμος απαιτεί να φαίνεται στο ηλεκτρονικό κατάστημα ποιος είναι ο πωλητής (εμφανίζονται στο υποσέλιδο). Η ΔΟΥ είναι προαιρετική.', href: '/admin/settings#company' },
+    { done: Boolean(shop.instagramUrl && shop.skroutzUrl), label: 'Σύνδεσμοι Instagram & Skroutz', detail: shop.instagramUrl && shop.skroutzUrl ? 'Εμφανίζονται στην κεφαλίδα, στο μενού, στο υποσέλιδο και δίπλα στον χάρτη.' : `Λείπει: ${[!shop.instagramUrl && 'Instagram', !shop.skroutzUrl && 'Skroutz'].filter(Boolean).join(' και ')}. Επικολλήστε τον σύνδεσμο και θα εμφανιστεί αμέσως στο κατάστημα.`, href: '/admin/settings#social' },
     { done: !payments.bankTransfer || payments.bankAccounts.length > 0, label: 'Τραπεζικός λογαριασμός (IBAN)', detail: 'Χρειάζεται για την πληρωμή με κατάθεση — αλλιώς απενεργοποιήστε την.', href: '/admin/settings#payments' },
     { done: Boolean(process.env.SMTP_HOST), label: 'Αποστολή e-mail (SMTP)', detail: process.env.SMTP_HOST ? 'Ρυθμισμένο.' : 'Δεν έχει ρυθμιστεί: τα e-mail γράφονται σε αρχεία αντί να στέλνονται. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
     { done: cardProvider() !== null, label: 'Πληρωμές με κάρτα', detail: cardProvider() ? `Ενεργός πάροχος: ${cardProvider()}.` : 'Δεν έχει συνδεθεί πάροχος (Viva ή Stripe): η επιλογή «κάρτα» δεν εμφανίζεται στο ταμείο. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
@@ -51,7 +53,9 @@ export default async function AdminDashboard() {
 
   return (
     <>
-      <PageHeader title="Επισκόπηση" description={`${productCount.n} ενεργά προϊόντα · ${pending.n} παραγγελίες σε αναμονή`} />
+      <PageHeader title="Επισκόπηση" description={`${productCount.n} ενεργά προϊόντα · ${pending.n} παραγγελίες σε αναμονή`}>
+        <Link href="/admin/prices" className={buttonClass()}><BadgeEuro className="h-4 w-4" />Αλλαγή τιμών</Link>
+      </PageHeader>
 
       <div className="grid gap-4 sm:grid-cols-3">
         {stats.map((s) => (

@@ -1,85 +1,104 @@
 import Link from 'next/link';
-import { asc, eq } from 'drizzle-orm';
+import { asc, desc, eq, max } from 'drizzle-orm';
 import { Download } from 'lucide-react';
-import { importPricesCsv, savePrices } from '@/app/admin/actions';
+import { importPricesCsv } from '@/app/admin/actions';
 import { AdminForm } from '@/components/admin/admin-form';
-import { Card, PageHeader, td, th } from '@/components/admin/ui';
+import { PriceEditor, type PriceRow } from '@/components/admin/price-editor';
+import { PageHeader } from '@/components/admin/ui';
 import { db } from '@/lib/db';
-import { brands, products, variants } from '@/lib/db/schema';
-import { centsToInput, cn } from '@/lib/utils';
+import { brands, priceChanges, products, variants, type PriceChangeSource } from '@/lib/db/schema';
+import { cn, formatDateTime, formatPrice } from '@/lib/utils';
 
-export const metadata = { title: 'Τιμές & απόθεμα' };
+export const metadata = { title: 'Τιμές' };
 
-export default async function AdminPricesPage({ searchParams }: { searchParams: Promise<{ brand?: string; filter?: string }> }) {
+const SOURCE_LABELS: Record<PriceChangeSource, string> = { editor: 'Τιμές', product: 'Καρτέλα προϊόντος', csv: 'Εισαγωγή CSV', skroutz: 'Τιμοκατάλογος Skroutz' };
+
+export default async function AdminPricesPage({ searchParams }: { searchParams: Promise<{ q?: string; brand?: string; filter?: string }> }) {
   const sp = await searchParams;
-  const [rows, brandRows] = await Promise.all([
+  // ids are autoincrement, so the highest id per variant is its newest change
+  const newest = db.select({ id: max(priceChanges.id).as('newest_id') }).from(priceChanges).groupBy(priceChanges.variantId).as('newest');
+  const [rows, latest, changes] = await Promise.all([
     db
-      .select({ v: variants, productId: products.id, productName: products.name, brandId: products.brandId, brandName: brands.name })
+      .select({ v: variants, productId: products.id, productName: products.name, brandName: brands.name })
       .from(variants)
       .innerJoin(products, eq(variants.productId, products.id))
       .leftJoin(brands, eq(products.brandId, brands.id))
       .orderBy(asc(brands.name), asc(products.name), asc(variants.sort)),
-    db.select().from(brands).orderBy(asc(brands.name)),
+    db.select({ variantId: priceChanges.variantId, oldCents: priceChanges.oldCents, createdAt: priceChanges.createdAt }).from(priceChanges).innerJoin(newest, eq(priceChanges.id, newest.id)),
+    db
+      .select({ c: priceChanges, label: variants.label, productId: products.id, productName: products.name, brandName: brands.name })
+      .from(priceChanges)
+      .innerJoin(variants, eq(priceChanges.variantId, variants.id))
+      .innerJoin(products, eq(variants.productId, products.id))
+      .leftJoin(brands, eq(products.brandId, brands.id))
+      .orderBy(desc(priceChanges.id))
+      .limit(30),
   ]);
 
-  const brandId = Number(sp.brand) || null;
-  const onlyUnverified = sp.filter === 'unverified';
-  const shown = rows.filter((r) => (!brandId || r.brandId === brandId) && (!onlyUnverified || !r.v.priceVerified));
-  const unverifiedTotal = rows.filter((r) => !r.v.priceVerified).length;
-  const href = (params: Record<string, string | undefined>) => {
-    const p = new URLSearchParams();
-    for (const [k, v] of Object.entries({ brand: sp.brand, filter: sp.filter, ...params })) if (v) p.set(k, v);
-    const s = p.toString();
-    return s ? `/admin/prices?${s}` : '/admin/prices';
-  };
+  // → "άλλαξε 18/9 · ήταν 42,90 €" next to each box
+  const lastChange = new Map(latest.map((c) => [c.variantId, { previousCents: c.oldCents, changedAt: c.createdAt.getTime() }]));
+
+  const editorRows: PriceRow[] = rows.map(({ v, productId, productName, brandName }) => ({
+    id: v.id,
+    productId,
+    brand: brandName,
+    product: productName,
+    label: v.label,
+    sku: v.sku,
+    priceCents: v.priceCents,
+    verified: v.priceVerified,
+    previousCents: lastChange.get(v.id)?.previousCents ?? null,
+    changedAt: lastChange.get(v.id)?.changedAt ?? null,
+  }));
+  const unverifiedTotal = editorRows.filter((r) => !r.verified).length;
 
   return (
     <>
-      <PageHeader title="Τιμές & απόθεμα" description={unverifiedTotal ? `${unverifiedTotal} από ${rows.length} συσκευασίες έχουν ακόμη ενδεικτική τιμή (κίτρινες γραμμές).` : `Όλες οι ${rows.length} τιμές είναι επιβεβαιωμένες.`}>
-        <a href="/admin/prices/export" className="flex h-10 items-center gap-2 rounded-xl border border-ink-200 bg-white px-3.5 text-sm font-semibold text-ink-900 hover:bg-ink-50"><Download className="h-4 w-4" />Εξαγωγή CSV</a>
-      </PageHeader>
+      <PageHeader
+        title="Τιμές"
+        description={`Βρείτε το προϊόν, γράψτε τη νέα τιμή στο κουτάκι και πατήστε «Αποθήκευση» (ή Enter). Η αλλαγή ισχύει αμέσως στο κατάστημα.${unverifiedTotal ? ` ${unverifiedTotal} από ${editorRows.length} τιμές είναι ακόμη ενδεικτικές.` : ''}`}
+      />
 
-      <Card title="Μαζική ενημέρωση από Excel" description="Κατεβάστε το CSV, συμπληρώστε τις στήλες price (και προαιρετικά stock) στο Excel, αποθηκεύστε ως CSV και ανεβάστε το εδώ. Όσοι κωδικοί ενημερωθούν σημειώνονται ως επιβεβαιωμένοι." className="mb-6">
-        <AdminForm action={importPricesCsv} submitLabel="Εισαγωγή CSV" variant="dark" size="sm">
+      <PriceEditor rows={editorRows} initialQuery={sp.q ?? ''} initialBrand={sp.brand ?? ''} initialOnlyUnverified={sp.filter === 'unverified'} />
+
+      <section className="mt-10" aria-labelledby="recent-changes">
+        <h2 id="recent-changes" className="text-base font-semibold text-ink-900">Τελευταίες αλλαγές τιμών</h2>
+        {changes.length === 0 ? (
+          <p className="mt-3 rounded-2xl border border-dashed border-ink-200 bg-white p-6 text-sm text-ink-500">Δεν έχει αλλάξει ακόμη καμία τιμή. Κάθε αλλαγή θα καταγράφεται εδώ, με την προηγούμενη τιμή.</p>
+        ) : (
+          <ul className="mt-3 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-white text-sm shadow-tile">
+            {changes.map(({ c, label, productId, productName, brandName }) => {
+              const pct = ((c.newCents - c.oldCents) / c.oldCents) * 100;
+              return (
+                <li key={c.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-2.5">
+                  <Link href={`/admin/products/${productId}`} className="min-w-0 flex-1 basis-56 hover:underline">
+                    <span className="text-xs font-semibold tracking-wide text-ink-400 uppercase">{brandName ?? '—'}</span>{' '}
+                    <span className="font-medium text-ink-900">{productName}</span> <span className="tabular text-ink-600">{label}</span>
+                  </Link>
+                  <span className="tabular whitespace-nowrap">
+                    <span className="text-ink-400 line-through">{formatPrice(c.oldCents)}</span> → <span className="font-semibold text-ink-900">{formatPrice(c.newCents)}</span>{' '}
+                    <span className={cn('text-xs', pct > 0 ? 'text-red-700' : 'text-emerald-700')}>{pct > 0 ? '+' : ''}{pct.toFixed(1).replace('.', ',')}%</span>
+                  </span>
+                  <span className="w-full text-xs whitespace-nowrap text-ink-400 sm:w-52 sm:text-right">{formatDateTime(c.createdAt)} · {SOURCE_LABELS[c.source] ?? c.source}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <section className="mt-10 rounded-2xl border border-line bg-white p-5 shadow-tile" aria-labelledby="csv-title">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="max-w-2xl">
+            <h2 id="csv-title" className="text-base font-semibold text-ink-900">Μαζική ενημέρωση από Excel</h2>
+            <p className="mt-1 text-sm text-ink-600">Για πολλές αλλαγές μαζί (π.χ. νέος τιμοκατάλογος προμηθευτή): κατεβάστε το CSV, αλλάξτε τη στήλη price (και προαιρετικά stock) στο Excel, αποθηκεύστε ως CSV και ανεβάστε το εδώ.</p>
+          </div>
+          <a href="/admin/prices/export" className="flex h-10 items-center gap-2 rounded-xl border border-ink-200 bg-white px-3.5 text-sm font-semibold text-ink-900 hover:bg-ink-50"><Download className="h-4 w-4" />Εξαγωγή CSV</a>
+        </div>
+        <AdminForm action={importPricesCsv} submitLabel="Εισαγωγή CSV" variant="dark" size="sm" className="mt-4">
           <input type="file" name="file" accept=".csv,text/csv" required className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-100 file:px-4 file:text-sm file:font-semibold file:text-ink-900 hover:file:bg-ink-200" />
         </AdminForm>
-      </Card>
-
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <nav className="no-scrollbar flex gap-1.5 overflow-x-auto" aria-label="Φίλτρα">
-          <Link href={href({ filter: undefined })} className={cn('shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium', !onlyUnverified ? 'bg-ink-900 text-white' : 'bg-white text-ink-700 ring-1 ring-line hover:bg-ink-50')}>Όλες</Link>
-          <Link href={href({ filter: 'unverified' })} className={cn('shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium', onlyUnverified ? 'bg-ink-900 text-white' : 'bg-white text-ink-700 ring-1 ring-line hover:bg-ink-50')}>Μόνο ενδεικτικές ({unverifiedTotal})</Link>
-        </nav>
-        <form className="ml-auto flex gap-2">
-          {sp.filter && <input type="hidden" name="filter" value={sp.filter} />}
-          <select name="brand" defaultValue={sp.brand ?? ''} className="field h-10 w-44 cursor-pointer py-0 text-sm"><option value="">Όλες οι μάρκες</option>{brandRows.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
-          <button type="submit" className="h-10 cursor-pointer rounded-xl bg-ink-900 px-4 text-sm font-semibold text-white hover:bg-ink-700">Εμφάνιση</button>
-        </form>
-      </div>
-
-      {shown.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-ink-200 bg-white p-10 text-center text-sm text-ink-500">Καμία συσκευασία με αυτά τα φίλτρα.</p>
-      ) : (
-        <AdminForm action={savePrices} submitLabel={`Αποθήκευση τιμών (${shown.length})`} stickyBar>
-          <div className="overflow-x-auto rounded-2xl border border-line bg-white shadow-tile">
-            <table className="w-full min-w-[44rem]">
-              <thead><tr className="border-b border-line bg-ink-50"><th className={th}>Προϊόν</th><th className={th}>Συσκ.</th><th className={th}>Κωδικός</th><th className={th}>Τιμή € (με ΦΠΑ)</th><th className={cn(th, 'text-center')}>Επιβεβαιωμένη</th></tr></thead>
-              <tbody className="divide-y divide-line">
-                {shown.map(({ v, productId, productName, brandName }) => (
-                  <tr key={v.id} className={cn(!v.priceVerified && 'bg-amber-50')}>
-                    <td className={td}><Link href={`/admin/products/${productId}`} className="hover:underline"><span className="text-xs font-semibold tracking-wide text-ink-400 uppercase">{brandName ?? '—'}</span> <span className="font-medium text-ink-900">{productName}</span></Link></td>
-                    <td className={cn(td, 'tabular font-semibold')}>{v.label}</td>
-                    <td className={cn(td, 'tabular text-xs text-ink-500')}>{v.sku}</td>
-                    <td className={td}><input name={`price-${v.id}`} defaultValue={centsToInput(v.priceCents)} inputMode="decimal" aria-label={`Τιμή ${productName} ${v.label}`} className="field tabular h-9 w-28 px-2.5 text-sm" /></td>
-                    <td className={cn(td, 'text-center')}><input type="checkbox" name={`verified-${v.id}`} defaultChecked={v.priceVerified} aria-label="Επιβεβαιωμένη τιμή" className="h-[1.125rem] w-[1.125rem] cursor-pointer accent-emerald-600" /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-3 text-xs text-ink-500">Όταν αλλάζετε μια τιμή, σημειώνεται αυτόματα ως επιβεβαιωμένη. Αν η ενδεικτική τιμή είναι ήδη σωστή, απλώς τσεκάρετε το κουτάκι.</p>
-        </AdminForm>
-      )}
+      </section>
     </>
   );
 }

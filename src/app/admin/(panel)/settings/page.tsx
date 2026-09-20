@@ -42,8 +42,14 @@ export default async function AdminSettingsPage() {
             <Field label="Νομός"><input name="region" defaultValue={shop.region} className="field" /></Field>
             <Field label="Γεωγρ. πλάτος (lat)" hint="Για την πινέζα στον χάρτη."><input name="lat" inputMode="decimal" defaultValue={shop.lat} className="field tabular" /></Field>
             <Field label="Γεωγρ. μήκος (lng)"><input name="lng" inputMode="decimal" defaultValue={shop.lng} className="field tabular" /></Field>
-            <Field label="Facebook" className="md:col-span-2"><input name="facebookUrl" type="url" defaultValue={shop.facebookUrl} className="field" /></Field>
-            <Field label="Instagram"><input name="instagramUrl" type="url" defaultValue={shop.instagramUrl} className="field" /></Field>
+          </div>
+        </Card>
+
+        <Card title="Instagram, Facebook & Skroutz" description="Επικολλήστε τον σύνδεσμο κάθε σελίδας. Όσα πεδία συμπληρωθούν εμφανίζονται στην κεφαλίδα, στο μενού του κινητού, στο υποσέλιδο και δίπλα στον χάρτη· τα κενά απλώς δεν εμφανίζονται.">
+          <div id="social" className="grid gap-4 md:grid-cols-3">
+            <Field label="Instagram" hint="Σύνδεσμος προφίλ ή απλώς @όνομα."><input name="instagramUrl" inputMode="url" autoCapitalize="none" spellCheck={false} placeholder="https://www.instagram.com/…" defaultValue={shop.instagramUrl} className="field" /></Field>
+            <Field label="Skroutz" hint="Η σελίδα του καταστήματος στο skroutz.gr."><input name="skroutzUrl" inputMode="url" autoCapitalize="none" spellCheck={false} placeholder="https://www.skroutz.gr/shop/…" defaultValue={shop.skroutzUrl} className="field" /></Field>
+            <Field label="Facebook"><input name="facebookUrl" inputMode="url" autoCapitalize="none" spellCheck={false} placeholder="https://www.facebook.com/…" defaultValue={shop.facebookUrl} className="field" /></Field>
           </div>
         </Card>
 

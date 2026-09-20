@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, Heart, Menu, Navigation, Phone, User, X } from 'lucide-react';
 import { CategoryIcon } from '@/components/category-icon';
 import { Logo } from '@/components/logo';
+import { SocialLinks } from '@/components/store/social-links';
 import type { BrandWithCount, CategoryNode } from '@/lib/catalog';
 import { mapsDirectionsUrl, type ShopSettings } from '@/lib/settings';
 import { cn, telHref } from '@/lib/utils';
@@ -110,6 +111,7 @@ export function MobileNav({ tree, brands, shop, customerName }: Props) {
                 <li><Link href="/order-status" className="block rounded-xl bg-ink-50 px-3 py-3">Η παραγγελία μου</Link></li>
                 <li><Link href="/shipping-payments" className="block rounded-xl bg-ink-50 px-3 py-3">Αποστολές</Link></li>
               </ul>
+              <SocialLinks shop={shop} className="mt-4 border-t border-line pt-4" />
             </nav>
 
             <div className="safe-bottom grid shrink-0 grid-cols-2 gap-2 border-t border-line bg-ink-50 p-3">

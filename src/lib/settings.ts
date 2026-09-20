@@ -37,6 +37,8 @@ export type ShopSettings = {
     lng: number;
     facebookUrl: string;
     instagramUrl: string;
+    /** the shop's page on skroutz.gr (price-comparison site most Greek shoppers check first) */
+    skroutzUrl: string;
     vatNumber: string;
     taxOffice: string;
     gemi: string;
@@ -94,6 +96,7 @@ export const DEFAULT_SETTINGS: ShopSettings = {
     lng: 22.957507,
     facebookUrl: 'https://www.facebook.com/TsakiridisOilCenter/',
     instagramUrl: '',
+    skroutzUrl: 'https://www.skroutz.gr/shop/30368/Tsakiridis-Oil-Center/products.html',
     vatNumber: '',
     taxOffice: '',
     gemi: '',

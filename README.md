@@ -36,8 +36,11 @@ The shop ships in **demo mode**: a ribbon tells visitors that prices are indicat
 orders. The admin dashboard (`/admin`) shows a live checklist of what is still missing. In short:
 
 1. **Prices are placeholders.** The old site never listed prices, so all 215 were generated from a rough market
-   heuristic and are stored with `price_verified = false`. Confirm them in *Τιμές & απόθεμα* — on screen, or export the
+   heuristic and are stored with `price_verified = false`. Confirm them in *Τιμές* — on screen, or export the
    CSV, fill it in Excel and import it back.
+1b. **Instagram and Skroutz links are empty.** Paste them in *Ρυθμίσεις → Instagram, Facebook & Skroutz* (an Instagram
+   `@handle` is accepted too). Filled-in links appear in the header strip, the mobile menu, the footer, next to the map
+   (home / about / contact) and in the `sameAs` structured data; empty ones are simply not rendered.
 2. **43 products are flagged "προς έλεγχο".** Mostly pack sizes that are not printed on the front of the container
    (e.g. Liqui Moly additives) and were inferred from its shape, plus a few labels that were hard to read. Each one
    carries a note explaining what to check.
@@ -105,6 +108,39 @@ src/lib/            db/ (schema, client) · catalog (read model) · orders · pr
 - **Settings** (`/admin/settings`) drive phone, address, map pin, hours, shipping, payment methods and VAT at runtime.
 - Client components must never import a module that imports `@/lib/db` — that is why `settings.ts` (pure, shared) and
   `settings.server.ts` (database) are separate files.
+
+## Changing prices
+
+Prices move every few days, so this is the most-used admin screen: *Admin → Τιμές* (`/admin/prices`, also the
+"Αλλαγή τιμών" button on the dashboard).
+
+- Type a product, brand or code in the search box (accent-insensitive; `5w40` finds 5W-40 but not 15W-40), type the new
+  price in the box, press **Enter** or *Αποθήκευση*. Only the touched rows are sent; the storefront reads prices live,
+  so the change is visible immediately. ↑/↓ move between boxes. `/admin/prices?q=motul` deep-links to a search.
+- *Αύξηση ή μείωση με ποσοστό* fills the boxes of the rows currently shown (e.g. +3 % on every Motul, rounded to
+  10 cents / 50 cents / ending in ,90). Nothing is saved until the owner reviews and presses save. The percentage is
+  always taken from the saved price, so pressing the button twice does not compound.
+- Safety nets: a change of ±35 % or more asks for confirmation (the usual typo is 4,29 for 42,90), invalid input is
+  refused, leaving the page with unsaved edits warns, and the success message offers a one-click *Αναίρεση*.
+- Every real change — from this screen, from a product's own page or from a CSV import — is written to the
+  `price_changes` table (old price, new price, source, time). The editor shows "άλλαξε 18/9 · ήταν 42,90 €" next to each
+  box and lists the 30 latest changes underneath.
+- Code: `src/components/admin/price-editor.tsx` (client) and `updatePrices` in `src/app/admin/actions.ts`.
+
+### Prices from the shop's Skroutz listing
+
+On 2026-09-20 the 290 listings of the shop's [Skroutz page](https://www.skroutz.gr/shop/30368/Tsakiridis-Oil-Center/products.html)
+were matched by hand to the catalogue: 157 of the 215 SKUs got their real price (140 exact → marked confirmed, 17
+probable → price applied but still flagged). The result lives in `catalog/skroutz-prices.json`; the human-readable
+report — what to double-check, what is still a placeholder, and the 133 Skroutz products the site does not list yet —
+is [`SKROUTZ-PRICES.md`](SKROUTZ-PRICES.md).
+
+- `npm run db:seed` applies the file to a fresh database; `npm run prices:skroutz` applies it to an existing one
+  (`--dry` previews, `--force` also overwrites prices the owner already confirmed). On Railway:
+  `railway ssh --service web -- npm run prices:skroutz`.
+- Skroutz blocks non-browser clients, so the listing was read through a normal browser session; there is no scraper in
+  the repo. The durable fix for "two places to update every three days" is the opposite direction — an XML product
+  feed from this shop that Skroutz polls — which is not built yet.
 
 ## Adding products
 

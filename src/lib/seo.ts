@@ -40,7 +40,7 @@ export function localBusinessJsonLd(settings: ShopSettings) {
           ...(d.open2 && d.close2 ? [{ '@type': 'OpeningHoursSpecification', dayOfWeek: DAY_SCHEMA[d.day - 1], opens: d.open2, closes: d.close2 }] : []),
         ]),
     }),
-    sameAs: [shop.facebookUrl, shop.instagramUrl].filter(Boolean),
+    sameAs: [shop.facebookUrl, shop.instagramUrl, shop.skroutzUrl].filter(Boolean),
   };
 }
 

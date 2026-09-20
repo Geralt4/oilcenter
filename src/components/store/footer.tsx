@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Banknote, Clock, CreditCard, Landmark, Mail, MapPin, Navigation, Phone, Store, Truck } from 'lucide-react';
-import { FacebookIcon, Logo } from '@/components/logo';
+import { Logo } from '@/components/logo';
+import { SocialLinks, socialProfiles } from '@/components/store/social-links';
 import type { CategoryNode } from '@/lib/catalog';
 import { fullAddress, groupedHours, mapsDirectionsUrl, mapsPlaceUrl, type ShopSettings } from '@/lib/settings';
 import { telHref } from '@/lib/utils';
@@ -86,11 +87,11 @@ export function Footer({ settings, tree }: { settings: ShopSettings; tree: Categ
               </div>
             ))}
           </dl>
-          {shop.facebookUrl && (
-            <a href={shop.facebookUrl} target="_blank" rel="noopener noreferrer" className="mt-6 inline-flex items-center gap-2 text-sm hover:text-white">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/10"><FacebookIcon className="h-4 w-4" /></span>
-              Ακολουθήστε μας στο Facebook
-            </a>
+          {socialProfiles(shop).length > 0 && (
+            <>
+              <h2 className="eyebrow mt-8 text-white">Βρείτε μας και εδώ</h2>
+              <SocialLinks shop={shop} tone="dark" className="mt-4" />
+            </>
           )}
         </div>
       </div>

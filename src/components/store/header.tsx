@@ -4,6 +4,7 @@ import { CategoryIcon } from '@/components/category-icon';
 import { Logo } from '@/components/logo';
 import { CartButton } from '@/components/store/cart-button';
 import { MobileNav } from '@/components/store/mobile-nav';
+import { SocialLinks } from '@/components/store/social-links';
 import { SearchBox } from '@/components/store/search-box';
 import type { BrandWithCount, CategoryNode } from '@/lib/catalog';
 import { fullAddress, mapsDirectionsUrl, mapsPlaceUrl, openStatus, type ShopSettings } from '@/lib/settings';
@@ -43,6 +44,7 @@ export function Header({ settings, tree, brands, customerName }: Props) {
             </a>
           </div>
           <div className="flex shrink-0 items-center gap-4">
+            <SocialLinks shop={shop} tone="bar" className="hidden xl:flex" />
             <Link href="/about" className="hidden hover:text-white lg:inline">Το κατάστημα</Link>
             <Link href="/contact" className="hidden hover:text-white lg:inline">Επικοινωνία</Link>
             <a href={mapsDirectionsUrl(shop)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:text-white">

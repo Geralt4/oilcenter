@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { hashPassword, randomToken, verifyPassword } from '@/lib/auth/password';
 import { createSession, destroySession, requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { adminUsers, brands, categories, contactMessages, coupons, orders, productImages, products, variants, type BaseType, type OrderStatus } from '@/lib/db/schema';
+import { adminUsers, brands, categories, contactMessages, coupons, orders, priceChanges, productImages, products, variants, type BaseType, type OrderStatus } from '@/lib/db/schema';
 import { orderStatusMail, sendMail } from '@/lib/email';
 import { normalizeProductPhoto } from '@/lib/images';
 import { addOrderEvent, cancelOrder, getOrderByNumber, ORDER_STATUS_LABELS } from '@/lib/orders';
@@ -164,7 +164,7 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   const [brand] = brandId ? await db.select().from(brands).where(eq(brands.id, brandId)) : [];
   const [category] = categoryId ? await db.select().from(categories).where(eq(categories.id, categoryId)) : [];
 
-  const slug = await uniqueSlug(slugify(str(fd, 'slug') || (name.toLowerCase().startsWith((brand?.name ?? ' ').toLowerCase()) ? name : `${brand?.name ?? ''} ${name}`)), id ?? undefined);
+  const slug = await uniqueSlug(slugify(str(fd, 'slug') || (name.toLowerCase().startsWith((brand?.name ?? '\u0000').toLowerCase()) ? name : `${brand?.name ?? ''} ${name}`)), id ?? undefined);
   const viscosity = str(fd, 'viscosity').toUpperCase().replace(/\s/g, '') || null;
   const specs = str(fd, 'specs').split(/\n|;/).map((s) => s.trim()).filter(Boolean).slice(0, 60);
   const baseType = (['synthetic', 'synthetic-technology', 'semi-synthetic', 'mineral'] as const).find((b) => b === str(fd, 'baseType')) ?? null;
@@ -189,6 +189,7 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     else pid = (await tx.insert(products).values(values).returning({ id: products.id }))[0].id;
 
     const keep = priced.flatMap((v) => (v.id ? [v.id] : []));
+    const before = new Map((await tx.select({ id: variants.id, priceCents: variants.priceCents }).from(variants).where(eq(variants.productId, pid))).map((v) => [v.id, v.priceCents]));
     await tx.delete(variants).where(keep.length ? and(eq(variants.productId, pid), notInArray(variants.id, keep)) : eq(variants.productId, pid));
 
     for (const [sort, v] of priced.entries()) {
@@ -199,6 +200,8 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
       };
       if (v.id) await tx.update(variants).set(row).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));
       else await tx.insert(variants).values(row);
+      const was = v.id ? before.get(v.id) : undefined;
+      if (v.id && was !== undefined && was !== row.priceCents) await tx.insert(priceChanges).values({ variantId: v.id, oldCents: was, newCents: row.priceCents, source: 'product' });
     }
 
     if (uploads.length) {
@@ -256,29 +259,55 @@ export async function imageAction(fd: FormData): Promise<void> {
 }
 
 // ─── Bulk prices ─────────────────────────────────────────────────────────────
-export async function savePrices(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
+export type PriceUpdate = { id: number; price: string; verified?: boolean };
+export type PriceUpdateResult = {
+  ok: boolean;
+  message: string;
+  /** rows as they now stand in the database, so the editor can reset its baseline */
+  saved: Array<{ id: number; priceCents: number; previousCents: number | null; changedAt: number | null; verified: boolean }>;
+  /** ids whose price could not be read (left untouched) */
+  failed: number[];
+};
+
+const PriceUpdates = z.array(z.object({ id: z.number().int().positive(), price: z.string().trim().max(20), verified: z.boolean().optional() })).min(1).max(2000);
+const MAX_PRICE_CENTS = 5_000_000;
+
+/** The quick price editor sends only the rows the owner touched. Every real change is logged in price_changes. */
+export async function updatePrices(input: PriceUpdate[]): Promise<PriceUpdateResult> {
   await requireAdmin();
-  const ids = [...new Set([...fd.keys()].flatMap((k) => (k.startsWith('price-') ? [Number(k.slice(6))] : [])))].filter(Number.isInteger);
-  if (!ids.length) return { ok: false, message: 'Δεν υπάρχουν αλλαγές.' };
-  const rows = await db.select().from(variants).where(inArray(variants.id, ids));
-  let changed = 0;
-  const bad: string[] = [];
-  for (const v of rows) {
-    const cents = parsePriceToCents(str(fd, `price-${v.id}`));
-    if (cents === null || cents <= 0) {
-      bad.push(v.sku);
-      continue;
+  const parsed = PriceUpdates.safeParse(input);
+  if (!parsed.success) return { ok: false, message: 'Δεν υπάρχουν αλλαγές προς αποθήκευση.', saved: [], failed: [] };
+
+  const wanted = new Map(parsed.data.map((u) => [u.id, u]));
+  const rows = await db.select().from(variants).where(inArray(variants.id, [...wanted.keys()]));
+  const saved: PriceUpdateResult['saved'] = [];
+  const failed: number[] = [];
+  const now = new Date();
+
+  await db.transaction(async (tx) => {
+    for (const v of rows) {
+      const update = wanted.get(v.id)!;
+      const cents = parsePriceToCents(update.price);
+      if (cents === null || cents <= 0 || cents > MAX_PRICE_CENTS) {
+        failed.push(v.id);
+        continue;
+      }
+      if (cents !== v.priceCents) {
+        // typing a new price is itself a confirmation
+        await tx.update(variants).set({ priceCents: cents, priceVerified: true }).where(eq(variants.id, v.id));
+        await tx.insert(priceChanges).values({ variantId: v.id, oldCents: v.priceCents, newCents: cents, source: 'editor', createdAt: now });
+        saved.push({ id: v.id, priceCents: cents, previousCents: v.priceCents, changedAt: now.getTime(), verified: true });
+      } else if (update.verified !== undefined && update.verified !== v.priceVerified) {
+        await tx.update(variants).set({ priceVerified: update.verified }).where(eq(variants.id, v.id));
+        saved.push({ id: v.id, priceCents: cents, previousCents: null, changedAt: null, verified: update.verified });
+      }
     }
-    const verified = bool(fd, `verified-${v.id}`);
-    if (cents !== v.priceCents || verified !== v.priceVerified) {
-      // typing a new price is itself a confirmation
-      await db.update(variants).set({ priceCents: cents, priceVerified: verified || cents !== v.priceCents }).where(eq(variants.id, v.id));
-      changed++;
-    }
-  }
+  });
+
   revalidatePath('/admin/prices');
-  if (bad.length) return { ok: false, message: `Αποθηκεύτηκαν ${changed}. Μη έγκυρη τιμή σε: ${bad.slice(0, 5).join(', ')}${bad.length > 5 ? '…' : ''}` };
-  return { ok: true, message: changed ? `Αποθηκεύτηκαν ${changed} αλλαγές.` : 'Καμία αλλαγή.' };
+  const count = saved.length === 1 ? 'Αποθηκεύτηκε 1 αλλαγή' : `Αποθηκεύτηκαν ${saved.length} αλλαγές`;
+  if (failed.length) return { ok: false, message: `${count}. ${failed.length === 1 ? 'Μία τιμή δεν είναι έγκυρη' : `${failed.length} τιμές δεν είναι έγκυρες`} (σημειωμένες με κόκκινο).`, saved, failed };
+  return { ok: true, message: saved.length ? `${count}. ${saved.length === 1 ? 'Ισχύει' : 'Ισχύουν'} ήδη στο κατάστημα.` : 'Καμία αλλαγή.', saved, failed };
 }
 
 /** CSV columns: sku;price[;stock]  — separator ; or , — decimal comma or point. Unknown SKUs are reported, never created. */
@@ -293,6 +322,7 @@ export async function importPricesCsv(_prev: AdminFormState, fd: FormData): Prom
   const col = { sku: header.indexOf('sku'), price: header.findIndex((h) => h.startsWith('price') || h.startsWith('τιμ')), stock: header.findIndex((h) => h.startsWith('stock') || h.startsWith('απόθ') || h.startsWith('αποθ')) };
   if (col.sku < 0 || col.price < 0) return { ok: false, message: 'Η πρώτη γραμμή πρέπει να έχει στήλες «sku» και «price».' };
 
+  const bySku = new Map((await db.select({ id: variants.id, sku: variants.sku, priceCents: variants.priceCents }).from(variants)).map((v) => [v.sku, v]));
   let updated = 0;
   const unknown: string[] = [];
   for (const line of lines.slice(1)) {
@@ -300,16 +330,22 @@ export async function importPricesCsv(_prev: AdminFormState, fd: FormData): Prom
     const sku = cells[col.sku];
     // with a comma separator a decimal comma would have split the cell: accept only point decimals there
     const cents = parsePriceToCents(cells[col.price] ?? '');
-    if (!sku || cents === null || cents <= 0) continue;
+    if (!sku || cents === null || cents <= 0 || cents > MAX_PRICE_CENTS) continue;
+    const current = bySku.get(sku);
+    if (!current) {
+      unknown.push(sku);
+      continue;
+    }
     const patch: { priceCents: number; priceVerified: boolean; stock?: number; trackStock?: boolean } = { priceCents: cents, priceVerified: true };
     const stock = col.stock >= 0 ? Number(cells[col.stock]) : NaN;
     if (Number.isInteger(stock) && stock >= 0) Object.assign(patch, { stock, trackStock: true });
-    const hit = await db.update(variants).set(patch).where(eq(variants.sku, sku)).returning({ id: variants.id });
-    if (hit.length) updated++;
-    else unknown.push(sku);
+    await db.update(variants).set(patch).where(eq(variants.id, current.id));
+    if (cents !== current.priceCents) await db.insert(priceChanges).values({ variantId: current.id, oldCents: current.priceCents, newCents: cents, source: 'csv' });
+    current.priceCents = cents;
+    updated++;
   }
   revalidatePath('/admin/prices');
-  return { ok: unknown.length === 0, message: `Ενημερώθηκαν ${updated} κωδικοί.${unknown.length ? ` Άγνωστοι: ${unknown.slice(0, 8).join(', ')}${unknown.length > 8 ? '…' : ''}` : ''}` };
+  return { ok: unknown.length === 0, message: `${updated === 1 ? 'Ενημερώθηκε 1 κωδικός' : `Ενημερώθηκαν ${updated} κωδικοί`}.${unknown.length ? ` Άγνωστοι: ${unknown.slice(0, 8).join(', ')}${unknown.length > 8 ? '…' : ''}` : ''}` };
 }
 
 // ─── Brands, categories, coupons, messages ───────────────────────────────────
@@ -399,6 +435,23 @@ export async function messageAction(fd: FormData): Promise<void> {
 // ─── Settings ────────────────────────────────────────────────────────────────
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/** Links pasted by the owner end up in <a href>: accept http(s) only, and forgive a missing "https://". */
+function cleanUrl(raw: string): string {
+  if (!raw) return '';
+  try {
+    const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    return url.hostname.includes('.') ? url.toString() : '';
+  } catch {
+    return '';
+  }
+}
+
+/** Owners often type "@handle" instead of the profile link. */
+function instagramUrl(raw: string): string {
+  const handle = /^@?([a-z0-9._]{1,30})$/i.exec(raw)?.[1];
+  return cleanUrl(handle && !/instagram\.com/i.test(raw) ? `https://www.instagram.com/${handle}/` : raw);
+}
+
 export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   await requireAdmin();
   const current = await getSettings();
@@ -422,7 +475,8 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
     ...current.shop,
     name: str(fd, 'name') || DEFAULT_SETTINGS.shop.name, legalName: str(fd, 'legalName'), tagline: str(fd, 'tagline'), phone: str(fd, 'phone'), mobile: str(fd, 'mobile'), fax: str(fd, 'fax'),
     email: str(fd, 'email'), street: str(fd, 'street'), city: str(fd, 'city'), postalCode: str(fd, 'postalCode'), region: str(fd, 'region'),
-    lat: num('lat', current.shop.lat), lng: num('lng', current.shop.lng), facebookUrl: str(fd, 'facebookUrl'), instagramUrl: str(fd, 'instagramUrl'),
+    lat: num('lat', current.shop.lat), lng: num('lng', current.shop.lng),
+    facebookUrl: cleanUrl(str(fd, 'facebookUrl')), instagramUrl: instagramUrl(str(fd, 'instagramUrl')), skroutzUrl: cleanUrl(str(fd, 'skroutzUrl')),
     vatNumber: str(fd, 'vatNumber'), taxOffice: str(fd, 'taxOffice'), gemi: str(fd, 'gemi'), hours, hoursVerified: bool(fd, 'hoursVerified'),
   };
   if (!shop.phone || !shop.street || !shop.city) return { ok: false, message: 'Τηλέφωνο, οδός και πόλη είναι υποχρεωτικά.' };

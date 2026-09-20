@@ -1,4 +1,5 @@
 import { Clock, Mail, MapPin, Navigation, Phone } from 'lucide-react';
+import { SocialLinks, socialProfiles } from '@/components/store/social-links';
 import { buttonClass } from '@/components/ui/button';
 import { DAY_NAMES, formatDayHours, fullAddress, mapsDirectionsUrl, mapsEmbedUrl, mapsPlaceUrl, openStatus, type ShopSettings } from '@/lib/settings';
 import { cn, telHref } from '@/lib/utils';
@@ -75,6 +76,13 @@ export function StoreLocation({ shop, className }: { shop: ShopSettings['shop'];
               ))}
           </dl>
         </div>
+
+        {socialProfiles(shop).length > 0 && (
+          <div>
+            <h3 className="eyebrow text-ink-500">Βρείτε μας και εδώ</h3>
+            <SocialLinks shop={shop} className="mt-3" />
+          </div>
+        )}
       </div>
     </div>
   );

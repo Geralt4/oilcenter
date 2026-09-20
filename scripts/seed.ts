@@ -5,6 +5,7 @@ import { count, eq } from 'drizzle-orm';
 import { db } from '../src/lib/db';
 import { adminUsers, brands, categories, coupons, productImages, products, variants, type BaseType } from '../src/lib/db/schema';
 import { hashPassword } from '../src/lib/auth/password';
+import { loadSkroutzPrices } from './skroutz-prices';
 
 /*
  * Loads catalog/catalog.json into an empty database and creates the first admin user.
@@ -58,6 +59,8 @@ async function main() {
       categoryId.set(c.slug, row.id);
     }
 
+    // Real prices for the SKUs the shop also lists on Skroutz; everything else keeps its placeholder and stays unverified.
+    const skroutz = loadSkroutzPrices();
     let variantCount = 0;
     for (const p of catalog.products) {
       await db.transaction(async (tx) => {
@@ -86,13 +89,13 @@ async function main() {
             sku: v.sku,
             label: v.label,
             volumeMl: v.volumeMl,
-            priceCents: v.priceCents,
+            priceCents: skroutz.get(v.sku)?.priceCents ?? v.priceCents,
             weightGrams: v.weightGrams,
             imageUrl: v.image,
             // The shop has no stock counts in the system yet: sell freely until the owner opts a variant into tracking.
             trackStock: false,
             stock: 0,
-            priceVerified: false,
+            priceVerified: skroutz.get(v.sku)?.confidence === 'exact',
             sort,
           })),
         );

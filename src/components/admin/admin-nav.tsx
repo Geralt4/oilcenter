@@ -3,14 +3,14 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
-import { BadgePercent, Boxes, Inbox, LayoutDashboard, Menu, Package, Settings, ShoppingBag, Tags, Ticket, X } from 'lucide-react';
+import { BadgeEuro, Boxes, Inbox, LayoutDashboard, Menu, Package, Settings, ShoppingBag, Tags, Ticket, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const ITEMS = [
   { href: '/admin', label: 'Επισκόπηση', icon: LayoutDashboard, exact: true },
   { href: '/admin/orders', label: 'Παραγγελίες', icon: ShoppingBag, badge: 'orders' as const },
+  { href: '/admin/prices', label: 'Τιμές', icon: BadgeEuro, badge: 'prices' as const },
   { href: '/admin/products', label: 'Προϊόντα', icon: Package },
-  { href: '/admin/prices', label: 'Τιμές & απόθεμα', icon: BadgePercent, badge: 'prices' as const },
   { href: '/admin/categories', label: 'Κατηγορίες', icon: Boxes },
   { href: '/admin/brands', label: 'Μάρκες', icon: Tags },
   { href: '/admin/coupons', label: 'Κουπόνια', icon: Ticket },

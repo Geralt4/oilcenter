@@ -1,0 +1,2324 @@
+{
+ "source": "https://www.skroutz.gr/shop/30368/Tsakiridis-Oil-Center/products.html",
+ "capturedAt": "2026-09-20",
+ "about": "Prices the shop itself publishes on Skroutz, matched by hand to catalogue SKUs. \"exact\" = same product and pack; \"probable\" = the Skroutz title is less specific than our label, so the price is applied but stays flagged as unverified. unmatchedCatalogue = our SKUs with no Skroutz listing (placeholder price kept). notInCatalogue = Skroutz listings the site does not sell yet.",
+ "matches": [
+  {
+   "sku": "ACCELERATE-10W-40-HIGH-POWER-CSS-1L",
+   "product": "accelerate 10W-40 High Power CSS [1L]",
+   "skroutzId": "68989817",
+   "skroutzTitle": "Accelerate High Power CSS Ημισυνθετικό Λάδι 10W-40 1lt",
+   "priceCents": 670,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ACCELERATE-10W-40-HIGH-POWER-CSS-4L",
+   "product": "accelerate 10W-40 High Power CSS [4L]",
+   "skroutzId": "68989815",
+   "skroutzTitle": "Accelerate High Power CSS Ημισυνθετικό Λάδι 10W-40 4lt",
+   "priceCents": 2750,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ACCELERATE-10W-60-RACE-1L",
+   "product": "accelerate 10W-60 Race [1L]",
+   "skroutzId": "68392648",
+   "skroutzTitle": "Accelerate Race Συνθετικό Λάδι 10W-60 1lt",
+   "priceCents": 950,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ACCELERATE-5W-30-ECO-AC-1L",
+   "product": "accelerate 5W-30 Eco-AC [1L]",
+   "skroutzId": "68989826",
+   "skroutzTitle": "Accelerate Eco-AC Συνθετικό Λάδι 5W-30 1lt",
+   "priceCents": 820,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ACCELERATE-5W-30-ECO-AC-4L",
+   "product": "accelerate 5W-30 Eco-AC [4L]",
+   "skroutzId": "68989828",
+   "skroutzTitle": "Accelerate Eco-AC Συνθετικό Λάδι 5W-30 4lt",
+   "priceCents": 3190,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ACCELERATE-5W-30-ECO-SYN-1L",
+   "product": "accelerate 5W-30 Eco-SYN [1L]",
+   "skroutzId": "68989824",
+   "skroutzTitle": "Accelerate Eco-Syn Συνθετικό Λάδι 5W-30 1lt",
+   "priceCents": 850,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ACCELERATE-5W-30-ECO-SYN-4L",
+   "product": "accelerate 5W-30 Eco-SYN [4L]",
+   "skroutzId": "68989825",
+   "skroutzTitle": "Accelerate Eco-Syn Συνθετικό Λάδι 5W-30 4lt",
+   "priceCents": 3550,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ACCELERATE-5W-30-LONGLIFE-SYN-1L",
+   "product": "accelerate 5W-30 Longlife SYN [1L]",
+   "skroutzId": "68989818",
+   "skroutzTitle": "Accelerate Longlife SYN Συνθετικό Λάδι 5W-30 1lt",
+   "priceCents": 850,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ACCELERATE-5W-30-LONGLIFE-SYN-4L",
+   "product": "accelerate 5W-30 Longlife SYN [4L]",
+   "skroutzId": "51353038",
+   "skroutzTitle": "Accelerate Long Life Syn Συνθετικό Λάδι 5W-30 4lt",
+   "priceCents": 3490,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ACCELERATE-5W-40-TEC-SYN-1L",
+   "product": "accelerate 5W-40 Tec-SYN [1L]",
+   "skroutzId": "68989872",
+   "skroutzTitle": "Accelerate TEC-SYN Συνθετικό Λάδι 5W-40 1lt",
+   "priceCents": 790,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ACCELERATE-5W-40-TEC-SYN-5L",
+   "product": "accelerate 5W-40 Tec-SYN [5L]",
+   "skroutzId": "68989873",
+   "skroutzTitle": "Accelerate Tec-Syn Συνθετικό Λάδι 5W-40 5lt",
+   "priceCents": 3250,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ACCELERATE-ATF-III-H-RED-1L",
+   "product": "accelerate ATF III H (red) [1L]",
+   "skroutzId": "68839412",
+   "skroutzTitle": "Accelerate Atf Iii H Red Υγρό Αυτόματου Κιβωτίου Ταχυτήτων 1l",
+   "priceCents": 890,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ACCELERATE-DIESEL-HMB-20W-50-20L",
+   "product": "accelerate Diesel HMB 20W-50 [20L]",
+   "skroutzId": "68392647",
+   "skroutzTitle": "Accelerate HMB Λάδι 20W-50 20lt",
+   "priceCents": 7490,
+   "confidence": "exact"
+  },
+  {
+   "sku": "AISIN-ULTRA-LONG-LIFE-COOLANT-READY-TO-USE-5L",
+   "product": "AISIN Ultra Long Life Coolant (Ready to use) [5L]",
+   "skroutzId": "31192308",
+   "skroutzTitle": "Aisin Ultra Long Life Coolant Αντιψυκτικό 5lt",
+   "priceCents": 2790,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ARAL-BLUETRONIC-10W-40-1L",
+   "product": "Aral BlueTronic 10W-40 [1L]",
+   "skroutzId": "43940255",
+   "skroutzTitle": "Aral BlueTronic Ημισυνθετικό Λάδι 10W-40 1lt",
+   "priceCents": 850,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ARAL-BLUETRONIC-II-10W-40-4L",
+   "product": "Aral BlueTronic II 10W-40 [4L]",
+   "skroutzId": "6138866",
+   "skroutzTitle": "Aral BlueTronic Ημισυνθετικό Λάδι 10W-40 4lt",
+   "priceCents": 2990,
+   "confidence": "exact",
+   "note": "Το Skroutz το γράφει «BlueTronic» χωρίς το «II»."
+  },
+  {
+   "sku": "ARAL-HIGHTRONIC-5W-40-4L",
+   "product": "Aral HighTronic 5W-40 [4L]",
+   "skroutzId": "6139443",
+   "skroutzTitle": "Aral HighTronic Συνθετικό Λάδι 5W-40 4lt",
+   "priceCents": 3990,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ARAL-SUPERTRONIC-K-5W-30-1L",
+   "product": "Aral SuperTronic K 5W-30 [1L]",
+   "skroutzId": "21579679",
+   "skroutzTitle": "Aral Super Tronic K Συνθετικό Λάδι 5W-30 1lt",
+   "priceCents": 1090,
+   "confidence": "exact"
+  },
+  {
+   "sku": "ARAL-SUPERTRONIC-K-5W-30-4L",
+   "product": "Aral SuperTronic K 5W-30 [4L]",
+   "skroutzId": "26896912",
+   "skroutzTitle": "Aral Super Tronic K Λάδι 5W-30 4lt",
+   "priceCents": 4320,
+   "confidence": "exact"
+  },
+  {
+   "sku": "AVISTA-PEER-CLASSIC-GL3-SAE-140-20L",
+   "product": "Avista peer CLASSIC GL3 SAE 140 [20L]",
+   "skroutzId": "68411960",
+   "skroutzTitle": "Avista Βαλβολίνη για Χειροκίνητο Κιβώτιο SAE 140 20lt",
+   "priceCents": 8690,
+   "confidence": "exact"
+  },
+  {
+   "sku": "AVISTA-PEER-EVO-PRIME-75W-80-GL4-PC-1L",
+   "product": "Avista peer EVO PRIME 75W-80 GL4 PC [1L]",
+   "skroutzId": "68891628",
+   "skroutzTitle": "Avista Peer Evo Prime Βαλβολίνη για Αυτόματο & Χειροκίνητο Κιβώτιο 75W-80 1lt",
+   "priceCents": 990,
+   "confidence": "exact"
+  },
+  {
+   "sku": "AVISTA-PEER-EVO-PRIME-75W-90-GL4-PC-1L",
+   "product": "Avista peer EVO PRIME 75W-90 GL4 PC [1L]",
+   "skroutzId": "68891627",
+   "skroutzTitle": "Avista Peer Evo Prime Βαλβολίνη για Χειροκίνητο Κιβώτιο 75W-90 1lt",
+   "priceCents": 1090,
+   "confidence": "exact"
+  },
+  {
+   "sku": "AVISTA-PULSE-20W-50-4-STROKE-1L",
+   "product": "Avista pulse 20W-50 4 Stroke [1L]",
+   "skroutzId": "69131758",
+   "skroutzTitle": "Avista Pulse Evo 4 Stroke 20w-50 1l Λιπαντικό Τετράχρονων Κινητήρων Μοτοσυκλέτας",
+   "priceCents": 750,
+   "confidence": "exact"
+  },
+  {
+   "sku": "AVISTA-PULSE-EVO-10W-40-4-STROKE-1L",
+   "product": "Avista pulse EVO 10W-40 4 Stroke [1L]",
+   "skroutzId": "69131884",
+   "skroutzTitle": "Alistair Pulse Evo 4-stroke 10w-40 1l",
+   "priceCents": 850,
+   "confidence": "probable",
+   "note": "Στο Skroutz εμφανίζεται με λάθος μάρκα («Alistair Pulse Evo 4-stroke 10w-40») και στην κατηγορία σκαφών."
+  },
+  {
+   "sku": "CASTROL-EDGE-0W-20-C5-1L",
+   "product": "Castrol EDGE 0W-20 C5 [1L]",
+   "skroutzId": "32921959",
+   "skroutzTitle": "Castrol Edge Συνθετικό Λάδι 0W-20 1lt",
+   "priceCents": 1640,
+   "confidence": "probable",
+   "note": "Το Skroutz γράφει μόνο «Edge 0W-20 1lt» (το LL IV 1lt υπάρχει ξεχωριστά, άρα αυτό είναι μάλλον το C5)."
+  },
+  {
+   "sku": "CASTROL-EDGE-0W-20-C5-5L",
+   "product": "Castrol EDGE 0W-20 C5 [5L]",
+   "skroutzId": "42344854",
+   "skroutzTitle": "Castrol Edge Titanium C5 Λάδι 0W-20 5lt",
+   "priceCents": 7250,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-EDGE-0W-20-LL-IV-1L",
+   "product": "Castrol EDGE 0W-20 LL IV [1L]",
+   "skroutzId": "49710958",
+   "skroutzTitle": "Castrol Edge LL IV Συνθετικό Λάδι 0W-20 1lt",
+   "priceCents": 1590,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-EDGE-0W-20-LL-IV-4L",
+   "product": "Castrol EDGE 0W-20 LL IV [4L]",
+   "skroutzId": "49711170",
+   "skroutzTitle": "Castrol Edge Λάδι 0W-20 4lt",
+   "priceCents": 6100,
+   "confidence": "probable",
+   "note": "Το Skroutz γράφει μόνο «Edge 0W-20 4lt», χωρίς προδιαγραφή."
+  },
+  {
+   "sku": "CASTROL-EDGE-5W-30-LL-1L",
+   "product": "Castrol EDGE 5W-30 LL [1L]",
+   "skroutzId": "24385084",
+   "skroutzTitle": "Castrol Edge FST LL Συνθετικό Λάδι 5W-30 1lt",
+   "priceCents": 1360,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-EDGE-5W-30-LL-4L",
+   "product": "Castrol EDGE 5W-30 LL [4L]",
+   "skroutzId": "8223949",
+   "skroutzTitle": "Castrol Edge LL Λάδι 5W-30 4lt",
+   "priceCents": 5090,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-EDGE-5W-30-LL-5L",
+   "product": "Castrol EDGE 5W-30 LL [5L]",
+   "skroutzId": "49731384",
+   "skroutzTitle": "Castrol Edge Λάδι 5W-30 5lt",
+   "priceCents": 6490,
+   "confidence": "probable",
+   "note": "Στο Skroutz υπάρχουν δύο «Edge 5W-30 5lt» (63,90 και 64,90) χωρίς προδιαγραφή. Το LL είναι παντού ~1 € ακριβότερο από το M, άρα εδώ μπήκε το 64,90."
+  },
+  {
+   "sku": "CASTROL-EDGE-5W-30-M-1L",
+   "product": "Castrol EDGE 5W-30 M [1L]",
+   "skroutzId": "20159230",
+   "skroutzTitle": "Castrol Edge M Συνθετικό Λάδι 5W-30 1lt",
+   "priceCents": 1290,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-EDGE-5W-30-M-4L",
+   "product": "Castrol EDGE 5W-30 M [4L]",
+   "skroutzId": "20159306",
+   "skroutzTitle": "Castrol Edge Συνθετικό Λάδι 5W-30 4lt",
+   "priceCents": 4990,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-EDGE-5W-30-M-5L",
+   "product": "Castrol EDGE 5W-30 M [5L]",
+   "skroutzId": "49731406",
+   "skroutzTitle": "Castrol Edge Λάδι 5W-30 5lt",
+   "priceCents": 6390,
+   "confidence": "probable",
+   "note": "Βλ. EDGE 5W-30 LL 5L: από τα δύο «Edge 5W-30 5lt» εδώ μπήκε το φθηνότερο (63,90)."
+  },
+  {
+   "sku": "CASTROL-EDGE-5W-40-1L",
+   "product": "Castrol EDGE 5W-40 [1L]",
+   "skroutzId": "6138718",
+   "skroutzTitle": "Castrol Edge Titanium FST Λάδι 5W-40 1lt",
+   "priceCents": 1250,
+   "confidence": "exact",
+   "note": "Skroutz: «Edge Titanium FST 5W-40»."
+  },
+  {
+   "sku": "CASTROL-MAGNATEC-10W-40-A-B-1L",
+   "product": "Castrol MAGNATEC 10W-40 A/B [1L]",
+   "skroutzId": "6138110",
+   "skroutzTitle": "Castrol Magnatec Συνθετικό Λάδι 10W-40 1lt",
+   "priceCents": 950,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-MAGNATEC-10W-40-A-B-4L",
+   "product": "Castrol MAGNATEC 10W-40 A/B [4L]",
+   "skroutzId": "6138331",
+   "skroutzTitle": "Castrol Magnatec Ημισυνθετικό Λάδι 10W-40 4lt",
+   "priceCents": 2990,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-MAGNATEC-10W-40-A-B-5L",
+   "product": "Castrol MAGNATEC 10W-40 A/B [5L]",
+   "skroutzId": "49438349",
+   "skroutzTitle": "Castrol Magnatec Συνθετικό Λάδι 10W-40 5lt",
+   "priceCents": 3890,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-MAGNATEC-5W-20-E-FORD-5L",
+   "product": "Castrol MAGNATEC 5W-20 E (Ford) [5L]",
+   "skroutzId": "7879027",
+   "skroutzTitle": "Castrol Ford Magnatec Professional E Λάδι 5W-20 5lt",
+   "priceCents": 6490,
+   "confidence": "exact",
+   "note": "Skroutz: «Ford Magnatec Professional E 5W-20»."
+  },
+  {
+   "sku": "CASTROL-MAGNATEC-5W-30-A5-1L",
+   "product": "Castrol MAGNATEC 5W-30 A5 [1L]",
+   "skroutzId": "49711174",
+   "skroutzTitle": "Castrol Magnatec Συνθετικό Λάδι 5W-30 1lt",
+   "priceCents": 1190,
+   "confidence": "probable",
+   "note": "Το Skroutz γράφει μόνο «Magnatec 5W-30», χωρίς προδιαγραφή (A5 / C3 / C2…)."
+  },
+  {
+   "sku": "CASTROL-MAGNATEC-5W-30-A5-5L",
+   "product": "Castrol MAGNATEC 5W-30 A5 [5L]",
+   "skroutzId": "49710842",
+   "skroutzTitle": "Castrol Magnatec Συνθετικό Λάδι 5W-30 5lt",
+   "priceCents": 6190,
+   "confidence": "probable",
+   "note": "Το Skroutz γράφει μόνο «Magnatec 5W-30», χωρίς προδιαγραφή (A5 / C3 / C2…)."
+  },
+  {
+   "sku": "CASTROL-MAGNATEC-5W-40-C3-1L",
+   "product": "Castrol MAGNATEC 5W-40 C3 [1L]",
+   "skroutzId": "49710815",
+   "skroutzTitle": "Castrol Magnatec Συνθετικό Λάδι 5W-40 1lt",
+   "priceCents": 1140,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-MAGNATEC-5W-40-C3-4L",
+   "product": "Castrol MAGNATEC 5W-40 C3 [4L]",
+   "skroutzId": "6138423",
+   "skroutzTitle": "Castrol Magnatec Συνθετικό Λάδι 5W-40 4lt",
+   "priceCents": 3950,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-POWER1-10W-40-4T-1L",
+   "product": "Castrol POWER1 10W-40 4T [1L]",
+   "skroutzId": "55731178",
+   "skroutzTitle": "Castrol Power 1 Ημισυνθετικό Λάδι 10W-40 1lt",
+   "priceCents": 1190,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-POWER1-15W-50-4T-1L",
+   "product": "Castrol POWER1 15W-50 4T [1L]",
+   "skroutzId": "8283308",
+   "skroutzTitle": "Castrol Power 1 4T Ημισυνθετικό Λάδι 15W-50 1lt",
+   "priceCents": 1200,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-POWER1-20W-50-4T-1L",
+   "product": "Castrol POWER1 20W-50 4T [1L]",
+   "skroutzId": "8283970",
+   "skroutzTitle": "Castrol Power 1 Ημισυνθετικό Λάδι 20W-50 1lt",
+   "priceCents": 1090,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-POWER1-ULTIMATE-10W-50-4T-1L",
+   "product": "Castrol POWER1 ULTIMATE 10W-50 4T [1L]",
+   "skroutzId": "8283262",
+   "skroutzTitle": "Castrol Power 1 Racing 4T Συνθετικό Λάδι 10W-50 1lt",
+   "priceCents": 1360,
+   "confidence": "probable",
+   "note": "Skroutz: «Power 1 Racing 4T 10W-50» — η παλιά ονομασία του Power1 Ultimate."
+  },
+  {
+   "sku": "CASTROL-TRANSMAX-ATF-DEXRON-VI-MERCON-LV-MULTIVEHICLE-1L",
+   "product": "Castrol TRANSMAX ATF DEXRON-VI MERCON LV MULTIVEHICLE [1L]",
+   "skroutzId": "68259881",
+   "skroutzTitle": "Castrol Transmax Dexron Vi Mercon Lv Λάδι Αυτόματου Κιβωτίου Ταχυτήτων",
+   "priceCents": 1650,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-TRANSMAX-DUAL-MULTIVEHICLE-1L",
+   "product": "Castrol TRANSMAX DUAL MULTIVEHICLE [1L]",
+   "skroutzId": "68259882",
+   "skroutzTitle": "Castrol Transmax Dual Multivehicle 1l Λιπαντικό Κιβωτίου Ταχυτήτων Διπλού Συμπλέκτη Dct Dsg",
+   "priceCents": 1590,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-TRANSMAX-LIMITED-SLIP-75W-140-LL-1L",
+   "product": "Castrol TRANSMAX LIMITED SLIP 75W-140 LL [1L]",
+   "skroutzId": "52469465",
+   "skroutzTitle": "Castrol Transmax Limited Slip Ll Βαλβολίνη για Διαφορικό 75W-140 1lt",
+   "priceCents": 1640,
+   "confidence": "exact"
+  },
+  {
+   "sku": "CASTROL-TRANSMAX-LIMITED-SLIP-Z-85W-90-1L",
+   "product": "Castrol TRANSMAX LIMITED SLIP Z 85W-90 [1L]",
+   "skroutzId": "34527010",
+   "skroutzTitle": "Castrol Transmax Z Limited Slip Βαλβολίνη για Διαφορικό 85W-90 1lt",
+   "priceCents": 1250,
+   "confidence": "exact"
+  },
+  {
+   "sku": "GM-GENUINE-GENUINE-MOTOR-OIL-DEXOS1-5W-30-5L",
+   "product": "GM Genuine Genuine Motor Oil dexos1 5W-30 [5L]",
+   "skroutzId": "37995486",
+   "skroutzTitle": "GM Dexos1 Longlife Generation 2 Συνθετικό Λάδι 5W-30 5lt",
+   "priceCents": 4390,
+   "confidence": "exact"
+  },
+  {
+   "sku": "LIQUI-MOLY-CATALYTIC-SYSTEM-CLEANER-300ML",
+   "product": "Liqui Moly Catalytic System Cleaner [300ml]",
+   "skroutzId": "14416134",
+   "skroutzTitle": "Liqui Moly Catalytic-System Cleaner Πρόσθετο Καθαριστικό Καταλύτη 300ml",
+   "priceCents": 1090,
+   "confidence": "exact"
+  },
+  {
+   "sku": "LIQUI-MOLY-COMMON-RAIL-ADDITIVE-250ML",
+   "product": "Liqui Moly Common Rail Additive [250ml]",
+   "skroutzId": "13515209",
+   "skroutzTitle": "Liqui Moly Diesel Common Rail Additive Πρόσθετο Βελτιωτικό Καυσίμου 250ml",
+   "priceCents": 890,
+   "confidence": "exact"
+  },
+  {
+   "sku": "LIQUI-MOLY-DIESEL-PARTICULATE-FILTER-PROTECTOR-250ML",
+   "product": "Liqui Moly Diesel Particulate Filter Protector [250ml]",
+   "skroutzId": "13514935",
+   "skroutzTitle": "Liqui Moly Πρόσθετο Καθαριστικό DPF 250ml",
+   "priceCents": 1310,
+   "confidence": "exact",
+   "note": "Skroutz: «Καθαριστικό DPF 250ml» (κωδικός 5148)."
+  },
+  {
+   "sku": "LIQUI-MOLY-HYDRAULIC-LIFTER-ADDITIVE-300ML",
+   "product": "Liqui Moly Hydraulic Lifter Additive [300ml]",
+   "skroutzId": "13515161",
+   "skroutzTitle": "Liqui Moly Hydraulic Lifter Additive Πρόσθετο Αντιτριβικό & Βελτιωτικό Λίπανσης 300ml",
+   "priceCents": 1350,
+   "confidence": "exact"
+  },
+  {
+   "sku": "LIQUI-MOLY-HYPOID-GETRIEBEOL-GL5-LS-85W-90-1L",
+   "product": "Liqui Moly Hypoid Getriebeöl GL5 LS 85W-90 [1L]",
+   "skroutzId": "13713698",
+   "skroutzTitle": "Liqui Moly Hypoid Gear Oil (GL5) Βαλβολίνη για Διαφορικό 85W-90 1lt",
+   "priceCents": 1150,
+   "confidence": "probable",
+   "note": "Το Skroutz γράφει «Hypoid Gear Oil (GL5) 85W-90» χωρίς το «LS»."
+  },
+  {
+   "sku": "LIQUI-MOLY-INJECTION-CLEANER-300ML",
+   "product": "Liqui Moly Injection Cleaner [300ml]",
+   "skroutzId": "13663841",
+   "skroutzTitle": "Liqui Moly Fuel Injection Cleaner Πρόσθετο Καθαριστικό Μπεκ 300ml",
+   "priceCents": 1090,
+   "confidence": "exact"
+  },
+  {
+   "sku": "LIQUI-MOLY-LM-COOLANT-READY-MIX-25-C-GREEN-5L",
+   "product": "Liqui Moly LM Coolant Ready Mix -25°C Green [5L]",
+   "skroutzId": "26533064",
+   "skroutzTitle": "Liqui Moly LM Coolant Αντιψυκτικό Παραφλού Ψυγείου Αυτοκινήτου -25°C Πράσινο Χρώμα 5lt",
+   "priceCents": 1199,
+   "confidence": "exact"
+  },
+  {
+   "sku": "LIQUI-MOLY-MOTOR-OIL-SAVER-300ML",
+   "product": "Liqui Moly Motor Oil Saver [300ml]",
+   "skroutzId": "13515268",
+   "skroutzTitle": "Liqui Moly Πρόσθετο Σφραγιστικό Διαρροών Λαδιού 300ml",
+   "priceCents": 1250,
+   "confidence": "exact",
+   "note": "Skroutz: «Σφραγιστικό Διαρροών Λαδιού 300ml»."
+  },
+  {
+   "sku": "LIQUI-MOLY-PRO-LINE-DIESEL-SYSTEM-REINIGER-500ML",
+   "product": "Liqui Moly Pro-Line Diesel System Reiniger [500ml]",
+   "skroutzId": "13514909",
+   "skroutzTitle": "Liqui Moly Pro-Line Jet Clean Diesel System Πρόσθετο Βελτιωτικό Καυσίμου 500ml",
+   "priceCents": 1290,
+   "confidence": "probable",
+   "note": "Skroutz: «Pro-Line Jet Clean Diesel System 500ml» — ελέγξτε ότι είναι το ίδιο προϊόν."
+  },
+  {
+   "sku": "LIQUI-MOLY-PRO-LINE-MOTORSPULUNG-ENGINE-FLUSH-500ML",
+   "product": "Liqui Moly Pro-Line Motorspülung (Engine Flush) [500ml]",
+   "skroutzId": "15823023",
+   "skroutzTitle": "Liqui Moly Pro-Line Engine Flush Πρόσθετο Καθαριστικό Κινητήρα 500ml",
+   "priceCents": 1490,
+   "confidence": "exact"
+  },
+  {
+   "sku": "LIQUI-MOLY-RADIATOR-CLEANER-300ML",
+   "product": "Liqui Moly Radiator Cleaner [300ml]",
+   "skroutzId": "13663805",
+   "skroutzTitle": "Liqui Moly Radiator cleaner Πρόσθετο Καθαριστικό Κυκλώματος Ψύξης 300ml",
+   "priceCents": 850,
+   "confidence": "exact"
+  },
+  {
+   "sku": "LIQUI-MOLY-RADIATOR-STOP-LEAK-250ML",
+   "product": "Liqui Moly Radiator Stop Leak [250ml]",
+   "skroutzId": "14179795",
+   "skroutzTitle": "Liqui Moly Radiator Stop-Leak Πρόσθετο Σφραγιστικό Διαρροών Ψυγείου 250ml",
+   "priceCents": 690,
+   "confidence": "exact"
+  },
+  {
+   "sku": "LIQUI-MOLY-VALVE-CLEAN-150ML",
+   "product": "Liqui Moly Valve Clean [150ml]",
+   "skroutzId": "21238964",
+   "skroutzTitle": "Liqui Moly Πρόσθετο Καθαριστικό Βαλβίδων Κεφαλής 150ml",
+   "priceCents": 950,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MAG-1-CLASSIC-CARB-AND-CHOKE-CLEANER-354G",
+   "product": "MAG 1 Classic Carb & Choke Cleaner [354g]",
+   "skroutzId": "21310495",
+   "skroutzTitle": "MAG1 Σπρέι Καθαρισμού Καρμπυρατέρ 354ml MAG18146 & Choke Cleaner",
+   "priceCents": 790,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MAG-1-LEAD-SUBSTITUTE-354ML",
+   "product": "MAG 1 Lead Substitute [354ml]",
+   "skroutzId": "35870870",
+   "skroutzTitle": "MAG1 Lead Substitute Πρόσθετο Υποκατάστατο Μολύβδου 354ml",
+   "priceCents": 750,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MAG-1-OCTANE-BOOST-354ML",
+   "product": "MAG 1 Octane Boost [354ml]",
+   "skroutzId": "32461809",
+   "skroutzTitle": "MAG1 Octane Booster Πρόσθετο Ενισχυτικό Οκτανίων 355ml",
+   "priceCents": 750,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MAG-1-PREMIUM-ENGINE-STOP-LEAK-428ML",
+   "product": "MAG 1 Premium Engine Stop Leak [428ml]",
+   "skroutzId": "15394315",
+   "skroutzTitle": "MAG1 Engine Stop Leak Πρόσθετο Σφραγιστικό Διαρροών Κιβωτίου Ταχυτήτων 428ml",
+   "priceCents": 910,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MANNOL-4013-AG13-ANTIFREEZE-READY-TO-USE-HIGHTEC-COOLANT-FLU",
+   "product": "Mannol 4013 AG13 Antifreeze (Ready-to-use Hightec Coolant Fluid) [5L]",
+   "skroutzId": "38507974",
+   "skroutzTitle": "Mannol AG13 Antifreeze Αντιψυκτικό Παραφλού Ψυγείου Αυτοκινήτου G13 -40°C Κίτρινο Χρώμα 5lt",
+   "priceCents": 1390,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MANNOL-4211-G11-COOLANT-READY-TO-USE-ANTIFREEZE-1L",
+   "product": "Mannol 4211 G11 Coolant (Ready-to-use Antifreeze) [1L]",
+   "skroutzId": "68616401",
+   "skroutzTitle": "Mannol G11 Ready to Use Αντιψυκτικό Παραφλού Ψυγείου Αυτοκινήτου G11 Μπλε Χρώμα 1lt",
+   "priceCents": 490,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MANNOL-4211-G11-COOLANT-READY-TO-USE-ANTIFREEZE-5L",
+   "product": "Mannol 4211 G11 Coolant (Ready-to-use Antifreeze) [5L]",
+   "skroutzId": "26541980",
+   "skroutzTitle": "Mannol Αντιψυκτικό Παραφλού Ψυγείου Αυτοκινήτου G11 -30°C Μπλε Χρώμα 5lt",
+   "priceCents": 1190,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MANNOL-4212-G12-PLUS-COOLANT-READY-TO-USE-ANTIFREEZE-1L",
+   "product": "Mannol 4212 G12+ Coolant (Ready-to-use Antifreeze) [1L]",
+   "skroutzId": "25733002",
+   "skroutzTitle": "Mannol G12+ Coolant Αντιψυκτικό Παραφλού Ψυγείου Αυτοκινήτου G12+ -36°C Κόκκινο Χρώμα 1lt",
+   "priceCents": 490,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MANNOL-4213-G13-COOLANT-READY-TO-USE-ANTIFREEZE-1L",
+   "product": "Mannol 4213 G13 Coolant (Ready-to-use Antifreeze) [1L]",
+   "skroutzId": "59908296",
+   "skroutzTitle": "Mannol Αντιψυκτικό Παραφλού Ψυγείου Αυτοκινήτου G13 Πράσινο Χρώμα 1lt",
+   "priceCents": 490,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MANNOL-7812-4-TAKT-MOTORBIKE-10W-40-1L",
+   "product": "Mannol 7812 4-Takt Motorbike 10W-40 [1L]",
+   "skroutzId": "15851184",
+   "skroutzTitle": "Mannol 7812 Motorbike 4-Takt Λάδι 10W-40 1lt",
+   "priceCents": 820,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MANNOL-7830-4-TAKT-HD-MOTORBIKE-20W-50-1L",
+   "product": "Mannol 7830 4-Takt HD Motorbike 20W-50 [1L]",
+   "skroutzId": "13307305",
+   "skroutzTitle": "Mannol Motorbike 4-Takt HD Λάδι 20W-50 1lt",
+   "priceCents": 790,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MANNOL-8121-WHITE-GREASE-450ML",
+   "product": "Mannol 8121 White Grease [450ml]",
+   "skroutzId": "18498023",
+   "skroutzTitle": "Mannol Σπρέι Γράσου 450ml MN8121 Λευκό",
+   "priceCents": 680,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MANNOL-9664-OIL-AIR-FILTER-200ML",
+   "product": "Mannol 9664 Oil Air Filter [200ml]",
+   "skroutzId": "24118496",
+   "skroutzTitle": "Mannol Καθαριστικό Σπρέι 200ml MN9964 Φίλτρoυ Αέρα",
+   "priceCents": 550,
+   "confidence": "exact",
+   "note": "Στο Skroutz ο κωδικός είναι MN9964 — πιθανόν το «9664» στο όνομα του προϊόντος να θέλει διόρθωση σε 9964."
+  },
+  {
+   "sku": "MANNOL-9669-MOTOR-STARTER-450ML",
+   "product": "Mannol 9669 Motor Starter [450ml]",
+   "skroutzId": "18498221",
+   "skroutzTitle": "Mannol Σπρέι Εκκίνησης 450ml MN9669 Αιθέρας",
+   "priceCents": 650,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MANNOL-9672-MONTAGE-CLEANER-600ML",
+   "product": "Mannol 9672 Montage Cleaner [600ml]",
+   "skroutzId": "18498122",
+   "skroutzTitle": "Mannol Σπρέι Καθαρισμού Φρένων 600ml MN9672",
+   "priceCents": 550,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MANNOL-9893-CONTACT-CLEANER-450ML",
+   "product": "Mannol 9893 Contact Cleaner [450ml]",
+   "skroutzId": "18497939",
+   "skroutzTitle": "Mannol 9893 Σπρέι Ηλεκτρικών Επαφών 450ml MN9893",
+   "priceCents": 690,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MANNOL-9956-DIESEL-JET-CLEANER-250ML",
+   "product": "Mannol 9956 Diesel Jet Cleaner [250ml]",
+   "skroutzId": "40210838",
+   "skroutzTitle": "Mannol 9956 Diesel Jet Cleaner Πρόσθετο Καθαριστικό Μπεκ 250ml",
+   "priceCents": 790,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MANNOL-9963-SILICONE-SPRAY-450ML",
+   "product": "Mannol 9963 Silicone Spray [450ml]",
+   "skroutzId": "18497921",
+   "skroutzTitle": "Mannol Σπρέι Σιλικόνης 450ml MN9963",
+   "priceCents": 650,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MANNOL-9966-RADIATOR-LEAK-STOP-325ML",
+   "product": "Mannol 9966 Radiator Leak-Stop [325ml]",
+   "skroutzId": "64102068",
+   "skroutzTitle": "Mannol Leak-stop 9966 Πρόσθετο Σφραγιστικό Διαρροών Ψυγείου 250ml",
+   "priceCents": 590,
+   "confidence": "exact",
+   "note": "Το Skroutz γράφει 250ml· ο κωδικός 9966 είναι ο ίδιος."
+  },
+  {
+   "sku": "MANNOL-9978-AIR-CON-FRESH-200ML",
+   "product": "Mannol 9978 Air-Con Fresh [200ml]",
+   "skroutzId": "11797385",
+   "skroutzTitle": "Mannol Air-Con Fresh Σπρέι Καθαρισμού Air Condition 200ml",
+   "priceCents": 590,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOBIL-1-ESP-5W-30-1L",
+   "product": "Mobil 1 ESP 5W-30 [1L]",
+   "skroutzId": "17333879",
+   "skroutzTitle": "Mobil ESP Συνθετικό Λάδι 5W-30 1lt",
+   "priceCents": 1598,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOBIL-1-FS-0W-40-5L",
+   "product": "Mobil 1 FS 0W-40 [5L]",
+   "skroutzId": "23283938",
+   "skroutzTitle": "Mobil SE1 Fs Συνθετικό Λάδι 0W-40 5lt",
+   "priceCents": 6690,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOBIL-SUPER-3000-10W-40-1L",
+   "product": "Mobil Super 3000 10W-40 [1L]",
+   "skroutzId": "6141722",
+   "skroutzTitle": "Mobil Super 2000 X1 Ημισυνθετικό Λάδι 10W-40 1lt",
+   "priceCents": 840,
+   "confidence": "probable",
+   "note": "Skroutz: «Super 2000 X1 10W-40». Μάλλον αυτό είναι και το σωστό όνομα του προϊόντος (βλ. REVIEW.md)."
+  },
+  {
+   "sku": "MOBIL-SUPER-3000-10W-40-5L",
+   "product": "Mobil Super 3000 10W-40 [5L]",
+   "skroutzId": "13417150",
+   "skroutzTitle": "Mobil Super 2000 X1 Ημισυνθετικό Λάδι 10W-40 5lt",
+   "priceCents": 3270,
+   "confidence": "probable",
+   "note": "Skroutz: «Super 2000 X1 10W-40». Μάλλον αυτό είναι και το σωστό όνομα του προϊόντος (βλ. REVIEW.md)."
+  },
+  {
+   "sku": "MOBIL-SUPER-3000-X1-5W-40-1L",
+   "product": "Mobil Super 3000 X1 5W-40 [1L]",
+   "skroutzId": "63555957",
+   "skroutzTitle": "Mobil Super 3000 X1 Συνθετικό Λάδι 5W-40 1lt",
+   "priceCents": 990,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOBIL-SUPER-3000-X1-5W-40-5L",
+   "product": "Mobil Super 3000 X1 5W-40 [5L]",
+   "skroutzId": "68895905",
+   "skroutzTitle": "Mobil Super 3000 X1 Συνθετικό Λάδι 5W-40 5lt",
+   "priceCents": 4790,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOBIL-SUPER-3000-XE-5W-30-1L",
+   "product": "Mobil Super 3000 XE 5W-30 [1L]",
+   "skroutzId": "7983798",
+   "skroutzTitle": "Mobil Super 3000 XE Συνθετικό Λάδι 5W-30 1lt",
+   "priceCents": 1180,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-4100-SYN-NERGY-15W-40-5L",
+   "product": "Motul 4100 SYN-nergy 15W-40 [5L]",
+   "skroutzId": "68113380",
+   "skroutzTitle": "Motul 4100 SYN-nergy Ημισυνθετικό Λάδι 15W-40 5lt",
+   "priceCents": 3990,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-4100-TURBOLIGHT-10W-40-1L",
+   "product": "Motul 4100 Turbolight 10W-40 [1L]",
+   "skroutzId": "38278980",
+   "skroutzTitle": "Motul 4100 Turbolight Συνθετικό Λάδι 10W-40 1lt",
+   "priceCents": 990,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-4100-TURBOLIGHT-10W-40-5L",
+   "product": "Motul 4100 Turbolight 10W-40 [5L]",
+   "skroutzId": "7033659",
+   "skroutzTitle": "Motul 4100 Turbolight Λάδι 10W-40 5lt",
+   "priceCents": 4290,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-5100-4T-10W-30-1L",
+   "product": "Motul 5100 4T 10W-30 [1L]",
+   "skroutzId": "8284985",
+   "skroutzTitle": "Motul 5100 4T Ημισυνθετικό Λάδι 10W-30 1lt",
+   "priceCents": 1490,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-5100-4T-10W-40-1L",
+   "product": "Motul 5100 4T 10W-40 [1L]",
+   "skroutzId": "41355644",
+   "skroutzTitle": "Motul 5100 4T Ημισυνθετικό Λάδι 10W-40 1lt",
+   "priceCents": 1450,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-7100-4T-10W-40-1L",
+   "product": "Motul 7100 4T 10W-40 [1L]",
+   "skroutzId": "57632626",
+   "skroutzTitle": "Motul 7100 Συνθετικό Λάδι 10W-40 1lt",
+   "priceCents": 2190,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-7100-4T-5W-40-1L",
+   "product": "Motul 7100 4T 5W-40 [1L]",
+   "skroutzId": "10940505",
+   "skroutzTitle": "Motul 7100 4T Συνθετικό Λάδι 5W-40 1lt",
+   "priceCents": 1950,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-8100-ECO-CLEAN-0W-20-5L",
+   "product": "Motul 8100 ECO-clean 0W-20 [5L]",
+   "skroutzId": "68113324",
+   "skroutzTitle": "Motul 8100 Eco-clean Συνθετικό Λάδι 0W-20 5lt",
+   "priceCents": 6490,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-8100-ECO-LITE-0W-20-5L",
+   "product": "Motul 8100 ECO-lite 0W-20 [5L]",
+   "skroutzId": "9279095",
+   "skroutzTitle": "Motul 8100 Eco-Lite Συνθετικό Λάδι 0W-20 5lt",
+   "priceCents": 6490,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-8100-X-CESS-5W-30-5L",
+   "product": "Motul 8100 X-cess 5W-30 [5L]",
+   "skroutzId": "68113372",
+   "skroutzTitle": "Motul 8100 X-CESS Συνθετικό Λάδι 5W-30 5lt",
+   "priceCents": 6490,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-8100-X-CLEAN-EFE-5W-30-1L",
+   "product": "Motul 8100 X-clean EFE 5W-30 [1L]",
+   "skroutzId": "25717487",
+   "skroutzTitle": "Motul 8100 X-clean ΕFE Συνθετικό Λάδι 5W-30 1lt",
+   "priceCents": 1390,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-8100-X-CLEAN-EFE-5W-30-5L",
+   "product": "Motul 8100 X-clean EFE 5W-30 [5L]",
+   "skroutzId": "51705018",
+   "skroutzTitle": "Motul 8100 X-Clean EFE Συνθετικό Λάδι 5W-30 5lt",
+   "priceCents": 5990,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-8100-X-CLEAN-FE-5W-30-5L",
+   "product": "Motul 8100 X-clean FE 5W-30 [5L]",
+   "skroutzId": "10693557",
+   "skroutzTitle": "Motul 8100 X-Clean FE Συνθετικό Λάδι 5W-30 5lt",
+   "priceCents": 5990,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-8100-X-CLEAN-GEN2-5W-40-1L",
+   "product": "Motul 8100 X-clean gen2 5W-40 [1L]",
+   "skroutzId": "55005542",
+   "skroutzTitle": "Motul 8100 X-clean Συνθετικό Λάδι 5W-40 1lt",
+   "priceCents": 1360,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-GEAR-300-LS-75W-90-1L",
+   "product": "Motul Gear 300 LS 75W-90 [1L]",
+   "skroutzId": "45409078",
+   "skroutzTitle": "Motul Gear 300 LS Βαλβολίνη για Χειροκίνητο Κιβώτιο & Διαφορικό 75W-90 1lt",
+   "priceCents": 3250,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-GEAR-POWER-FE-75W-1L",
+   "product": "Motul Gear Power FE 75W [1L]",
+   "skroutzId": "63558432",
+   "skroutzTitle": "Βαλβολίνη Motul Gear Power Fe 75w 1lt",
+   "priceCents": 1640,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-GEAR-POWER-LV-70W-1L",
+   "product": "Motul Gear Power LV 70W [1L]",
+   "skroutzId": "68839418",
+   "skroutzTitle": "Motul Gear Power Lv 70w Βαλβολίνη Μηχανικού Κιβωτίου Ταχυτήτων 100% Synthetic Gl-4 1l",
+   "priceCents": 1990,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-MOTYLGEAR-75W-85-1L",
+   "product": "Motul Motylgear 75W-85 [1L]",
+   "skroutzId": "29866674",
+   "skroutzTitle": "Motul Motyl Gear Βαλβολίνη για Χειροκίνητο Κιβώτιο & Διαφορικό 75W-85 1lt",
+   "priceCents": 1310,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-MOTYLGEAR-75W-90-1L",
+   "product": "Motul Motylgear 75W-90 [1L]",
+   "skroutzId": "13716025",
+   "skroutzTitle": "Motul Motyl Gear Βαλβολίνη για Χειροκίνητο Κιβώτιο & Διαφορικό 75W-90 1lt",
+   "priceCents": 1440,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-MULTI-CVTF-1L",
+   "product": "Motul Multi CVTF [1L]",
+   "skroutzId": "15815316",
+   "skroutzTitle": "Motul Multi CVTF Βαλβολίνη για Αυτόματο Κιβώτιο 1lt",
+   "priceCents": 1820,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-MULTI-DCTF-1L",
+   "product": "Motul Multi DCTF [1L]",
+   "skroutzId": "13716045",
+   "skroutzTitle": "Motul Multi DCTF Βαλβολίνη για Χειροκίνητο Κιβώτιο 1lt",
+   "priceCents": 1790,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-SCOOTER-EXPERT-2T-1L",
+   "product": "Motul Scooter Expert 2T [1L]",
+   "skroutzId": "8283965",
+   "skroutzTitle": "Motul Scooter Expert 2T Συνθετικό Λάδι 1lt",
+   "priceCents": 1230,
+   "confidence": "exact"
+  },
+  {
+   "sku": "MOTUL-SCOOTER-EXPERT-MB-4T-10W-40-1L",
+   "product": "Motul Scooter Expert MB 4T 10W-40 [1L]",
+   "skroutzId": "12811009",
+   "skroutzTitle": "Motul Scooter Expert 4Τ MA Ημισυνθετικό Λάδι 10W-40 1lt",
+   "priceCents": 1250,
+   "confidence": "probable",
+   "note": "Το Skroutz γράφει «Scooter Expert 4T MA» ενώ η ετικέτα μας «MB» — ελέγξτε ποιο έχετε."
+  },
+  {
+   "sku": "MOTUL-SCOOTER-POWER-2T-1L",
+   "product": "Motul Scooter Power 2T [1L]",
+   "skroutzId": "8285293",
+   "skroutzTitle": "Motul Scooter Power 2T Συνθετικό Λάδι 1lt",
+   "priceCents": 1490,
+   "confidence": "exact"
+  },
+  {
+   "sku": "PRO-TEC-P1101-FUEL-LINE-CLEANER-FLC-375ML",
+   "product": "Pro-Tec P1101 Fuel Line Cleaner (FLC) [375ml]",
+   "skroutzId": "13623341",
+   "skroutzTitle": "Protec P1101 Fuel Line Cleaner Πρόσθετο Καθαριστικό Μπεκ 375ml",
+   "priceCents": 1400,
+   "confidence": "exact"
+  },
+  {
+   "sku": "PRO-TEC-P1180-OXYGEN-SENSOR-AND-CATALYTIC-CONVERTER-CLEANER-",
+   "product": "Pro-Tec P1180 Oxygen Sensor and Catalytic Converter Cleaner (OXICAT) [375ml]",
+   "skroutzId": "13623346",
+   "skroutzTitle": "Protec P1180 Oxicat Πρόσθετο Καθαριστικό Καταλύτη 375ml",
+   "priceCents": 1939,
+   "confidence": "exact"
+  },
+  {
+   "sku": "PRO-TEC-P1201-DIESEL-SYSTEM-CLEANER-DSC-375ML",
+   "product": "Pro-Tec P1201 Diesel System Cleaner (DSC) [375ml]",
+   "skroutzId": "29165374",
+   "skroutzTitle": "Protec Diesel System Cleaner Πρόσθετο Καθαριστικό Συστήματος Καυσίμου 375ml",
+   "priceCents": 1437,
+   "confidence": "exact"
+  },
+  {
+   "sku": "PRO-TEC-P1253-DIESEL-ANTI-BACTERIA-1-200-DAB200-375ML",
+   "product": "Pro-Tec P1253 Diesel Anti Bacteria 1:200 (DAB200) [375ml]",
+   "skroutzId": "13623393",
+   "skroutzTitle": "Protec P1253 Αντιβακτηριακό 1:200 Πρόσθετο Αντιβακτηριδιακό & Μυκητοκτόνο 375ml",
+   "priceCents": 1350,
+   "confidence": "exact"
+  },
+  {
+   "sku": "PRO-TEC-P1922-PETROL-SYSTEM-CLEANER-LPG-LPG-PSSC-200ML",
+   "product": "Pro-Tec P1922 Petrol System Cleaner LPG (LPG-PSSC) [200ml]",
+   "skroutzId": "13623420",
+   "skroutzTitle": "Protec P1922 Petrol System Cleaner LPG Πρόσθετο Καθαριστικό Μπεκ 200ml",
+   "priceCents": 1150,
+   "confidence": "exact"
+  },
+  {
+   "sku": "PRO-TEC-P1931-LPG-SYSTEM-CLEAN-AND-PROTECT-LPG-SCP-120ML",
+   "product": "Pro-Tec P1931 LPG System Clean & Protect (LPG-SCP) [120ml]",
+   "skroutzId": "13623473",
+   "skroutzTitle": "Protec P1931 Σύστημα Καθαρισμού & Προστασίας LPG Πρόσθετο Καθαριστικό Συστήματος Καυσίμου 120ml",
+   "priceCents": 1990,
+   "confidence": "exact"
+  },
+  {
+   "sku": "PRO-TEC-P2141-GEAR-OIL-STOP-LEAK-GOSL-50ML",
+   "product": "Pro-Tec P2141 Gear Oil Stop Leak (GOSL) [50ml]",
+   "skroutzId": "13623502",
+   "skroutzTitle": "Protec P2141 Στεγανοποίηση Διαρροών Σασμάν Πρόσθετο Σφραγιστικό Διαρροών Κιβωτίου Ταχυτήτων 50ml",
+   "priceCents": 780,
+   "confidence": "exact"
+  },
+  {
+   "sku": "PRO-TEC-P2171-EASY-GEAR-50ML",
+   "product": "Pro-Tec P2171 Easy Gear [50ml]",
+   "skroutzId": "13623507",
+   "skroutzTitle": "Protec P2171 Πρόσθετο Βελτιωτικό Κιβωτίου Ταχυτήτων 50ml",
+   "priceCents": 800,
+   "confidence": "exact"
+  },
+  {
+   "sku": "PRO-TEC-P3011-FUEL-LINE-CLEANER-BIKE-LINE-FL-C-B-200ML",
+   "product": "Pro-Tec P3011 Fuel Line Cleaner Bike Line (FL-C-B) [200ml]",
+   "skroutzId": "29431605",
+   "skroutzTitle": "Protec P3011 Πρόσθετο Καθαριστικό Μπεκ 200ml",
+   "priceCents": 1050,
+   "confidence": "exact"
+  },
+  {
+   "sku": "PRO-TEC-P9201-NANO-ENGINE-PROTECT-AND-SEAL-NEPS-375ML",
+   "product": "Pro-Tec P9201 Nano Engine Protect & Seal (NEPS) [375ml]",
+   "skroutzId": "13622544",
+   "skroutzTitle": "Protec P9201 Nano Engine Protect & Seal Πρόσθετο Αντιτριβικό & Βελτιωτικό Λίπανσης 375ml",
+   "priceCents": 2100,
+   "confidence": "exact"
+  },
+  {
+   "sku": "SELENIA-20K-10W-40-1L",
+   "product": "Selenia 20K 10W-40 [1L]",
+   "skroutzId": "50791224",
+   "skroutzTitle": "Selenia Συνθετικό Λάδι 10W-40 1lt",
+   "priceCents": 1090,
+   "confidence": "exact",
+   "note": "Skroutz: «Selenia 10W-40 1lt»."
+  },
+  {
+   "sku": "SELENIA-DIGITEK-PURE-ENERGY-1L",
+   "product": "Selenia Digitek Pure Energy [1L]",
+   "skroutzId": "36884708",
+   "skroutzTitle": "Selenia Digitek Pure Energy Συνθετικό Λάδι 0W-30 1lt",
+   "priceCents": 1530,
+   "confidence": "exact"
+  },
+  {
+   "sku": "SELENIA-ECO2-1L",
+   "product": "Selenia ECO2 [1L]",
+   "skroutzId": "33831370",
+   "skroutzTitle": "Selenia Eco2 Συνθετικό Λάδι 0W-20 1lt",
+   "priceCents": 1590,
+   "confidence": "exact"
+  },
+  {
+   "sku": "SELENIA-GOLD-SYNTH-10W-40-1L",
+   "product": "Selenia Gold Synth 10W-40 [1L]",
+   "skroutzId": "6140323",
+   "skroutzTitle": "Selenia Gold Synth Συνθετικό Λάδι 10W-40 1lt",
+   "priceCents": 1090,
+   "confidence": "exact"
+  },
+  {
+   "sku": "SELENIA-GOLD-SYNTH-10W-40-TEMACHIO",
+   "product": "Selenia Gold Synth 10W-40 [Τεμάχιο]",
+   "skroutzId": "59412384",
+   "skroutzTitle": "Selenia Gold Λάδι 10W-40 2lt",
+   "priceCents": 2090,
+   "confidence": "probable",
+   "note": "Η συσκευασία δεν φαινόταν στη φωτογραφία. Στο Skroutz υπάρχει «Selenia Gold 10W-40 2lt» — αν είναι το δίλιτρο, αλλάξτε και τη συσκευασία σε 2L."
+  },
+  {
+   "sku": "SELENIA-K-PURE-ENERGY-5W-40-1L",
+   "product": "Selenia K Pure Energy 5W-40 [1L]",
+   "skroutzId": "33797403",
+   "skroutzTitle": "Selenia K Pure Energy Συνθετικό Λάδι 5W-40 1lt",
+   "priceCents": 1250,
+   "confidence": "exact"
+  },
+  {
+   "sku": "SELENIA-STAR-PURE-ENERGY-5W-40-1L",
+   "product": "Selenia Star Pure Energy 5W-40 [1L]",
+   "skroutzId": "68665766",
+   "skroutzTitle": "Selenia Star Pure Energy Συνθετικό Λάδι 5W-40 1lt",
+   "priceCents": 1590,
+   "confidence": "exact"
+  },
+  {
+   "sku": "SELENIA-WR-FORWARD-0W-20-1L",
+   "product": "Selenia WR Forward 0W-20 [1L]",
+   "skroutzId": "33710868",
+   "skroutzTitle": "Selenia WR Forward Συνθετικό Λάδι 0W-20 1lt",
+   "priceCents": 1390,
+   "confidence": "exact"
+  },
+  {
+   "sku": "SELENIA-WR-FORWARD-0W-30-1L",
+   "product": "Selenia WR Forward 0W-30 [1L]",
+   "skroutzId": "33710507",
+   "skroutzTitle": "Selenia WR Forward Συνθετικό Λάδι 0W-30 1lt",
+   "priceCents": 1380,
+   "confidence": "exact"
+  },
+  {
+   "sku": "SHELL-HELIX-HX6-10W-40-1L",
+   "product": "Shell Helix HX6 10W-40 [1L]",
+   "skroutzId": "22541256",
+   "skroutzTitle": "Shell Helix HX6 Λάδι 10W-40 1lt",
+   "priceCents": 990,
+   "confidence": "exact"
+  },
+  {
+   "sku": "SHELL-HELIX-ULTRA-5W-40-1L",
+   "product": "Shell Helix Ultra 5W-40 [1L]",
+   "skroutzId": "61410637",
+   "skroutzTitle": "Shell Helix Ultra Λάδι 5W-40 1lt",
+   "priceCents": 1370,
+   "confidence": "exact"
+  },
+  {
+   "sku": "TOYOTA-ADVANCED-FUEL-ECONOMY-EXTRA-0W-20-1L",
+   "product": "Toyota Advanced Fuel Economy Extra 0W-20 [1L]",
+   "skroutzId": "22330078",
+   "skroutzTitle": "Toyota Advanced Fuel Economy Extra Συνθετικό Λάδι 0W-20 1lt",
+   "priceCents": 1690,
+   "confidence": "exact"
+  },
+  {
+   "sku": "TOYOTA-PREMIUM-FUEL-ECONOMY-5W-30-1L",
+   "product": "Toyota Premium Fuel Economy 5W-30 [1L]",
+   "skroutzId": "16313848",
+   "skroutzTitle": "Toyota Premium Fuel Economy (PFE) Συνθετικό Λάδι 5W-30 1lt",
+   "priceCents": 1490,
+   "confidence": "exact"
+  },
+  {
+   "sku": "PETRONAS-TUTELA-GREASE-MR-3-TEMACHIO",
+   "product": "Petronas Tutela Grease MR 3 [Τεμάχιο]",
+   "skroutzId": "40309758",
+   "skroutzTitle": "Petronas Tutela MR3 Γράσο Λιθίου 850gr",
+   "priceCents": 1050,
+   "confidence": "exact",
+   "note": "Skroutz: συσκευασία 850gr — συμπληρώστε την και στο προϊόν."
+  },
+  {
+   "sku": "PETRONAS-TUTELA-TRANSMISSION-CS-SPEED-1L",
+   "product": "Petronas Tutela Transmission CS Speed [1L]",
+   "skroutzId": "23188168",
+   "skroutzTitle": "Petronas Tutela CS Speed Βαλβολίνη για Αυτόματο Κιβώτιο 75W 1lt",
+   "priceCents": 2190,
+   "confidence": "exact"
+  },
+  {
+   "sku": "PETRONAS-TUTELA-TRANSMISSION-GEARFORCE-75W-1L",
+   "product": "Petronas Tutela Transmission Gearforce 75W [1L]",
+   "skroutzId": "14015480",
+   "skroutzTitle": "Petronas Tutela Transmission Gearforce Βαλβολίνη για Αυτόματο Κιβώτιο 75W 1lt",
+   "priceCents": 1890,
+   "confidence": "exact"
+  },
+  {
+   "sku": "PETRONAS-TUTELA-TRANSMISSION-TECHNYX-75W-85-1L",
+   "product": "Petronas Tutela Transmission Technyx 75W-85 [1L]",
+   "skroutzId": "59428896",
+   "skroutzTitle": "Petronas Fiat Ar Technyx Βαλβολίνη για Χειροκίνητο Κιβώτιο 75W-85 1lt",
+   "priceCents": 1950,
+   "confidence": "exact"
+  },
+  {
+   "sku": "VALVOLINE-ALL-CLIMATE-EXTRA-15W-40-5L",
+   "product": "Valvoline All-Climate Extra 15W-40 [5L]",
+   "skroutzId": "8599183",
+   "skroutzTitle": "Valvoline All Climate Λάδι 15W-40 5lt",
+   "priceCents": 3990,
+   "confidence": "exact",
+   "note": "Skroutz: «All Climate 15W-40 5lt»."
+  },
+  {
+   "sku": "VALVOLINE-ATF-AUTOMATIC-TRANSMISSION-FLUID-1L",
+   "product": "Valvoline ATF Automatic Transmission Fluid [1L]",
+   "skroutzId": "29059161",
+   "skroutzTitle": "Valvoline ATF Βαλβολίνη για Αυτόματο Κιβώτιο 1lt",
+   "priceCents": 1450,
+   "confidence": "exact"
+  },
+  {
+   "sku": "VALVOLINE-DURABLEND-4T-15W-50-1L",
+   "product": "Valvoline DuraBlend 4T 15W-50 [1L]",
+   "skroutzId": "13785196",
+   "skroutzTitle": "Valvoline DuraBlend 4T Ημισυνθετικό Λάδι 15W-50 1lt",
+   "priceCents": 1090,
+   "confidence": "exact"
+  },
+  {
+   "sku": "VALVOLINE-GEAR-OIL-75W-80-1L",
+   "product": "Valvoline Gear Oil 75W-80 [1L]",
+   "skroutzId": "41159157",
+   "skroutzTitle": "Valvoline Val Βαλβολίνη για Χειροκίνητο Κιβώτιο 75W-80 1lt",
+   "priceCents": 1290,
+   "confidence": "probable",
+   "note": "Στο Skroutz υπάρχουν δύο Valvoline 75W-80 (12,90 και 13,50) χωρίς να ξεχωρίζει ποιο είναι το RPC."
+  },
+  {
+   "sku": "VALVOLINE-GEAR-OIL-75W-80-RPC-1L",
+   "product": "Valvoline Gear Oil 75W-80 RPC [1L]",
+   "skroutzId": "61791792",
+   "skroutzTitle": "Valvoline Βαλβολίνη για Αυτόματο Κιβώτιο & Διαφορικό 75W-80 1lt",
+   "priceCents": 1350,
+   "confidence": "probable",
+   "note": "Στο Skroutz υπάρχουν δύο Valvoline 75W-80 (12,90 και 13,50) χωρίς να ξεχωρίζει ποιο είναι το RPC."
+  },
+  {
+   "sku": "VALVOLINE-HEAVY-DUTY-AXLE-OIL-PRO-80W-90-LIMITED-SLIP-1L",
+   "product": "Valvoline Heavy Duty Axle Oil Pro 80W-90 Limited Slip [1L]",
+   "skroutzId": "68219835",
+   "skroutzTitle": "Valvoline Heavy Duty Axle Pro LS Λάδι 80W-90 1lt",
+   "priceCents": 1250,
+   "confidence": "exact"
+  },
+  {
+   "sku": "VALVOLINE-MAXLIFE-10W-40-1L",
+   "product": "Valvoline MaxLife 10W-40 [1L]",
+   "skroutzId": "54210809",
+   "skroutzTitle": "Valvoline Max Life Synthetic Συνθετικό Λάδι 10W-40 1lt",
+   "priceCents": 1020,
+   "confidence": "exact"
+  },
+  {
+   "sku": "VALVOLINE-SYNPOWER-10W-40-1L",
+   "product": "Valvoline SynPower 10W-40 [1L]",
+   "skroutzId": "9823108",
+   "skroutzTitle": "Valvoline SynPower Συνθετικό Λάδι 10W-40 1lt",
+   "priceCents": 890,
+   "confidence": "exact"
+  },
+  {
+   "sku": "VALVOLINE-SYNPOWER-10W-40-4L",
+   "product": "Valvoline SynPower 10W-40 [4L]",
+   "skroutzId": "9823160",
+   "skroutzTitle": "Valvoline SynPower Ημισυνθετικό Λάδι 10W-40 4lt",
+   "priceCents": 3550,
+   "confidence": "exact"
+  },
+  {
+   "sku": "VALVOLINE-SYNPOWER-4T-10W-30-1L",
+   "product": "Valvoline SynPower 4T 10W-30 [1L]",
+   "skroutzId": "68504448",
+   "skroutzTitle": "Valvoline Synpower Συνθετικό Λάδι 10W-30 1lt",
+   "priceCents": 1290,
+   "confidence": "exact"
+  },
+  {
+   "sku": "VALVOLINE-SYNPOWER-4T-10W-50-1L",
+   "product": "Valvoline SynPower 4T 10W-50 [1L]",
+   "skroutzId": "13945579",
+   "skroutzTitle": "Valvoline Synpower 4T Συνθετικό Λάδι 10W-50 1lt",
+   "priceCents": 1190,
+   "confidence": "exact"
+  },
+  {
+   "sku": "VALVOLINE-SYNPOWER-4T-5W-40-1L",
+   "product": "Valvoline SynPower 4T 5W-40 [1L]",
+   "skroutzId": "13079121",
+   "skroutzTitle": "Valvoline SynPower 4T Συνθετικό Λάδι 5W-40 1lt",
+   "priceCents": 1290,
+   "confidence": "exact"
+  },
+  {
+   "sku": "VALVOLINE-SYNPOWER-FE-5W-30-1L",
+   "product": "Valvoline SynPower FE 5W-30 [1L]",
+   "skroutzId": "61789467",
+   "skroutzTitle": "Valvoline SynPower Συνθετικό Λάδι 5W-30 1lt",
+   "priceCents": 1090,
+   "confidence": "probable",
+   "note": "Το Skroutz γράφει μόνο «SynPower 5W-30 1lt» (το XL-III υπάρχει ξεχωριστά)."
+  },
+  {
+   "sku": "VALVOLINE-SYNPOWER-MST-C3-5W-40-5L",
+   "product": "Valvoline SynPower MST C3 5W-40 [5L]",
+   "skroutzId": "15659454",
+   "skroutzTitle": "Valvoline Synpower MST C3 Συνθετικό Λάδι 5W-40 5lt",
+   "priceCents": 5590,
+   "confidence": "exact"
+  }
+ ],
+ "unmatchedCatalogue": [
+  {
+   "sku": "ACCELERATE-0W-20-GF-1L",
+   "product": "accelerate 0W-20 GF [1L]"
+  },
+  {
+   "sku": "ACCELERATE-15W-40-HIGH-POWER-CSS-1L",
+   "product": "accelerate 15W-40 High Power CSS [1L]"
+  },
+  {
+   "sku": "ACCELERATE-15W-40-HIGH-POWER-CSS-4L",
+   "product": "accelerate 15W-40 High Power CSS [4L]"
+  },
+  {
+   "sku": "ACCELERATE-HYDRAULIC-OIL-HLP-68-20L",
+   "product": "accelerate Hydraulic Oil HLP 68 [20L]"
+  },
+  {
+   "sku": "ACCELERATE-STOU-10W-30-20L",
+   "product": "accelerate STOU 10W-30 [20L]"
+  },
+  {
+   "sku": "ARAL-HIGHTRONIC-5W-40-1L",
+   "product": "Aral HighTronic 5W-40 [1L]"
+  },
+  {
+   "sku": "AVISTA-PACE-EVO-0W-20-FE-5L",
+   "product": "Avista pace EVO 0W-20 FE [5L]"
+  },
+  {
+   "sku": "AVISTA-PACE-EVO-0W-30-C2-1L",
+   "product": "Avista pace EVO 0W-30 C2 [1L]"
+  },
+  {
+   "sku": "AVISTA-PACE-EVO-0W-40-GER-1L",
+   "product": "Avista pace EVO 0W-40 GER [1L]"
+  },
+  {
+   "sku": "AVISTA-PEER-CLASSIC-GL3-SAE-90-20L",
+   "product": "Avista peer CLASSIC GL3 SAE 90 [20L]"
+  },
+  {
+   "sku": "AVISTA-PEER-EVO-75W-90-GL5-1L",
+   "product": "Avista peer EVO 75W-90 GL5 [1L]"
+  },
+  {
+   "sku": "AVISTA-PULSE-EVO-2-STROKE-1L",
+   "product": "Avista pulse EVO 2 Stroke [1L]"
+  },
+  {
+   "sku": "AVISTA-PURE-CF-4-15W-40-20L",
+   "product": "Avista pure CF-4 15W-40 [20L]"
+  },
+  {
+   "sku": "CASTROL-POWER1-ULTIMATE-2T-1L",
+   "product": "Castrol POWER1 ULTIMATE 2T [1L]"
+  },
+  {
+   "sku": "CASTROL-TRANSMAX-MANUAL-75W-90-1L",
+   "product": "Castrol TRANSMAX MANUAL 75W-90 [1L]"
+  },
+  {
+   "sku": "CASTROL-TRANSMAX-UNIVERSAL-LL-75W-90-1L",
+   "product": "Castrol TRANSMAX UNIVERSAL LL 75W-90 [1L]"
+  },
+  {
+   "sku": "GM-GENUINE-GENUINE-MOTOR-OIL-DEXOS2-5W-30-5L",
+   "product": "GM Genuine Genuine Motor Oil dexos2 5W-30 [5L]"
+  },
+  {
+   "sku": "LIQUI-MOLY-SUPER-DIESEL-ADDITIVE-250ML",
+   "product": "Liqui Moly Super Diesel Additive [250ml]"
+  },
+  {
+   "sku": "MAG-1-MOTOR-FLUSH-354ML",
+   "product": "MAG 1 Motor Flush [354ml]"
+  },
+  {
+   "sku": "MAG-1-SMOKE-TREATMENT-428ML",
+   "product": "MAG 1 Smoke Treatment [428ml]"
+  },
+  {
+   "sku": "MAG-1-SUPER-CONCENTRATED-FUEL-INJECTOR-CLEANER-354ML",
+   "product": "MAG 1 Super Concentrated Fuel Injector Cleaner [354ml]"
+  },
+  {
+   "sku": "MANNOL-3002-DOT-4-BRAKE-FLUID-500ML",
+   "product": "Mannol 3002 DOT-4 Brake Fluid [500ml]"
+  },
+  {
+   "sku": "MANNOL-4212-G12-PLUS-COOLANT-READY-TO-USE-ANTIFREEZE-5L",
+   "product": "Mannol 4212 G12+ Coolant (Ready-to-use Antifreeze) [5L]"
+  },
+  {
+   "sku": "MANNOL-4214-G13-PLUS-COOLANT-READY-TO-USE-ANTIFREEZE-5L",
+   "product": "Mannol 4214 G13+ Coolant (Ready-to-use Antifreeze) [5L]"
+  },
+  {
+   "sku": "MANNOL-7904-CHAIN-CLEANER-400ML",
+   "product": "Mannol 7904 Chain Cleaner [400ml]"
+  },
+  {
+   "sku": "MANNOL-8218-ATF-MULTIVEHICLE-JWS-3309-1L",
+   "product": "Mannol 8218 ATF Multivehicle JWS 3309 [1L]"
+  },
+  {
+   "sku": "MOBIL-1-ESP-5W-30-5L",
+   "product": "Mobil 1 ESP 5W-30 [5L]"
+  },
+  {
+   "sku": "MOBIL-1-FS-0W-40-1L",
+   "product": "Mobil 1 FS 0W-40 [1L]"
+  },
+  {
+   "sku": "MOBIL-1-FS-X2-5W-50-5L",
+   "product": "Mobil 1 FS x2 5W-50 [5L]"
+  },
+  {
+   "sku": "MOBIL-SUPER-3000-0W-16-5L",
+   "product": "Mobil Super 3000 0W-16 [5L]"
+  },
+  {
+   "sku": "MOBIL-SUPER-3000-XE-5W-30-5L",
+   "product": "Mobil Super 3000 XE 5W-30 [5L]"
+  },
+  {
+   "sku": "MOTUL-5100-4T-10W-40-4L",
+   "product": "Motul 5100 4T 10W-40 [4L]"
+  },
+  {
+   "sku": "MOTUL-5100-4T-15W-50-1L",
+   "product": "Motul 5100 4T 15W-50 [1L]"
+  },
+  {
+   "sku": "MOTUL-8100-ECO-LITE-0W-20-1L",
+   "product": "Motul 8100 ECO-lite 0W-20 [1L]"
+  },
+  {
+   "sku": "MOTUL-8100-ECO-NERGY-5W-30-5L",
+   "product": "Motul 8100 ECO-nergy 5W-30 [5L]"
+  },
+  {
+   "sku": "MOTUL-8100-X-CESS-5W-40-1L",
+   "product": "Motul 8100 X-cess 5W-40 [1L]"
+  },
+  {
+   "sku": "MOTUL-8100-X-CESS-5W-40-5L",
+   "product": "Motul 8100 X-cess 5W-40 [5L]"
+  },
+  {
+   "sku": "SELENIA-K-POWER-PLUS-5W-30-JEEP-PRIME-OILS-TEMACHIO",
+   "product": "Selenia K Power Plus 5W-30 (Jeep Prime Oils) [Τεμάχιο]"
+  },
+  {
+   "sku": "SHELL-HELIX-HX7-10W-40-1L",
+   "product": "Shell Helix HX7 10W-40 [1L]"
+  },
+  {
+   "sku": "SHELL-HELIX-HX7-10W-40-5L",
+   "product": "Shell Helix HX7 10W-40 [5L]"
+  },
+  {
+   "sku": "SILVERSPIN-YGRO-YALOKATHARISTIRON-4L",
+   "product": "SilverSpin Υγρό Υαλοκαθαριστήρων [4L]"
+  },
+  {
+   "sku": "TOYOTA-ADVANCED-FUEL-ECONOMY-0W-16-1L",
+   "product": "Toyota Advanced Fuel Economy 0W-16 [1L]"
+  },
+  {
+   "sku": "TOYOTA-ADVANCED-FUEL-ECONOMY-0W-16-5L",
+   "product": "Toyota Advanced Fuel Economy 0W-16 [5L]"
+  },
+  {
+   "sku": "TOYOTA-ADVANCED-FUEL-ECONOMY-EXTRA-0W-20-5L",
+   "product": "Toyota Advanced Fuel Economy Extra 0W-20 [5L]"
+  },
+  {
+   "sku": "TOYOTA-PREMIUM-FUEL-ECONOMY-5W-30-5L",
+   "product": "Toyota Premium Fuel Economy 5W-30 [5L]"
+  },
+  {
+   "sku": "PETRONAS-TUTELA-TRANSMISSION-GEAR-80-90-1L",
+   "product": "Petronas Tutela Transmission Gear 80-90 [1L]"
+  },
+  {
+   "sku": "PETRONAS-TUTELA-TRANSMISSION-MATRYX-75W-85-1L",
+   "product": "Petronas Tutela Transmission Matryx 75W-85 [1L]"
+  },
+  {
+   "sku": "VALEO-PROTECTIV-35-READY-TO-USE-LIQUID-COOLANT-G11-TYPE-4L",
+   "product": "Valeo Protectiv 35 Ready-to-use Liquid Coolant G11 Type [4L]"
+  },
+  {
+   "sku": "VALVOLINE-ALL-CLIMATE-20W-50-5L",
+   "product": "Valvoline All-Climate 20W-50 [5L]"
+  },
+  {
+   "sku": "VALVOLINE-CVT-1L",
+   "product": "Valvoline CVT [1L]"
+  },
+  {
+   "sku": "VALVOLINE-DCT-DUAL-CLUTCH-TRANSMISSION-FLUID-1L",
+   "product": "Valvoline DCT Dual Clutch Transmission Fluid [1L]"
+  },
+  {
+   "sku": "VALVOLINE-GEAR-OIL-75W-90-1L",
+   "product": "Valvoline Gear Oil 75W-90 [1L]"
+  },
+  {
+   "sku": "VALVOLINE-HVLP-46-20L",
+   "product": "Valvoline HVLP 46 [20L]"
+  },
+  {
+   "sku": "VALVOLINE-LIGHT-AND-HEAVY-DUTY-AXLE-OIL-80W-90-1L",
+   "product": "Valvoline Light & Heavy Duty Axle Oil 80W-90 [1L]"
+  },
+  {
+   "sku": "VALVOLINE-MAXLIFE-10W-40-4L",
+   "product": "Valvoline MaxLife 10W-40 [4L]"
+  },
+  {
+   "sku": "VALVOLINE-MAXLIFE-10W-40-5L",
+   "product": "Valvoline MaxLife 10W-40 [5L]"
+  },
+  {
+   "sku": "VALVOLINE-SYNPOWER-FE-5W-30-5L",
+   "product": "Valvoline SynPower FE 5W-30 [5L]"
+  },
+  {
+   "sku": "VALVOLINE-SYNPOWER-MST-C3-5W-40-1L",
+   "product": "Valvoline SynPower MST C3 5W-40 [1L]"
+  }
+ ],
+ "notInCatalogue": [
+  {
+   "skroutzId": "32018144",
+   "title": "Elf Tranself NFX Βαλβολίνη για Χειροκίνητο Κιβώτιο 75W 1lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 1390
+  },
+  {
+   "skroutzId": "30724092",
+   "title": "Fuchs Titan Sintofluid Fe Βαλβολίνη για Χειροκίνητο Κιβώτιο 75W 1lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 1350
+  },
+  {
+   "skroutzId": "8298047",
+   "title": "Bel-Ray EXP Synthetic Ester Blend 4T Ημισυνθετικό Λάδι 10W-40 1lt",
+   "category": "Λιπαντικά Μοτοσυκλέτας",
+   "priceCents": 1320
+  },
+  {
+   "skroutzId": "13713782",
+   "title": "Liqui Moly Hypoid Gear Oil (GL4/5) TDL Βαλβολίνη για Χειροκίνητο Κιβώτιο & Διαφορικό 75W-90 1lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 1590
+  },
+  {
+   "skroutzId": "53417651",
+   "title": "Total Quartz Ineo RCP Συνθετικό Λάδι 5W-30 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 6790
+  },
+  {
+   "skroutzId": "6185384",
+   "title": "Elf Evolution Full-Tech Συνθετικό Λάδι 5W-30 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 5580
+  },
+  {
+   "skroutzId": "13721979",
+   "title": "Cyclon Gear HD GL-4 Βαλβολίνη για Χειροκίνητο Κιβώτιο 80W-90 4lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 2390
+  },
+  {
+   "skroutzId": "15394215",
+   "title": "Liqui Moly Anti-Bacterial Diesel-Additive Πρόσθετο Αντιβακτηριδιακό & Μυκητοκτόνο 125ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1290
+  },
+  {
+   "skroutzId": "53417652",
+   "title": "Total Quartz Ineo RCP Συνθετικό Λάδι 5W-30 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 1499
+  },
+  {
+   "skroutzId": "6146292",
+   "title": "Total Quartz Ineo Ecs Συνθετικό Λάδι 5W-30 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 5490
+  },
+  {
+   "skroutzId": "20119124",
+   "title": "Protec P6171 Πρόσθετο Καθαριστικό DPF 375ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1550
+  },
+  {
+   "skroutzId": "18465909",
+   "title": "Liqui Moly Καθαριστικό Σπρέι 200ml 4066 8044 Αισθητήρα Μάζας Αέρα",
+   "category": "Τεχνικά Σπρέι",
+   "priceCents": 1130
+  },
+  {
+   "skroutzId": "38563750",
+   "title": "Power Service Diesel Kleen + Cetane Boost Πρόσθετο Ενισχυτικό Αριθμού Κετανίων 355ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1495
+  },
+  {
+   "skroutzId": "6146290",
+   "title": "Total Quartz Ineo Ecs Συνθετικό Λάδι 5W-30 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 1180
+  },
+  {
+   "skroutzId": "26742807",
+   "title": "Mannol Dexron VI Βαλβολίνη για Αυτόματο Κιβώτιο 1lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 850
+  },
+  {
+   "skroutzId": "13622966",
+   "title": "Protec P1001 Engine Flush Πρόσθετο Καθαριστικό Κινητήρα 375ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1450
+  },
+  {
+   "skroutzId": "52469449",
+   "title": "Total Βαλβολίνη για Αυτόματο Κιβώτιο & Υδραυλικό Τιμόνι 1lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 1350
+  },
+  {
+   "skroutzId": "49701698",
+   "title": "Total Traxium Gear 9 Fe Βαλβολίνη για Χειροκίνητο Κιβώτιο 75W 1lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 1490
+  },
+  {
+   "skroutzId": "64976203",
+   "title": "Total Fluide Da Power Steering Oil 1l",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 1650
+  },
+  {
+   "skroutzId": "7616052",
+   "title": "Selenia WR Pure Energy Συνθετικό Λάδι 5W-30 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 1390
+  },
+  {
+   "skroutzId": "30013508",
+   "title": "Ford Motorcraft Συνθετικό Λάδι 5W-30 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 4990
+  },
+  {
+   "skroutzId": "7436460",
+   "title": "Total Quartz Ineo First Συνθετικό Λάδι 0W-30 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 1550
+  },
+  {
+   "skroutzId": "12434676",
+   "title": "Elf Evolution 900 SXR Συνθετικό Λάδι 5W-40 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 5290
+  },
+  {
+   "skroutzId": "50700471",
+   "title": "Motul 8100 X-clean gen2 Συνθετικό Λάδι 5W-40 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 7750
+  },
+  {
+   "skroutzId": "6174880",
+   "title": "Total Quartz 9000 Συνθετικό Λάδι 5W-40 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 5270
+  },
+  {
+   "skroutzId": "38204503",
+   "title": "Valvoline 4t Sae Λάδι 20W-50 1lt",
+   "category": "Λιπαντικά Μοτοσυκλέτας",
+   "priceCents": 890
+  },
+  {
+   "skroutzId": "6184617",
+   "title": "Elf Evolution Full-Tech Συνθετικό Λάδι 5W-30 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 1190
+  },
+  {
+   "skroutzId": "57829503",
+   "title": "Elf Evolution 700 Sti Ημισυνθετικό Λάδι 10W-40 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 3890
+  },
+  {
+   "skroutzId": "23206890",
+   "title": "GM Opel Trasmission Oil Βαλβολίνη για Αυτόματο Κιβώτιο 1lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 1980
+  },
+  {
+   "skroutzId": "48242736",
+   "title": "Cyclon Gear Prime 90 Βαλβολίνη για Διαφορικό 4lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 2190
+  },
+  {
+   "skroutzId": "15424473",
+   "title": "Cyclon Magma Syn F1 Συνθετικό Λάδι 10W-40 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 780
+  },
+  {
+   "skroutzId": "7616065",
+   "title": "Elf Evolution 900 SXR Συνθετικό Λάδι 5W-30 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 947
+  },
+  {
+   "skroutzId": "6807038",
+   "title": "Elf Evolution 700 STI Συνθετικό Λάδι 10W-40 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 890
+  },
+  {
+   "skroutzId": "13613589",
+   "title": "STP Βελτιωτικό Βαλβολίνης Πρόσθετο Βελτιωτικό Λαδιού 150ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1450
+  },
+  {
+   "skroutzId": "13615651",
+   "title": "Motorkote Hyper Lubricant Πρόσθετο Αντιτριβικό & Βελτιωτικό Λίπανσης 295.7ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 3398
+  },
+  {
+   "skroutzId": "11961605",
+   "title": "Elf Evolution 900 SXR Συνθετικό Λάδι 5W-30 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 4590
+  },
+  {
+   "skroutzId": "50791434",
+   "title": "Total Quartz 7000 Ημισυνθετικό Λάδι 10W-40 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 950
+  },
+  {
+   "skroutzId": "26444147",
+   "title": "Mannol Chain Lube 7901 Λιπαντικό Αλυσίδας Μοτοσυκλέτας 200ml",
+   "category": "Περιποίηση Αλυσίδας Μοτοσυκλέτας",
+   "priceCents": 750
+  },
+  {
+   "skroutzId": "16313652",
+   "title": "Motul 8100 X-Power Συνθετικό Λάδι 10W-60 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 6990
+  },
+  {
+   "skroutzId": "48128983",
+   "title": "Selenia Racing Λάδι 10W-60 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 5490
+  },
+  {
+   "skroutzId": "7206674",
+   "title": "Valvoline SynPower XL-III Συνθετικό Λάδι 5W-30 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 1290
+  },
+  {
+   "skroutzId": "19468666",
+   "title": "Castrol Transmax CVT Βαλβολίνη για Αυτόματο Κιβώτιο 1lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 1550
+  },
+  {
+   "skroutzId": "32018020",
+   "title": "Liqui Moly Multi-disc Clutch Oil Βαλβολίνη για Αυτόματο Κιβώτιο & Υδραυλικό Τιμόνι 1lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 2890
+  },
+  {
+   "skroutzId": "42269275",
+   "title": "Total Quartz Ineo Xtra First Ημισυνθετικό Λάδι 0W-20 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 1590
+  },
+  {
+   "skroutzId": "17399075",
+   "title": "Cyclon Granit Extra Λάδι 20W-50 20lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 8650
+  },
+  {
+   "skroutzId": "6821659",
+   "title": "Elf Evolution 900 SXR Συνθετικό Λάδι 5W-40 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 890
+  },
+  {
+   "skroutzId": "25965327",
+   "title": "Powerred Pro Διάλυμα Ουρίας για Καταλύτες SCR 10lt",
+   "category": "Διαλύματα Ουρίας Αυτοκινήτου",
+   "priceCents": 1650
+  },
+  {
+   "skroutzId": "23966673",
+   "title": "Valeo Protectiv 40 Αντιψυκτικό Παραφλού Ψυγείου Αυτοκινήτου G12 -25°C Μπλε Χρώμα 5lt",
+   "category": "Αντιψυκτικά Αυτοκινήτου",
+   "priceCents": 1590
+  },
+  {
+   "skroutzId": "18364135",
+   "title": "Mannol M-40 Λιπαντικό Σπρέι 450ml MN9899",
+   "category": "Τεχνικά Σπρέι",
+   "priceCents": 500
+  },
+  {
+   "skroutzId": "13623404",
+   "title": "Protec P1301 Oil Booster Πρόσθετο Βελτιωτικό Λαδιού 375ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1650
+  },
+  {
+   "skroutzId": "36442643",
+   "title": "Johnsen's S Oil Treatment Πρόσθετο Βελτιωτικό Λαδιού 355ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1090
+  },
+  {
+   "skroutzId": "13623442",
+   "title": "Protec P2101 Καθαρισμός & Προστασία συστήματος Diesel Com Πρόσθετο Καθαριστικό Συστήματος Καυσίμου 375ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1550
+  },
+  {
+   "skroutzId": "8599025",
+   "title": "Valvoline Maxlife Λάδι 15W-40 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 890
+  },
+  {
+   "skroutzId": "22320687",
+   "title": "Castrol Edge Titanium FST Λάδι 5W-40 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 6050
+  },
+  {
+   "skroutzId": "20215004",
+   "title": "Liqui Moly Hybrid Additive Πρόσθετο Βελτιωτικό Καυσίμου 250ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1690
+  },
+  {
+   "skroutzId": "7654866",
+   "title": "Castrol Ford Magnatec Professional E Συνθετικό Λάδι 5W-20 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 1280
+  },
+  {
+   "skroutzId": "15243999",
+   "title": "Protec P1601 Radiator Stop Leak Πρόσθετο Σφραγιστικό Διαρροών Ψυγείου 375ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1190
+  },
+  {
+   "skroutzId": "13622719",
+   "title": "Protec P2131 Προστασία Υδραυλικών Ωστηρίων Πρόσθετο Αντιτριβικό & Βελτιωτικό Λίπανσης 375ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 2190
+  },
+  {
+   "skroutzId": "51967580",
+   "title": "Total Quartz 9000 Συνθετικό Λάδι 5W-40 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 1090
+  },
+  {
+   "skroutzId": "17014879",
+   "title": "Selenia Multipower GAS Συνθετικό Λάδι 5W-40 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 1470
+  },
+  {
+   "skroutzId": "24597182",
+   "title": "Valvoline Max Life Λάδι 5W-40 4lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 4290
+  },
+  {
+   "skroutzId": "24135807",
+   "title": "Castrol Chain Lube Racing Λιπαντικό Αλυσίδας Μοτοσυκλέτας 400ml",
+   "category": "Περιποίηση Αλυσίδας Μοτοσυκλέτας",
+   "priceCents": 1250
+  },
+  {
+   "skroutzId": "6146481",
+   "title": "Total Rubia Tir 7400 Λάδι 15W-40 20lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 9990
+  },
+  {
+   "skroutzId": "42221350",
+   "title": "Valeo Protectiv 50 Αντιψυκτικό Παραφλού Ψυγείου Αυτοκινήτου G13 -35°C/+135°C Ροζ Χρώμα 5lt",
+   "category": "Αντιψυκτικά Αυτοκινήτου",
+   "priceCents": 2690
+  },
+  {
+   "skroutzId": "52573403",
+   "title": "Total Quartz Ineo Xtra First Ημισυνθετικό Λάδι 0W-20 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 6190
+  },
+  {
+   "skroutzId": "13623457",
+   "title": "Protec P1988 LPG Πρόσθετο Βελτιωτικό Βαλβίδων Κεφαλής 1lt",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 2620
+  },
+  {
+   "skroutzId": "6140567",
+   "title": "Motul 300V Chrono Συνθετικό Λάδι 10W-40 2lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 4490
+  },
+  {
+   "skroutzId": "53050263",
+   "title": "Ate Dot-4 Υγρά Φρένων DOT 4 1lt",
+   "category": "Υγρά Φρένων",
+   "priceCents": 1250
+  },
+  {
+   "skroutzId": "48683884",
+   "title": "MAG1 Liquid Glass Metallic Seal Up Πρόσθετο Σφραγιστικό Διαρροών Ψυγείου 646ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1900
+  },
+  {
+   "skroutzId": "21168113",
+   "title": "Valvoline SynPower 4T Συνθετικό Λάδι 10W-40 1lt",
+   "category": "Λιπαντικά Μοτοσυκλέτας",
+   "priceCents": 1290
+  },
+  {
+   "skroutzId": "29713742",
+   "title": "Liqui Moly Συμπυκνωμένο Αντιψυκτικό Υγρό Ψυγείου Μοτοσυκλέτας G11 -20°C 1lt",
+   "category": "Αντιψυκτικά Αυτοκινήτου",
+   "priceCents": 690
+  },
+  {
+   "skroutzId": "17804733",
+   "title": "Selenia WR Λάδι 5W-40 2lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 2850
+  },
+  {
+   "skroutzId": "61387867",
+   "title": "Λευκό Γράσο Σπρέι Valvoline White Grease 500ml",
+   "category": "Τεχνικά Σπρέι",
+   "priceCents": 1090
+  },
+  {
+   "skroutzId": "29713778",
+   "title": "Liqui Moly Radiator Antifreeze KFS12 Plus Συμπυκνωμένο Αντιψυκτικό Υγρό Ψυγείου Αυτοκινήτου -40°C Ροζ Χρώμα 5lt",
+   "category": "Αντιψυκτικά Αυτοκινήτου",
+   "priceCents": 2390
+  },
+  {
+   "skroutzId": "36316965",
+   "title": "Liqui Moly Marine 4T 10W-40 Λάδι Σκάφους 4T 10W-40 Marine 4T 5lt",
+   "category": "Λάδια Σκάφους",
+   "priceCents": 6490
+  },
+  {
+   "skroutzId": "29869844",
+   "title": "Certus LS3 Γράσο Ασβεστίου 1kg",
+   "category": "Γράσα & Λιπαντικά",
+   "priceCents": 580
+  },
+  {
+   "skroutzId": "6138946",
+   "title": "Aral Turboral Συνθετικό Λάδι 10W-40 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 3590
+  },
+  {
+   "skroutzId": "58709125",
+   "title": "Total Quartz 7000 Ημισυνθετικό Λάδι 10W-40 4lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 3590
+  },
+  {
+   "skroutzId": "10630760",
+   "title": "Valvoline SynPower Λάδι 10W-40 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 4390
+  },
+  {
+   "skroutzId": "13623480",
+   "title": "Protec P2161 Πρόσθετο Βελτιωτικό Υδραυλικού Τιμονιού 100ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 950
+  },
+  {
+   "skroutzId": "68293656",
+   "title": "Pro Proquisur Anticongelante Refrigerante G12 G12+ 50% Long Life Αντιψυκτικό Αντιθερμικό Υγρό Ροζ 5l",
+   "category": "Αντιψυκτικά Αυτοκινήτου",
+   "priceCents": 1790
+  },
+  {
+   "skroutzId": "18498263",
+   "title": "Mannol Αντιολισθητικό Σπρέι 200ml MN9897 για Ιμάντες",
+   "category": "Τεχνικά Σπρέι",
+   "priceCents": 650
+  },
+  {
+   "skroutzId": "28544320",
+   "title": "Ate Super Dot 5.1 Υγρά Φρένων DOT 5.1 Υγρά Φρένων 1lt",
+   "category": "Υγρά Φρένων",
+   "priceCents": 2050
+  },
+  {
+   "skroutzId": "68504413",
+   "title": "Castrol Edge Συνθετικό Λάδι 0W-30 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 6890
+  },
+  {
+   "skroutzId": "15966612",
+   "title": "Mannol 9671 Σπρέι Καθαρισμού Κινητήρα Αυτοκινήτου 450ml",
+   "category": "Καθαριστικά Κινητήρα Αυτοκινήτου",
+   "priceCents": 690
+  },
+  {
+   "skroutzId": "58817475",
+   "title": "Liqui Moly Συμπυκνωμένο Αντιψυκτικό Υγρό Ψυγείου Αυτοκινήτου G11 5lt",
+   "category": "Αντιψυκτικά Αυτοκινήτου",
+   "priceCents": 2650
+  },
+  {
+   "skroutzId": "45653403",
+   "title": "Total Quartz Ineo Xtra EC6 Λάδι 0W-20 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 1700
+  },
+  {
+   "skroutzId": "16008612",
+   "title": "Mobil Super 3000 XE Συνθετικό Λάδι 5W-30 4lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 4790
+  },
+  {
+   "skroutzId": "69382294",
+   "title": "Cyclon Γράσο 20lt",
+   "category": "Γράσα & Λιπαντικά",
+   "priceCents": 8390
+  },
+  {
+   "skroutzId": "27068021",
+   "title": "Total Neptuna 2T Super Sport Λάδι Σκάφους για Δίχρονους Κινητήρες 1lt",
+   "category": "Λάδια Σκάφους",
+   "priceCents": 1290
+  },
+  {
+   "skroutzId": "18562127",
+   "title": "Liqui Moly Diesel Flow Fit Πρόσθετο Αντιπαγωτικό & Βελτιωτικό Ροής 150ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 578
+  },
+  {
+   "skroutzId": "36368116",
+   "title": "Johnsen's Radiator Stop Leak Πρόσθετο Σφραγιστικό Διαρροών Ψυγείου 355ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 580
+  },
+  {
+   "skroutzId": "48242699",
+   "title": "Cyclon Gear Prime 90 Βαλβολίνη για Διαφορικό 1lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 670
+  },
+  {
+   "skroutzId": "69124957",
+   "title": "Avista Γράσο 1lt",
+   "category": "Γράσα & Λιπαντικά",
+   "priceCents": 690
+  },
+  {
+   "skroutzId": "44672457",
+   "title": "Cyclon Λιπαντικό",
+   "category": "Λάδια Εργαλείων",
+   "priceCents": 690
+  },
+  {
+   "skroutzId": "46742097",
+   "title": "Mannol Ημισυνθετικό Λάδι 1lt",
+   "category": "Λιπαντικά Μοτοσυκλέτας",
+   "priceCents": 890
+  },
+  {
+   "skroutzId": "52057904",
+   "title": "Morison Oil Γράσο Ασβεστίου 900gr",
+   "category": "Γράσα & Λιπαντικά",
+   "priceCents": 900
+  },
+  {
+   "skroutzId": "68428806",
+   "title": "Accelerate Βαλβολίνη για Διαφορικό 75W-90 1lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 920
+  },
+  {
+   "skroutzId": "48979031",
+   "title": "Total Quartz 7000 Ημισυνθετικό Λάδι 15W-50 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 950
+  },
+  {
+   "skroutzId": "64976242",
+   "title": "1l Elf Elfmatic G3 Specific Standards Gm Dexron Iii Volvo 97341 Mb 236.9 Man 339 Type V1/z1 Ford Mercon Zf Te-ml 04d-09-14a-17c Allison C4 Voith 55.6335",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 950
+  },
+  {
+   "skroutzId": "61387761",
+   "title": "Cp Grease Lithium Nlgi-3 900gr Cpo-grease Lith3 900",
+   "category": "Γράσα & Λιπαντικά",
+   "priceCents": 1000
+  },
+  {
+   "skroutzId": "40914346",
+   "title": "Total Fluidmatic D3 Βαλβολίνη για Αυτόματο Κιβώτιο & Υδραυλικό Τιμόνι 1lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 1060
+  },
+  {
+   "skroutzId": "8599040",
+   "title": "Valvoline DuraBlend 2T Λάδι 1lt",
+   "category": "Λιπαντικά Μοτοσυκλέτας",
+   "priceCents": 1150
+  },
+  {
+   "skroutzId": "55782357",
+   "title": "Shell Helix HX8 Συνθετικό Λάδι 5W-30 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 1230
+  },
+  {
+   "skroutzId": "13622786",
+   "title": "Protec P2121 Στεγανοποίηση Διαρροών Πρόσθετο Σφραγιστικό Διαρροών Κιβωτίου Ταχυτήτων 375ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1380
+  },
+  {
+   "skroutzId": "66200388",
+   "title": "Valvoline Light Hd Atf Cvt Automatic Transmission Oil 1l",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 1390
+  },
+  {
+   "skroutzId": "13623451",
+   "title": "Protec P2111 Αντικαπνικό Πρόσθετο Αντικαπνικό 375ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1470
+  },
+  {
+   "skroutzId": "69132597",
+   "title": "Rowe Hightec Zh-m Synt 1l Πράσινο Συνθετικό Υγρό Κεντρικών Υδραυλικών Συστημάτων & Τιμονιού",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 1490
+  },
+  {
+   "skroutzId": "68253894",
+   "title": "Valvoline Γράσο 1lt",
+   "category": "Γράσα & Λιπαντικά",
+   "priceCents": 1490
+  },
+  {
+   "skroutzId": "68469725",
+   "title": "Total Fluidmatic Dvi Mv 1l",
+   "category": "Εργαλεία & Λιπαντικά Ποδηλάτου",
+   "priceCents": 1490
+  },
+  {
+   "skroutzId": "26545644",
+   "title": "Protec Automatic Transmission Conditioner Πρόσθετο Βελτιωτικό Κιβωτίου Ταχυτήτων 375ml",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1490
+  },
+  {
+   "skroutzId": "61386258",
+   "title": "Ορυκτελαιο Cyclon Industrial Silver 10w 4l",
+   "category": "Λάδια Αλυσίδας Αλυσοπρίονων",
+   "priceCents": 1500
+  },
+  {
+   "skroutzId": "9030141",
+   "title": "Bel-Ray Scooter Semi-synthetic 2t Engine Ημισυνθετικό Λάδι 1lt",
+   "category": "Λιπαντικά Μοτοσυκλέτας",
+   "priceCents": 1590
+  },
+  {
+   "skroutzId": "69136190",
+   "title": "Total Quartz Ineo SDE Συνθετικό Λάδι 0W-30 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 1690
+  },
+  {
+   "skroutzId": "18512193",
+   "title": "Liqui Moly Diesel Flow Fit K Πρόσθετο Αντιπαγωτικό & Βελτιωτικό Ροής 1lt",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 1950
+  },
+  {
+   "skroutzId": "38612149",
+   "title": "Cyclon Magma Prime 30 Λάδι 4lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 1990
+  },
+  {
+   "skroutzId": "35872404",
+   "title": "ERC Diesel Plus Πρόσθετο Αντιβακτηριδιακό & Μυκητοκτόνο 1lt",
+   "category": "Προσθετικά Καυσίμου / Λαδιού",
+   "priceCents": 2180
+  },
+  {
+   "skroutzId": "36179732",
+   "title": "Liqui Moly Marine Motor Oil Λάδι Σκάφους 2T 2T 1lt",
+   "category": "Λάδια Σκάφους",
+   "priceCents": 2250
+  },
+  {
+   "skroutzId": "68989889",
+   "title": "Accelerate Motorenöl Λάδι 20W-50 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 2990
+  },
+  {
+   "skroutzId": "46279042",
+   "title": "Petronas Λάδι 5W-30 2lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 2990
+  },
+  {
+   "skroutzId": "30605099",
+   "title": "Bardahl XTR C60 Λάδι 10W-60 1lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 2990
+  },
+  {
+   "skroutzId": "68940027",
+   "title": "Paul Voormann Pevastar Επαγγελματικό Καθαριστικό Χεριών",
+   "category": "Επαγγελματικά Καθαριστικά Χεριών",
+   "priceCents": 2990
+  },
+  {
+   "skroutzId": "68989816",
+   "title": "Accelerate High Power CSS Ημισυνθετικό Λάδι 10W-40 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 3090
+  },
+  {
+   "skroutzId": "68218407",
+   "title": "Total Traxium Βαλβολίνη για Χειροκίνητο Κιβώτιο 75W-85 5lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 4890
+  },
+  {
+   "skroutzId": "68108012",
+   "title": "Mobil Γράσο Συνθετικό 5lt",
+   "category": "Γράσα & Λιπαντικά",
+   "priceCents": 5490
+  },
+  {
+   "skroutzId": "63352033",
+   "title": "Valvoline SynPower XL-III Συνθετικό Λάδι 5W-30 5lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 6250
+  },
+  {
+   "skroutzId": "68285332",
+   "title": "Cyclon Γράσο 20lt",
+   "category": "Γράσα & Λιπαντικά",
+   "priceCents": 6990
+  },
+  {
+   "skroutzId": "68285331",
+   "title": "Cyclon Γράσο 20lt",
+   "category": "Γράσα & Λιπαντικά",
+   "priceCents": 8350
+  },
+  {
+   "skroutzId": "68285333",
+   "title": "Accelerate Γράσο 20lt",
+   "category": "Γράσα & Λιπαντικά",
+   "priceCents": 8490
+  },
+  {
+   "skroutzId": "38621493",
+   "title": "Cyclon Gear Prime 90 Βαλβολίνη για Διαφορικό 20lt",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 9750
+  },
+  {
+   "skroutzId": "28643903",
+   "title": "Mobil Delvac MX Λάδι 15W-40 20lt",
+   "category": "Λάδια Αυτοκινήτου",
+   "priceCents": 9890
+  },
+  {
+   "skroutzId": "68984795",
+   "title": "Morison Oil Γράσο Λιθίου 15kg",
+   "category": "Γράσα & Λιπαντικά",
+   "priceCents": 9990
+  },
+  {
+   "skroutzId": "68293909",
+   "title": "Motul Motylgear 75w-80 20l Βαλβολίνη Κιβωτίου Ταχυτήτων & Διαφορικού Technosynthese",
+   "category": "Βαλβολίνες Αυτοκινήτου",
+   "priceCents": 15590
+  }
+ ]
+}
