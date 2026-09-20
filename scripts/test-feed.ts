@@ -101,7 +101,8 @@ async function main() {
   check('no HTML in descriptions', blocks.every((b) => !/&lt;\/?[a-z]/i.test(field(b, 'description') ?? '')));
   check('shop talk ("call us") stays out of descriptions', blocks.every((b) => !/καλέστε μας/i.test(field(b, 'description') ?? '')));
   check('the brand is in every title', feed.items.every((i) => i.name.toLowerCase().includes(i.manufacturer.toLowerCase())));
-  check('category is a full path', feed.items.some((i) => i.category.includes(' > ')), feed.items[0]?.category);
+  // Skroutz's validator flags a category without a parent (our top-level «Γράσα») as a partial path
+  check('every category is a full path', feed.items.every((i) => i.category.split(' > ').length >= 2), feed.items.find((i) => !i.category.includes(' > '))?.category);
 
   const sizesPerProduct = new Map<number, number>();
   for (const r of all) if (r.v.isActive) sizesPerProduct.set(r.p.id, (sizesPerProduct.get(r.p.id) ?? 0) + 1);

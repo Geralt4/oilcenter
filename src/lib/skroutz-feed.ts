@@ -22,6 +22,12 @@ import { siteUrl } from '@/lib/site-url';
 
 export const FEED_PATH = '/feeds/skroutz.xml';
 const MAX_EXTRA_IMAGES = 15;
+/**
+ * Skroutz wants the FULL category path. Its validator flags a bare "Γράσα" (a top-level category of ours) as a partial
+ * path, so every path starts from the department the whole shop belongs to. Skroutz maps each distinct path to its own
+ * tree once, when the feed is connected — changing this afterwards means they map everything again.
+ */
+const CATEGORY_ROOT = 'Αυτοκίνητο & Μοτοσυκλέτα';
 
 export type FeedExclusion = 'product_inactive' | 'size_inactive' | 'price_unconfirmed' | 'out_of_stock' | 'no_brand' | 'no_category';
 
@@ -128,7 +134,7 @@ export async function buildSkroutzFeed(settings: ShopSettings, now: Date = new D
   const categoryPath = (id: number | null): string => {
     const names: string[] = [];
     for (let c = id ? categoryById.get(id) : undefined, guard = 0; c && guard < 8; c = c.parentId ? categoryById.get(c.parentId) : undefined, guard++) names.unshift(c.name);
-    return names.join(' > ').slice(0, 250);
+    return names.length ? [CATEGORY_ROOT, ...names].join(' > ').slice(0, 250) : '';
   };
 
   const imagesByProduct = new Map<number, string[]>();

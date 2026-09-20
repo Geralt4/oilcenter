@@ -203,6 +203,14 @@ logged-in admin).
 - SkroutzBot cannot log in anywhere, so while `SITE_PASSWORD` locks the site it can read neither the file nor the
   product pages and photos it checks. The admin page warns about this, about demo mode, about a temporary domain and
   about closed ordering. `robots.txt` keeps `/feeds/` out of search engines.
+- **Validated on 2026-09-20** at [validator.skroutz.gr](https://validator.skroutz.gr) with a file generated from the
+  local catalogue (139 products, `https://www.oilcenter.gr` addresses): *"Your feed is compliant with the Skroutz
+  specification"*, no errors, no warnings. The first run had one warning — a top-level category ("Γράσα") counts as a
+  partial path — which is why every category path now starts from a common root (`CATEGORY_ROOT`). A second file with
+  barcodes on only two products passed as well, so partial barcode coverage does not fail validation. The validator
+  could not guess three of our element names by itself (name, image, category) and had to be told in its mapping step;
+  when the feed is connected Skroutz's staff do that mapping once. It checks structure and field formats only — it does
+  not open the product links or photos.
 - Code: `src/lib/skroutz-feed.ts` (builder + fetch log), `src/app/feeds/skroutz.xml/route.ts`,
   `src/app/admin/(panel)/skroutz/page.tsx`, `src/components/admin/codes-editor.tsx`. Test: `npm run test:feed`.
 
