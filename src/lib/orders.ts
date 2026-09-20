@@ -179,6 +179,7 @@ export async function createOrder(input: CheckoutInput, settings: ShopSettings, 
           quantity: l.quantity,
           lineTotalCents: l.lineTotalCents,
           weightGrams: l.unitWeightGrams,
+          availability: l.availability,
         })),
       );
       await tx.insert(orderEvents).values({ orderId: created.id, type: 'created', message: `Η παραγγελία καταχωρήθηκε${isTest ? ' (δοκιμαστική)' : ''}.`, actor: 'customer' });

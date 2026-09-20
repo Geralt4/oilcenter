@@ -29,6 +29,13 @@
       "when": 1789914085522,
       "tag": "0003_skroutz_feed",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789918709464,
+      "tag": "0004_availability",
+      "breakpoints": true
     }
   ]
 }

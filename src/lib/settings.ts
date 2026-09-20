@@ -85,7 +85,7 @@ export type ShopSettings = {
   skroutz: {
     /** false = the feed address answers 404 to everyone except a logged-in admin */
     feedEnabled: boolean;
-    /** one of SKROUTZ_AVAILABILITY: how fast an order for a size that is in stock leaves the shop */
+    /** one of the first two SKROUTZ_AVAILABILITY phrases: what is declared for a size that is on the shelf (lib/availability.ts covers the rest) */
     availability: string;
     /** units declared for sizes whose stock is not counted (Skroutz requires a number) */
     defaultQuantity: number;

@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { and, eq, inArray, ne, notInArray } from 'drizzle-orm';
 import { z } from 'zod';
+import { AVAILABILITY, isAvailability, type Availability } from '@/lib/availability';
 import { hashPassword, randomToken, verifyPassword } from '@/lib/auth/password';
 import { createSession, destroySession, requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
@@ -114,6 +115,7 @@ const VariantInput = z.object({
   compareAt: z.string().trim().optional(),
   stock: z.number().int().min(0).max(100000),
   trackStock: z.boolean(),
+  availability: z.enum(AVAILABILITY).optional(),
   weightGrams: z.number().int().min(0).max(100000),
   barcode: z.string().trim().max(32).optional(),
   mpn: z.string().trim().max(80).optional(),
@@ -199,7 +201,7 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     for (const [sort, v] of priced.entries()) {
       const row = {
         productId: pid, label: v.label, volumeMl: /\d\s*g$/i.test(v.label) ? null : parseVolumeMl(v.label), priceCents: v.priceCents!, compareAtCents: v.compareAtCents,
-        stock: v.stock, trackStock: v.trackStock, weightGrams: v.weightGrams, barcode: v.barcode ? normalizeGtin(v.barcode) : null, mpn: v.mpn || null, imageUrl: v.imageUrl || null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
+        stock: v.stock, trackStock: v.trackStock, availability: v.availability ?? 'in_stock', weightGrams: v.weightGrams, barcode: v.barcode ? normalizeGtin(v.barcode) : null, mpn: v.mpn || null, imageUrl: v.imageUrl || null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
         sku: v.sku || `${slug}-${slugify(v.label)}`.toUpperCase().slice(0, 60),
       };
       if (v.id) await tx.update(variants).set(row).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));
@@ -263,17 +265,17 @@ export async function imageAction(fd: FormData): Promise<void> {
 }
 
 // ─── Bulk prices ─────────────────────────────────────────────────────────────
-export type PriceUpdate = { id: number; price: string; verified?: boolean };
+export type PriceUpdate = { id: number; price: string; verified?: boolean; availability?: Availability };
 export type PriceUpdateResult = {
   ok: boolean;
   message: string;
   /** rows as they now stand in the database, so the editor can reset its baseline */
-  saved: Array<{ id: number; priceCents: number; previousCents: number | null; changedAt: number | null; verified: boolean }>;
+  saved: Array<{ id: number; priceCents: number; previousCents: number | null; changedAt: number | null; verified: boolean; availability: Availability }>;
   /** ids whose price could not be read (left untouched) */
   failed: number[];
 };
 
-const PriceUpdates = z.array(z.object({ id: z.number().int().positive(), price: z.string().trim().max(20), verified: z.boolean().optional() })).min(1).max(2000);
+const PriceUpdates = z.array(z.object({ id: z.number().int().positive(), price: z.string().trim().max(20), verified: z.boolean().optional(), availability: z.enum(AVAILABILITY).optional() })).min(1).max(2000);
 const MAX_PRICE_CENTS = 5_000_000;
 
 /** The quick price editor sends only the rows the owner touched. Every real change is logged in price_changes. */
@@ -296,14 +298,17 @@ export async function updatePrices(input: PriceUpdate[]): Promise<PriceUpdateRes
         failed.push(v.id);
         continue;
       }
+      // availability travels with the price because this is the screen the owner lives in: "ran out of the 4 L" is one click here
+      const availability = update.availability ?? v.availability;
       if (cents !== v.priceCents) {
         // typing a new price is itself a confirmation
-        await tx.update(variants).set({ priceCents: cents, priceVerified: true }).where(eq(variants.id, v.id));
+        await tx.update(variants).set({ priceCents: cents, priceVerified: true, availability }).where(eq(variants.id, v.id));
         await tx.insert(priceChanges).values({ variantId: v.id, oldCents: v.priceCents, newCents: cents, source: 'editor', createdAt: now });
-        saved.push({ id: v.id, priceCents: cents, previousCents: v.priceCents, changedAt: now.getTime(), verified: true });
-      } else if (update.verified !== undefined && update.verified !== v.priceVerified) {
-        await tx.update(variants).set({ priceVerified: update.verified }).where(eq(variants.id, v.id));
-        saved.push({ id: v.id, priceCents: cents, previousCents: null, changedAt: null, verified: update.verified });
+        saved.push({ id: v.id, priceCents: cents, previousCents: v.priceCents, changedAt: now.getTime(), verified: true, availability });
+      } else if ((update.verified !== undefined && update.verified !== v.priceVerified) || availability !== v.availability) {
+        const verified = update.verified ?? v.priceVerified;
+        await tx.update(variants).set({ priceVerified: verified, availability }).where(eq(variants.id, v.id));
+        saved.push({ id: v.id, priceCents: cents, previousCents: null, changedAt: null, verified, availability });
       }
     }
   });
@@ -314,7 +319,7 @@ export async function updatePrices(input: PriceUpdate[]): Promise<PriceUpdateRes
   return { ok: true, message: saved.length ? `${count}. ${saved.length === 1 ? 'Ισχύει' : 'Ισχύουν'} ήδη στο κατάστημα.` : 'Καμία αλλαγή.', saved, failed };
 }
 
-/** CSV columns: sku;price[;stock]  — separator ; or , — decimal comma or point. Unknown SKUs are reported, never created. */
+/** CSV columns: sku;price[;stock][;availability]  — separator ; or , — decimal comma or point. Unknown SKUs are reported, never created. */
 export async function importPricesCsv(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   await requireAdmin();
   const file = fd.get('file');
@@ -323,7 +328,7 @@ export async function importPricesCsv(_prev: AdminFormState, fd: FormData): Prom
   const lines = (await file.text()).replace(/^\uFEFF/, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const sep = (lines[0] ?? '').includes(';') ? ';' : ',';
   const header = (lines[0] ?? '').toLowerCase().split(sep).map((h) => h.replace(/"/g, '').trim());
-  const col = { sku: header.indexOf('sku'), price: header.findIndex((h) => h.startsWith('price') || h.startsWith('τιμ')), stock: header.findIndex((h) => h.startsWith('stock') || h.startsWith('απόθ') || h.startsWith('αποθ')) };
+  const col = { sku: header.indexOf('sku'), price: header.findIndex((h) => h.startsWith('price') || h.startsWith('τιμ')), stock: header.findIndex((h) => h.startsWith('stock') || h.startsWith('απόθ') || h.startsWith('αποθ')), availability: header.findIndex((h) => h.startsWith('availab') || h.startsWith('διαθεσ')) };
   if (col.sku < 0 || col.price < 0) return { ok: false, message: 'Η πρώτη γραμμή πρέπει να έχει στήλες «sku» και «price».' };
 
   const bySku = new Map((await db.select({ id: variants.id, sku: variants.sku, priceCents: variants.priceCents }).from(variants)).map((v) => [v.sku, v]));
@@ -340,9 +345,12 @@ export async function importPricesCsv(_prev: AdminFormState, fd: FormData): Prom
       unknown.push(sku);
       continue;
     }
-    const patch: { priceCents: number; priceVerified: boolean; stock?: number; trackStock?: boolean } = { priceCents: cents, priceVerified: true };
+    const patch: { priceCents: number; priceVerified: boolean; stock?: number; trackStock?: boolean; availability?: Availability } = { priceCents: cents, priceVerified: true };
     const stock = col.stock >= 0 ? Number(cells[col.stock]) : NaN;
     if (Number.isInteger(stock) && stock >= 0) Object.assign(patch, { stock, trackStock: true });
+    // the export writes the same keys (in_stock, days_1_3, on_order, unavailable); anything else leaves the size as it is
+    const availability = col.availability >= 0 ? (cells[col.availability] ?? '').toLowerCase() : '';
+    if (isAvailability(availability)) patch.availability = availability;
     await db.update(variants).set(patch).where(eq(variants.id, current.id));
     if (cents !== current.priceCents) await db.insert(priceChanges).values({ variantId: current.id, oldCents: current.priceCents, newCents: cents, source: 'csv' });
     current.priceCents = cents;
@@ -513,7 +521,8 @@ export async function saveSkroutzSettings(_prev: AdminFormState, fd: FormData): 
   const feedEnabled = bool(fd, 'feedEnabled');
   await saveSettingsGroup('skroutz', {
     feedEnabled,
-    availability: SKROUTZ_AVAILABILITY.find((a) => a === str(fd, 'availability')) ?? DEFAULT_SETTINGS.skroutz.availability,
+    // what is declared for a size that is on the shelf: only the first two phrases describe that
+    availability: SKROUTZ_AVAILABILITY.slice(0, 2).find((a) => a === str(fd, 'availability')) ?? DEFAULT_SETTINGS.skroutz.availability,
     // 0 would tell Skroutz that every size whose stock is not counted is sold out
     defaultQuantity: Math.min(1000, Math.max(1, int(fd, 'defaultQuantity', DEFAULT_SETTINGS.skroutz.defaultQuantity))),
   });

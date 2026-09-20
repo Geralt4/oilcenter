@@ -4,6 +4,7 @@ import { asc } from 'drizzle-orm';
 import { Plus, TriangleAlert } from 'lucide-react';
 import { PageHeader, td, th } from '@/components/admin/ui';
 import { buttonClass } from '@/components/ui/button';
+import { AVAILABILITY_SHORT, AVAILABILITY_TONE, effectiveAvailability } from '@/lib/availability';
 import { db } from '@/lib/db';
 import { brands, categories, productImages, products, variants } from '@/lib/db/schema';
 import { cn, formatPrice, normalizeText } from '@/lib/utils';
@@ -33,7 +34,8 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
   if (sp.filter === 'review') list = list.filter((p) => p.internalNotes);
   if (sp.filter === 'inactive') list = list.filter((p) => !p.isActive);
   if (sp.filter === 'unverified') list = list.filter((p) => (byProduct.get(p.id) ?? []).some((v) => !v.priceVerified));
-  if (sp.filter === 'soldout') list = list.filter((p) => (byProduct.get(p.id) ?? []).some((v) => v.trackStock && v.stock <= 0));
+  // "not available" by hand or counted stock at 0 — the same thing to a customer
+  if (sp.filter === 'soldout') list = list.filter((p) => (byProduct.get(p.id) ?? []).some((v) => effectiveAvailability(v) === 'unavailable'));
 
   const page = Math.max(1, Number(sp.page) || 1);
   const pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
@@ -48,7 +50,7 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
     { key: undefined, label: 'Όλα' },
     { key: 'review', label: 'Προς έλεγχο' },
     { key: 'unverified', label: 'Ενδεικτική τιμή' },
-    { key: 'soldout', label: 'Εξαντλημένα' },
+    { key: 'soldout', label: 'Μη διαθέσιμα' },
     { key: 'inactive', label: 'Ανενεργά' },
   ];
 
@@ -90,6 +92,7 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
                       {vs.map((v) => (
                         <span key={v.id} className={cn('tabular rounded-md px-1.5 py-0.5 text-xs', !v.isActive ? 'bg-ink-100 text-ink-400 line-through' : v.priceVerified ? 'bg-ink-100 text-ink-800' : 'bg-amber-100 text-amber-900')} title={v.priceVerified ? 'Επιβεβαιωμένη τιμή' : 'Ενδεικτική τιμή'}>
                           {v.label} · {formatPrice(v.priceCents)}{v.trackStock ? ` · ${v.stock} τεμ.` : ''}
+                          {effectiveAvailability(v) !== 'in_stock' && <span className={cn('ml-1 font-semibold', AVAILABILITY_TONE[effectiveAvailability(v)].text)}>· {AVAILABILITY_SHORT[effectiveAvailability(v)]}</span>}
                         </span>
                       ))}
                     </span>

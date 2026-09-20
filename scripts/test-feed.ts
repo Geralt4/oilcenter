@@ -129,6 +129,25 @@ async function main() {
   check('a new price is in the very next file', back?.priceCents === 1234 && next.xml.includes('<price_with_vat>12.34</price_with_vat>'));
   check('uncounted stock declares the default quantity', next.items.find((i) => i.variantId === other.variantId)?.quantity === settings.skroutz.defaultQuantity);
 
+  console.log('Availability');
+  const third = feed.items[2];
+  await db.update(variants).set({ availability: 'days_1_3' }).where(eq(variants.id, other.variantId));
+  await db.update(variants).set({ availability: 'on_order' }).where(eq(variants.id, third.variantId));
+  next = await buildSkroutzFeed(settings);
+  const said = (id: number) => next.items.find((i) => i.variantId === id)?.availability;
+  check('on the shelf → the phrase chosen in Admin → Skroutz', said(target.variantId) === 'Διαθέσιμο από 1 έως 3 ημέρες', said(target.variantId));
+  check('from the supplier in 1–3 days → «4 έως 6 ημέρες»', said(other.variantId) === 'Διαθέσιμο από 4 έως 6 ημέρες', said(other.variantId));
+  check('on order → «7 έως 12 ημέρες»', said(third.variantId) === 'Διαθέσιμο από 7 έως 12 ημέρες', said(third.variantId));
+  const sameDay = structuredClone(settings);
+  sameDay.skroutz.availability = 'Άμεσα διαθέσιμο';
+  next = await buildSkroutzFeed(sameDay);
+  check('the owner can declare shelf stock as «Άμεσα διαθέσιμο»', said(target.variantId) === 'Άμεσα διαθέσιμο' && said(other.variantId) === 'Διαθέσιμο από 4 έως 6 ημέρες');
+  await db.update(variants).set({ availability: 'unavailable' }).where(eq(variants.id, third.variantId));
+  next = await buildSkroutzFeed(settings);
+  check('a size marked «Μη διαθέσιμο» is left out', !next.items.some((i) => i.variantId === third.variantId) && next.leftOut.some((l) => l.variantId === third.variantId && l.reason === 'unavailable'));
+  await db.update(variants).set({ availability: 'in_stock' }).where(gt(variants.id, 0));
+
+  console.log('Codes and awkward text');
   await db.update(variants).set({ barcode: '4006381333931', mpn: 'AB-123' }).where(eq(variants.id, target.variantId));
   await db.update(variants).set({ barcode: '4006381333932' }).where(eq(variants.id, other.variantId));
   next = await buildSkroutzFeed(settings);

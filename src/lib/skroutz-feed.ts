@@ -1,4 +1,5 @@
 import { asc, eq } from 'drizzle-orm';
+import type { Availability } from '@/lib/availability';
 import { BASE_TYPE_LABELS } from '@/lib/catalog';
 import { db } from '@/lib/db';
 import { brands, categories, productImages, products, settings as settingsTable, variants } from '@/lib/db/schema';
@@ -17,7 +18,9 @@ import { siteUrl } from '@/lib/site-url';
  *  - <id> is the SKU: Skroutz requires an id that never changes and is never reused, and the SKU survives a rebuild
  *    of the database, which a row id does not. Renaming a SKU therefore makes Skroutz see a new product.
  *  - Only sizes whose price the owner has confirmed are listed. A placeholder price must never reach Skroutz.
- *  - A size that is sold out is left out of the file; Skroutz then shows it as unavailable until it returns.
+ *  - A size that is sold out, or that the owner marked "not available", is left out of the file; Skroutz then shows it
+ *    as unavailable until it returns.
+ *  - <availability> follows the availability the owner set per size (lib/availability.ts), in Skroutz's own phrases.
  */
 
 export const FEED_PATH = '/feeds/skroutz.xml';
@@ -29,11 +32,12 @@ const MAX_EXTRA_IMAGES = 15;
  */
 const CATEGORY_ROOT = 'Αυτοκίνητο & Μοτοσυκλέτα';
 
-export type FeedExclusion = 'product_inactive' | 'size_inactive' | 'price_unconfirmed' | 'out_of_stock' | 'no_brand' | 'no_category';
+export type FeedExclusion = 'product_inactive' | 'size_inactive' | 'price_unconfirmed' | 'unavailable' | 'out_of_stock' | 'no_brand' | 'no_category';
 
 export const FEED_EXCLUSION_LABELS: Record<FeedExclusion, string> = {
   price_unconfirmed: 'Η τιμή δεν έχει επιβεβαιωθεί',
-  out_of_stock: 'Εξαντλημένο',
+  unavailable: 'Σημειωμένο «Μη διαθέσιμο»',
+  out_of_stock: 'Εξαντλημένο (μετρημένο απόθεμα 0)',
   no_brand: 'Λείπει η μάρκα',
   no_category: 'Λείπει η κατηγορία',
   size_inactive: 'Ανενεργή συσκευασία',
@@ -146,7 +150,14 @@ export async function buildSkroutzFeed(settings: ShopSettings, now: Date = new D
     if (v.imageUrl) sizeImages.set(v.productId, (sizeImages.get(v.productId) ?? new Set()).add(v.imageUrl));
   }
 
-  const availability = (SKROUTZ_AVAILABILITY as readonly string[]).includes(settings.skroutz.availability) ? settings.skroutz.availability : SKROUTZ_AVAILABILITY[1];
+  /*
+   * Skroutz's phrases promise delivery to the customer's door, ours say when the size is in the shop — so each state
+   * maps one step later than it sounds. On the shelf: the owner's choice of the first two phrases (Admin → Skroutz).
+   * From the supplier in 1–3 days: "4 to 6". On order: "7 to 12", the phrase Skroutz itself reserves for products
+   * «που παραδίδονται μόνο κατόπιν παραγγελίας».
+   */
+  const onShelf = (SKROUTZ_AVAILABILITY.slice(0, 2) as readonly string[]).includes(settings.skroutz.availability) ? settings.skroutz.availability : SKROUTZ_AVAILABILITY[1];
+  const phrase: Record<Exclude<Availability, 'unavailable'>, string> = { in_stock: onShelf, days_1_3: SKROUTZ_AVAILABILITY[2], on_order: SKROUTZ_AVAILABILITY[3] };
   const defaultQuantity = Math.min(10_000_000, Math.max(0, Math.round(settings.skroutz.defaultQuantity)));
   const vat = settings.tax.vatRate.toFixed(2);
 
@@ -166,6 +177,7 @@ export async function buildSkroutzFeed(settings: ShopSettings, now: Date = new D
       : !brand ? 'no_brand'
       : !category ? 'no_category'
       : v.trackStock && v.stock <= 0 ? 'out_of_stock'
+      : v.availability === 'unavailable' ? 'unavailable'
       : null;
     if (reason) {
       leftOut.push({ variantId: v.id, productId: p.id, sku: v.sku, name, reason });
@@ -200,7 +212,7 @@ export async function buildSkroutzFeed(settings: ShopSettings, now: Date = new D
       mpn: v.mpn?.trim() || null,
       ean: barcode && isValidGtin(barcode) ? barcode : null,
       invalidEan: barcode && !isValidGtin(barcode) ? barcode : null,
-      availability,
+      availability: phrase[v.availability === 'unavailable' ? 'in_stock' : v.availability],
       quantity: v.trackStock ? Math.min(10_000_000, v.stock) : defaultQuantity,
       weightGrams: v.weightGrams,
       description: plainText(p.description || '', 10_000) || plainText(p.shortDescription || '', 10_000) || name,

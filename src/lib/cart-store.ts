@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import type { Availability } from '@/lib/availability';
 import { track } from '@/lib/track';
 
 /*
@@ -21,6 +22,8 @@ export type CartSnapshot = {
   unitPriceCents: number;
   weightGrams: number;
   maxQuantity: number | null;
+  /** missing on carts saved before availability labels existed; the server fills it in on the next sync */
+  availability?: Availability;
 };
 
 export type CartLine = { variantId: number; quantity: number; snapshot: CartSnapshot };

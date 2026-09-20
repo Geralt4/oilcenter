@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { ProductGrid } from '@/components/store/product-card';
 import { Breadcrumbs } from '@/components/store/product-listing';
 import { ProductView } from '@/components/store/product-view';
+import { effectiveAvailability } from '@/lib/availability';
 import { BASE_TYPE_LABELS, getCategoryTrailById, getProductBySlug, getRelatedProducts } from '@/lib/catalog';
 import { productJsonLd } from '@/lib/seo';
 import { getSettings } from '@/lib/settings.server';
@@ -43,7 +44,8 @@ export default async function ProductPage({ params, searchParams }: Props) {
     // a placeholder price never leaves the server: the page says «Καλέστε για τιμή» instead
     priceCents: v.priceVerified ? v.priceCents : 0,
     compareAtCents: v.priceVerified && v.compareAtCents && v.compareAtCents > v.priceCents ? v.compareAtCents : null,
-    inStock: !v.trackStock || v.stock > 0,
+    availability: effectiveAvailability(v),
+    inStock: effectiveAvailability(v) !== 'unavailable',
     stockLeft: v.trackStock ? v.stock : null,
     imageUrl: v.imageUrl,
     weightGrams: v.weightGrams,

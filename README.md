@@ -27,7 +27,7 @@ Admin login = `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env.local`. Change the pas
 | `npm run db:generate` | create a new migration after editing `src/lib/db/schema.ts` |
 | `npm run admin:create -- <email> <password> [name]` | add an admin or reset a password |
 | `npm run catalog:build` | rebuild `catalog/catalog.json` + `public/catalog/*.webp` from the client's photos |
-| `npm run test:orders` | order-logic regression test (runs on a throwaway snapshot of the DB) |
+| `npm run test:orders` | order-logic regression test, incl. availability (runs on a throwaway snapshot of the DB) |
 | `npm run test:feed` | Skroutz feed regression test: what is listed, valid XML, barcodes (same throwaway snapshot) |
 | `npm run lint` / `typecheck` | ESLint / TypeScript |
 
@@ -219,6 +219,34 @@ logged-in admin).
 (*Βοήθεια → Προϊόντα → Αρχείο XML*); they review it and reply with corrections if they want any. **Ask them first what
 happens to the listings the shop has on Skroutz today that are not on this site** (133 when last counted, see
 `SKROUTZ-PRICES.md`): as a rule, once a feed is connected the shop shows only what the file contains.
+
+## Availability
+
+The shop does not count stock — nearly every size is "sold freely" — so the only way to say "I have run out of the 4 L"
+used to be switching the size off, which hides it. Each pack size now carries an availability the owner sets by hand
+(`src/lib/availability.ts`):
+
+| State | The customer reads | Can be bought | Skroutz feed |
+| --- | --- | --- | --- |
+| `in_stock` (default) | Άμεσα διαθέσιμο | yes | the phrase chosen in *Admin → Skroutz* («Άμεσα διαθέσιμο» or «1 έως 3 ημέρες») |
+| `days_1_3` | Διαθέσιμο σε 1–3 ημέρες — comes from the supplier | yes | «Διαθέσιμο από 4 έως 6 ημέρες» |
+| `on_order` | Κατόπιν παραγγελίας — call for the lead time | yes | «Διαθέσιμο από 7 έως 12 ημέρες» |
+| `unavailable` | Προσωρινά μη διαθέσιμο | **no** — shown with its price, refused by the cart and by `createOrder` | left out |
+
+- **Where it is set:** the select next to every price in *Admin → Τιμές* (saved together with the prices; the chip
+  «Όχι άμεσα διαθέσιμα» lists everything that is not on the shelf), the *Διαθεσιμότητα* column of a product's sizes,
+  or an `availability` column in the price CSV (the export writes it, the import reads it).
+- **Counted stock still wins:** a size whose stock is counted and has reached 0 is unavailable whatever the label says
+  (`effectiveAvailability`). The «Τελευταία Ν τεμάχια» warning is unchanged.
+- **Where it shows:** the status line under the buy button (with one line of explanation), product cards, cart lines,
+  the checkout summary (plus a "this order will take longer" notice), the order page, the order e-mail and the admin
+  order page — the last three from a snapshot on `order_items.availability`, so an order keeps what the buyer was told.
+  Anything that is simply on the shelf stays quiet everywhere except the product page. Structured data reports
+  `InStock` / `BackOrder` / `OutOfStock`.
+- Skroutz's phrases promise delivery to the customer's door while ours say when the size is in the shop, which is why
+  each state maps one step later than it sounds.
+- Every size starts as `in_stock`, which is what the site already claimed before this existed — nothing changes for
+  visitors until the owner marks a size. Migration `0004_availability.sql`.
 
 ## Adding products
 

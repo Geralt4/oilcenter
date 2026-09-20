@@ -3,6 +3,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Check, CircleAlert, CircleCheck, Navigation, Phone } from 'lucide-react';
+import { AvailabilityTag } from '@/components/store/availability';
 import { RetryPayment } from '@/components/store/retry-payment';
 import { buttonClass } from '@/components/ui/button';
 import { getCustomer } from '@/lib/auth/session';
@@ -127,6 +128,7 @@ export default async function OrderPage({ params, searchParams }: Props) {
                 <span className="min-w-0 flex-1 text-sm">
                   {item.slug ? <Link href={`/product/${item.slug}`} className="font-semibold text-ink-950 hover:text-oil-700">{item.name}</Link> : <span className="font-semibold text-ink-950">{item.name}</span>}
                   <span className="block text-ink-500">{item.variantLabel} · {item.quantity} × <span className="tabular">{formatPrice(item.unitPriceCents)}</span></span>
+                  <AvailabilityTag availability={item.availability} />
                 </span>
                 <span className="tabular shrink-0 font-semibold text-ink-950">{formatPrice(item.lineTotalCents)}</span>
               </li>

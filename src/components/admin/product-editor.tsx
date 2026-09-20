@@ -18,7 +18,7 @@ export async function ProductEditor({ product, created }: Props) {
   const parents = new Map(categoryRows.map((c) => [c.id, c.name]));
 
   const rows: VariantRow[] = (product?.variants ?? []).map((v) => ({
-    id: v.id, label: v.label, sku: v.sku, price: centsToInput(v.priceCents), compareAt: centsToInput(v.compareAtCents), stock: v.stock, trackStock: v.trackStock,
+    id: v.id, label: v.label, sku: v.sku, price: centsToInput(v.priceCents), compareAt: centsToInput(v.compareAtCents), stock: v.stock, trackStock: v.trackStock, availability: v.availability,
     weightGrams: v.weightGrams, barcode: v.barcode ?? '', mpn: v.mpn ?? '', imageUrl: v.imageUrl ?? '', isActive: v.isActive, priceVerified: v.priceVerified,
   }));
 

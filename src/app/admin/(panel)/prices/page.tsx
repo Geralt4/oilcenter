@@ -47,6 +47,7 @@ export default async function AdminPricesPage({ searchParams }: { searchParams: 
     sku: v.sku,
     priceCents: v.priceCents,
     verified: v.priceVerified,
+    availability: v.availability,
     previousCents: lastChange.get(v.id)?.previousCents ?? null,
     changedAt: lastChange.get(v.id)?.changedAt ?? null,
   }));
@@ -55,11 +56,11 @@ export default async function AdminPricesPage({ searchParams }: { searchParams: 
   return (
     <>
       <PageHeader
-        title="Τιμές"
-        description={`Βρείτε το προϊόν, γράψτε τη νέα τιμή στο κουτάκι και πατήστε «Αποθήκευση» (ή Enter). Η αλλαγή ισχύει αμέσως στο κατάστημα.${unverifiedTotal ? ` ${unverifiedTotal} από ${editorRows.length} τιμές είναι ακόμη ενδεικτικές.` : ''}`}
+        title="Τιμές & διαθεσιμότητα"
+        description={`Βρείτε το προϊόν, γράψτε τη νέα τιμή στο κουτάκι και πατήστε «Αποθήκευση» (ή Enter). Δίπλα σε κάθε τιμή ορίζετε και τη διαθεσιμότητα: αν τελείωσε μια συσκευασία, βάλτε «Μη διαθέσιμο» — μένει στο site με την τιμή της, αλλά δεν μπαίνει στο καλάθι ούτε στέλνεται στο Skroutz. Οι αλλαγές ισχύουν αμέσως.${unverifiedTotal ? ` ${unverifiedTotal} από ${editorRows.length} τιμές είναι ακόμη ενδεικτικές.` : ''}`}
       />
 
-      <PriceEditor rows={editorRows} initialQuery={sp.q ?? ''} initialBrand={sp.brand ?? ''} initialOnlyUnverified={sp.filter === 'unverified'} />
+      <PriceEditor rows={editorRows} initialQuery={sp.q ?? ''} initialBrand={sp.brand ?? ''} initialOnlyUnverified={sp.filter === 'unverified'} initialOnlyWaiting={sp.filter === 'waiting'} />
 
       <section className="mt-10" aria-labelledby="recent-changes">
         <h2 id="recent-changes" className="text-base font-semibold text-ink-900">Τελευταίες αλλαγές τιμών</h2>

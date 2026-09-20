@@ -94,6 +94,26 @@ async function main() {
   const confirmed = await createOrder({ ...base, lines: [{ variantId: other.id, quantity: 1 }] }, settings, opts);
   check('…and can be once the owner confirms it', confirmed.ok && confirmed.order.subtotalCents === 1234, confirmed);
 
+  console.log('Availability set by hand');
+  const { resolveCartLines } = await import('../src/lib/catalog');
+  const { orderItems } = await import('../src/lib/db/schema');
+  const { bestAvailability, effectiveAvailability } = await import('../src/lib/availability');
+  // `other` is sold freely (stock not counted) and has a confirmed price from the block above
+  await db.update(variants).set({ availability: 'unavailable' }).where(eq(variants.id, other.id));
+  const gone = await createOrder({ ...base, lines: [{ variantId: other.id, quantity: 1 }] }, settings, opts);
+  check('a size marked «Μη διαθέσιμο» cannot be ordered', !gone.ok && gone.reason === 'cart_changed', gone);
+  const [goneLine] = await resolveCartLines([{ variantId: other.id, quantity: 3 }]);
+  check('…and the cart drops it like a sold-out size', goneLine.quantity === 0 && goneLine.issue === 'out_of_stock', goneLine);
+  await db.update(variants).set({ availability: 'on_order' }).where(eq(variants.id, other.id));
+  const special = await createOrder({ ...base, lines: [{ variantId: other.id, quantity: 2 }] }, settings, opts);
+  check('a size «Κατόπιν παραγγελίας» can be ordered', special.ok, special);
+  const specialItems = special.ok ? await db.select().from(orderItems).where(eq(orderItems.orderId, special.order.id)) : [];
+  check('…and the order remembers what the buyer was told', specialItems.length === 1 && specialItems[0].availability === 'on_order', specialItems[0]?.availability);
+  check('counted stock at 0 beats the label', effectiveAvailability({ availability: 'in_stock', trackStock: true, stock: 0 }) === 'unavailable');
+  check('uncounted stock follows the label', effectiveAvailability({ availability: 'days_1_3', trackStock: false, stock: 0 }) === 'days_1_3');
+  check('a product is as available as its best size', bestAvailability(['unavailable', 'on_order', 'days_1_3']) === 'days_1_3' && bestAvailability([]) === 'unavailable');
+  await db.update(variants).set({ availability: 'in_stock' }).where(eq(variants.id, other.id));
+
   console.log('Shipping tiers');
   const s = settings.shipping;
   check('≤ 2 kg → 3,90', courierRateCents(2000, s) === 390);

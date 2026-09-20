@@ -7,6 +7,7 @@ import { updateOrder } from '@/app/admin/actions';
 import { AdminForm } from '@/components/admin/admin-form';
 import { PrintButton } from '@/components/admin/print-button';
 import { Card, Check, Field, PageHeader, PaymentBadge, StatusBadge } from '@/components/admin/ui';
+import { AvailabilityTag } from '@/components/store/availability';
 import { db } from '@/lib/db';
 import { orderEvents, orders, type OrderStatus } from '@/lib/db/schema';
 import { ORDER_STATUS_LABELS } from '@/lib/orders';
@@ -44,6 +45,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                   <span className="min-w-0 flex-1 text-sm">
                     <span className="font-semibold text-ink-950">{item.name}</span> <span className="tabular rounded bg-ink-900 px-1.5 py-0.5 text-xs font-bold text-oil-300">{item.variantLabel}</span>
                     <span className="tabular block text-xs text-ink-500">{item.sku}</span>
+                    <AvailabilityTag availability={item.availability} />
                   </span>
                   <span className="tabular shrink-0 text-right text-sm"><strong className="text-base">{item.quantity}</strong> × {formatPrice(item.unitPriceCents)}<span className="block font-semibold text-ink-950">{formatPrice(item.lineTotalCents)}</span></span>
                 </li>

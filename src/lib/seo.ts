@@ -1,3 +1,4 @@
+import { bestAvailability, effectiveAvailability } from '@/lib/availability';
 import type { ProductDetail } from '@/lib/catalog';
 import type { ShopSettings } from '@/lib/settings';
 import { siteUrl } from '@/lib/site-url';
@@ -50,7 +51,8 @@ export function productJsonLd(product: ProductDetail, settings: ShopSettings) {
   // this here at this price", which is false in demo mode, while ordering is closed, and for placeholder prices.
   const sellable = product.variants.filter((v) => v.priceVerified);
   const prices = sellable.map((v) => v.priceCents / 100);
-  const inStock = sellable.some((v) => !v.trackStock || v.stock > 0);
+  // best state among the sizes: on the shelf → InStock, comes from the supplier / on order → BackOrder
+  const best = bestAvailability(sellable.map(effectiveAvailability));
   const { demoMode, ordersEnabled } = settings.storefront;
   return {
     '@context': 'https://schema.org',
@@ -69,7 +71,7 @@ export function productJsonLd(product: ProductDetail, settings: ShopSettings) {
         lowPrice: Math.min(...prices).toFixed(2),
         highPrice: Math.max(...prices).toFixed(2),
         offerCount: sellable.length,
-        availability: inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+        availability: `https://schema.org/${best === 'in_stock' ? 'InStock' : best === 'unavailable' ? 'OutOfStock' : 'BackOrder'}`,
         url,
         seller: { '@id': `${siteUrl()}/#store` },
       },

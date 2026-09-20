@@ -30,6 +30,7 @@ export async function POST(request: Request) {
               unitPriceCents: l.unitPriceCents,
               weightGrams: l.unitWeightGrams,
               maxQuantity: l.maxQuantity,
+              availability: l.availability ?? undefined,
             },
     })),
   });

@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Check, Heart, Phone, ShieldCheck, ShoppingCart, Store, Truck } from 'lucide-react';
 import { QuantityStepper } from '@/components/store/quantity-stepper';
 import { useStoreConfig } from '@/components/store/store-context';
+import { AVAILABILITY_HINTS, AVAILABILITY_LABELS, AVAILABILITY_TONE, type Availability } from '@/lib/availability';
 import { useCart, useHydrated, useWishlist } from '@/lib/cart-store';
 import { courierRateCents } from '@/lib/pricing';
 import { cn, formatPrice, formatWeight, telHref } from '@/lib/utils';
@@ -16,6 +17,8 @@ export type ViewVariant = {
   volumeMl: number | null;
   priceCents: number;
   compareAtCents: number | null;
+  availability: Availability;
+  /** can be bought (anything but 'unavailable') */
   inStock: boolean;
   stockLeft: number | null;
   imageUrl: string | null;
@@ -34,7 +37,8 @@ type Props = {
 
 export function ProductView({ product, images, variants, initialVariantId }: Props) {
   const config = useStoreConfig();
-  const initial = variants.find((v) => v.id === initialVariantId) ?? variants.find((v) => v.inStock && v.priceVerified) ?? variants.find((v) => v.inStock) ?? variants[0];
+  // open on a size that is on the shelf and priced, if there is one
+  const initial = variants.find((v) => v.id === initialVariantId) ?? variants.find((v) => v.availability === 'in_stock' && v.priceVerified) ?? variants.find((v) => v.inStock && v.priceVerified) ?? variants.find((v) => v.inStock) ?? variants[0];
   const [variantId, setVariantId] = useState(initial.id);
   const [activeImage, setActiveImage] = useState(initial.imageUrl ?? images[0]?.url ?? null);
   const [quantity, setQuantity] = useState(1);
@@ -74,6 +78,7 @@ export function ProductView({ product, images, variants, initialVariantId }: Pro
         unitPriceCents: variant.priceCents,
         weightGrams: variant.weightGrams,
         maxQuantity: variant.stockLeft,
+        availability: variant.availability,
       },
       quantity,
     );
@@ -148,7 +153,7 @@ export function ProductView({ product, images, variants, initialVariantId }: Pro
                   )}
                 >
                   <span className="tabular block font-display text-xl font-bold">{v.label}</span>
-                  <span className={cn('tabular text-sm', v.id === variant.id ? 'text-oil-300' : 'text-ink-500')}>{!v.inStock ? 'Εξαντλήθηκε' : v.priceVerified ? formatPrice(v.priceCents) : 'Καλέστε'}</span>
+                  <span className={cn('tabular text-sm', v.id === variant.id ? 'text-oil-300' : 'text-ink-500')}>{!v.inStock ? 'Μη διαθέσιμο' : v.priceVerified ? formatPrice(v.priceCents) : 'Καλέστε'}</span>
                 </button>
               ))}
             </div>
@@ -189,10 +194,14 @@ export function ProductView({ product, images, variants, initialVariantId }: Pro
           </button>
         </div>
 
-        <p className={cn('mt-3 flex items-center gap-2 text-sm font-medium', variant.inStock ? (lowStock ? 'text-amber-700' : 'text-emerald-700') : 'text-red-600')}>
-          <span className={cn('h-2 w-2 rounded-full', variant.inStock ? (lowStock ? 'bg-amber-500' : 'bg-emerald-500') : 'bg-red-500')} />
-          {!variant.inStock ? 'Προσωρινά μη διαθέσιμο — καλέστε μας για ενημέρωση' : lowStock ? `Τελευταία ${variant.stockLeft} τεμάχια` : 'Άμεσα διαθέσιμο'}
-        </p>
+        {/* availability of the selected size: set by the owner per size, overridden by counted stock (lib/availability.ts) */}
+        <div className="mt-3 text-sm">
+          <p className={cn('flex items-center gap-2 font-medium', lowStock ? 'text-amber-700' : AVAILABILITY_TONE[variant.availability].text)}>
+            <span className={cn('h-2 w-2 shrink-0 rounded-full', lowStock ? 'bg-amber-500' : AVAILABILITY_TONE[variant.availability].dot)} />
+            {lowStock ? `Τελευταία ${variant.stockLeft} τεμάχια` : AVAILABILITY_LABELS[variant.availability]}
+          </p>
+          {!lowStock && AVAILABILITY_HINTS[variant.availability] && <p className="mt-1 pl-4 text-ink-600">{AVAILABILITY_HINTS[variant.availability]}</p>}
+        </div>
 
         <ul className="mt-7 divide-y divide-line rounded-2xl border border-line bg-white text-sm">
           {shipping.courierEnabled && (

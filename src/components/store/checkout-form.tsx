@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import { Banknote, CreditCard, Landmark, LoaderCircle, Lock, ShoppingCart, Store, Tag, Truck, X } from 'lucide-react';
 import { checkCoupon, placeOrder } from '@/app/(store)/checkout/actions';
+import { AvailabilityTag } from '@/components/store/availability';
 import { syncCartWithServer } from '@/components/store/cart-drawer';
 import { useStoreConfig } from '@/components/store/store-context';
 import { buttonClass } from '@/components/ui/button';
@@ -250,11 +251,15 @@ export function CheckoutForm({ prefill, pickupAddress }: { prefill: CheckoutPref
                 <span className="min-w-0 flex-1 text-sm">
                   <span className="line-clamp-2 font-semibold text-ink-900">{[l.snapshot.brandName, l.snapshot.name].filter(Boolean).join(' ')}</span>
                   <span className="text-ink-500">{l.snapshot.variantLabel}</span>
+                  <AvailabilityTag availability={l.snapshot.availability} className="ml-2" />
                 </span>
                 <span className="tabular shrink-0 text-sm font-semibold text-ink-900">{formatPrice(l.quantity * l.snapshot.unitPriceCents)}</span>
               </li>
             ))}
           </ul>
+          {lines.some((l) => l.snapshot.availability && l.snapshot.availability !== 'in_stock') && (
+            <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-950">Κάποια προϊόντα δεν είναι άμεσα διαθέσιμα, οπότε η παραγγελία θα χρειαστεί περισσότερο χρόνο. Θα επικοινωνήσουμε μαζί σας για την ημερομηνία.</p>
+          )}
           <Link href="/cart" className="mt-1 inline-block text-sm font-semibold text-petrol-500 hover:text-petrol-700">Αλλαγή καλαθιού</Link>
 
           <div className="mt-5 border-t border-line pt-5">

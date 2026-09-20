@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect } from 'react';
 import { ArrowRight, LoaderCircle, ShoppingCart, Trash2 } from 'lucide-react';
+import { AvailabilityTag } from '@/components/store/availability';
 import { FreeShippingMeter, syncCartWithServer } from '@/components/store/cart-drawer';
 import { QuantityStepper } from '@/components/store/quantity-stepper';
 import { OrdersClosedNotice } from '@/components/store/orders-closed';
@@ -52,6 +53,7 @@ export function CartView() {
                 {line.snapshot.brandName && <p className="eyebrow text-[0.6875rem] text-ink-400">{line.snapshot.brandName}</p>}
                 <Link href={`/product/${line.snapshot.slug}`} className="font-semibold text-ink-950 hover:text-oil-700">{line.snapshot.name}</Link>
                 <p className="mt-0.5 text-sm text-ink-500">Συσκευασία {line.snapshot.variantLabel} · <span className="tabular">{formatPrice(line.snapshot.unitPriceCents)}</span> / τεμ.</p>
+                <AvailabilityTag availability={line.snapshot.availability} className="mt-1" />
                 <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-3">
                   <div className="flex items-center gap-2">
                     <QuantityStepper size="sm" value={line.quantity} max={line.snapshot.maxQuantity} onChange={(q) => setQuantity(line.variantId, q)} />

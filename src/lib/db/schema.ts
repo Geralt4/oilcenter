@@ -1,5 +1,6 @@
 import { relations } from 'drizzle-orm';
 import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import type { Availability } from '@/lib/availability';
 
 /*
  * Conventions
@@ -128,6 +129,8 @@ export const variants = sqliteTable(
     compareAtCents: integer('compare_at_cents'),
     stock: integer('stock').notNull().default(0),
     trackStock: integer('track_stock', { mode: 'boolean' }).notNull().default(true),
+    /** set by hand (lib/availability.ts); counted stock at 0 overrides it */
+    availability: text('availability').$type<Availability>().notNull().default('in_stock'),
     weightGrams: integer('weight_grams').notNull().default(0),
     /** EAN / GTIN printed under the barcode on the pack. Each pack size has its own. */
     barcode: text('barcode'),
@@ -285,6 +288,8 @@ export const orderItems = sqliteTable(
     quantity: integer('quantity').notNull(),
     lineTotalCents: integer('line_total_cents').notNull(),
     weightGrams: integer('weight_grams').notNull().default(0),
+    /** what the buyer was told when ordering; null on orders from before availability labels existed */
+    availability: text('availability').$type<Availability>(),
   },
   (t) => [index('order_items_order_idx').on(t.orderId)],
 );

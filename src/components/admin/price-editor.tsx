@@ -5,6 +5,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition 
 import { Check, LoaderCircle, Percent, RotateCcw, Save, Search, Undo2, X } from 'lucide-react';
 import { updatePrices, type PriceUpdate } from '@/app/admin/actions';
 import { buttonClass } from '@/components/ui/button';
+import { AVAILABILITY, AVAILABILITY_SHORT, type Availability } from '@/lib/availability';
 import { centsToInput, cn, formatPrice, normalizeText, parsePriceToCents } from '@/lib/utils';
 
 export type PriceRow = {
@@ -16,6 +17,7 @@ export type PriceRow = {
   sku: string;
   priceCents: number;
   verified: boolean;
+  availability: Availability;
   /** last logged change, if any */
   previousCents: number | null;
   changedAt: number | null;
@@ -58,22 +60,34 @@ type LineProps = {
   row: PriceRow;
   draft: string | undefined;
   verifiedDraft: boolean | undefined;
+  availabilityDraft: Availability | undefined;
   failed: boolean;
   justSaved: boolean;
   onDraft: (id: number, value: string) => void;
   onVerify: (id: number, value: boolean) => void;
+  onAvailability: (id: number, value: Availability) => void;
   onEnter: () => void;
 };
 
-const PriceLine = memo(function PriceLine({ row, draft, verifiedDraft, failed, justSaved, onDraft, onVerify, onEnter }: LineProps) {
+/** A size that is not simply "on the shelf" should catch the eye while scrolling the list. */
+const AVAILABILITY_FIELD: Record<Availability, string> = {
+  in_stock: 'text-ink-600',
+  days_1_3: 'border-petrol-500/50 bg-petrol-50 font-medium text-petrol-700',
+  on_order: 'border-amber-400 bg-amber-50 font-medium text-amber-900',
+  unavailable: 'border-red-300 bg-red-50 font-medium text-red-800',
+};
+
+const PriceLine = memo(function PriceLine({ row, draft, verifiedDraft, availabilityDraft, failed, justSaved, onDraft, onVerify, onAvailability, onEnter }: LineProps) {
   const value = draft ?? centsToInput(row.priceCents);
   const cents = parsePriceToCents(value);
   const invalid = draft !== undefined && (cents === null || cents <= 0);
   const changed = !invalid && cents !== null && cents !== row.priceCents;
   const verified = changed ? true : (verifiedDraft ?? row.verified);
+  const availability = availabilityDraft ?? row.availability;
+  const availabilityChanged = availability !== row.availability;
 
   return (
-    <li className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 sm:flex-nowrap', changed && 'bg-oil-50', (invalid || failed) && 'bg-red-50')}>
+    <li className={cn('flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2 sm:flex-nowrap', (changed || availabilityChanged) && 'bg-oil-50', (invalid || failed) && 'bg-red-50')}>
       <span className="w-14 shrink-0 text-[0.9375rem] font-semibold text-ink-900 tabular">{row.label}</span>
       <span className="hidden w-44 shrink-0 truncate text-xs text-ink-400 tabular lg:block" title={row.sku}>{row.sku}</span>
 
@@ -107,7 +121,16 @@ const PriceLine = memo(function PriceLine({ row, draft, verifiedDraft, failed, j
         <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-ink-400">€</span>
       </label>
 
-      <span className="min-w-0 basis-full text-right text-xs sm:basis-auto sm:flex-1 sm:text-left">
+      <div className="flex min-w-0 basis-full items-center gap-3 sm:basis-auto sm:flex-1">
+        <select
+          value={availability}
+          onChange={(e) => onAvailability(row.id, e.target.value as Availability)}
+          aria-label={`Διαθεσιμότητα ${row.product} ${row.label}`}
+          className={cn('field h-9 w-[10.5rem] shrink-0 cursor-pointer py-0 pr-7 text-sm', AVAILABILITY_FIELD[availability], availabilityChanged && 'border-oil-500 ring-2 ring-oil-200')}
+        >
+          {AVAILABILITY.map((a) => <option key={a} value={a}>{AVAILABILITY_SHORT[a]}</option>)}
+        </select>
+      <span className="min-w-0 flex-1 text-right text-xs sm:text-left">
         {invalid || failed ? (
           <span className="font-medium text-red-700">Μη έγκυρη τιμή — γράψτε π.χ. 12,90</span>
         ) : changed ? (
@@ -130,14 +153,15 @@ const PriceLine = memo(function PriceLine({ row, draft, verifiedDraft, failed, j
           <span className="text-ink-400">άλλαξε {shortDate.format(row.changedAt)} · ήταν {formatPrice(row.previousCents)}</span>
         ) : null}
       </span>
+      </div>
     </li>
   );
 });
 
-type Props = { rows: PriceRow[]; initialQuery?: string; initialBrand?: string; initialOnlyUnverified?: boolean };
-type Override = Partial<Pick<PriceRow, 'priceCents' | 'verified' | 'previousCents' | 'changedAt'>>;
+type Props = { rows: PriceRow[]; initialQuery?: string; initialBrand?: string; initialOnlyUnverified?: boolean; initialOnlyWaiting?: boolean };
+type Override = Partial<Pick<PriceRow, 'priceCents' | 'verified' | 'availability' | 'previousCents' | 'changedAt'>>;
 
-export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand = '', initialOnlyUnverified = false }: Props) {
+export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand = '', initialOnlyUnverified = false, initialOnlyWaiting = false }: Props) {
   // What the server confirmed on save. The page re-renders with the same values a moment later; until then these keep the boxes from flashing the old price.
   const [overrides, setOverrides] = useState<Record<number, Override>>({});
   const rows = useMemo(
@@ -146,7 +170,7 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
         const o = overrides[r.id];
         if (!o) return r;
         // once the server row has caught up — or moved on, e.g. after a CSV import — it wins
-        const caughtUp = o.changedAt != null ? (r.changedAt ?? 0) >= o.changedAt : r.verified === o.verified;
+        const caughtUp = o.changedAt != null ? (r.changedAt ?? 0) >= o.changedAt : r.verified === o.verified && (o.availability === undefined || r.availability === o.availability);
         return caughtUp ? r : { ...r, ...o };
       }),
     [serverRows, overrides],
@@ -155,8 +179,10 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
   const [query, setQuery] = useState(initialQuery);
   const [brand, setBrand] = useState(initialBrand);
   const [onlyUnverified, setOnlyUnverified] = useState(initialOnlyUnverified);
+  const [onlyWaiting, setOnlyWaiting] = useState(initialOnlyWaiting);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [verifiedDrafts, setVerifiedDrafts] = useState<Record<number, boolean>>({});
+  const [availabilityDrafts, setAvailabilityDrafts] = useState<Record<number, Availability>>({});
   const [failed, setFailed] = useState<number[]>([]);
   const [savedIds, setSavedIds] = useState<number[]>([]);
   const [notice, setNotice] = useState<Notice>(null);
@@ -169,6 +195,7 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
   const brands = useMemo(() => [...new Set(rows.flatMap((r) => (r.brand ? [r.brand] : [])))].sort((a, b) => a.localeCompare(b)), [rows]);
   const hays = useMemo(() => new Map(rows.map((r) => [r.id, haystack(r)])), [rows]);
   const unverifiedTotal = useMemo(() => rows.filter((r) => !r.verified).length, [rows]);
+  const waitingTotal = useMemo(() => rows.filter((r) => r.availability !== 'in_stock').length, [rows]);
 
   /** What would be sent if the owner pressed save right now. */
   const updates = useMemo(() => {
@@ -177,19 +204,22 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
     for (const row of rows) {
       const draft = drafts[row.id];
       const cents = draft === undefined ? row.priceCents : parsePriceToCents(draft);
+      const availability = availabilityDrafts[row.id] !== undefined && availabilityDrafts[row.id] !== row.availability ? availabilityDrafts[row.id] : undefined;
       if (draft !== undefined && (cents === null || cents <= 0)) bad.push(row.id);
-      else if (cents !== row.priceCents) out.push({ id: row.id, price: draft! });
-      else if (verifiedDrafts[row.id] !== undefined && verifiedDrafts[row.id] !== row.verified) out.push({ id: row.id, price: centsToInput(row.priceCents), verified: verifiedDrafts[row.id] });
+      else if (cents !== row.priceCents) out.push({ id: row.id, price: draft!, availability });
+      else if (verifiedDrafts[row.id] !== undefined && verifiedDrafts[row.id] !== row.verified) out.push({ id: row.id, price: centsToInput(row.priceCents), verified: verifiedDrafts[row.id], availability });
+      else if (availability) out.push({ id: row.id, price: centsToInput(row.priceCents), availability });
     }
     return { out, bad };
-  }, [rows, drafts, verifiedDrafts]);
+  }, [rows, drafts, verifiedDrafts, availabilityDrafts]);
   const dirty = updates.out.length + updates.bad.length;
 
   const shown = useMemo(() => {
     const tokens = normalizeText(query).split(' ').filter(Boolean);
-    return rows.filter((r) => (!brand || r.brand === brand) && (!onlyUnverified || !r.verified || drafts[r.id] !== undefined) && matches(hays.get(r.id)!, tokens));
+    const touched = (r: PriceRow) => drafts[r.id] !== undefined || availabilityDrafts[r.id] !== undefined;
+    return rows.filter((r) => (!brand || r.brand === brand) && (!onlyUnverified || !r.verified || touched(r)) && (!onlyWaiting || r.availability !== 'in_stock' || touched(r)) && matches(hays.get(r.id)!, tokens));
     // rows being edited stay visible even if the filter would now hide them
-  }, [rows, hays, query, brand, onlyUnverified, drafts]);
+  }, [rows, hays, query, brand, onlyUnverified, onlyWaiting, drafts, availabilityDrafts]);
 
   const groups = useMemo(() => {
     const out: Array<{ productId: number; brand: string | null; product: string; lines: PriceRow[] }> = [];
@@ -210,6 +240,10 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
     setVerifiedDrafts((d) => ({ ...d, [id]: value }));
     setNotice(null);
   }, []);
+  const onAvailability = useCallback((id: number, value: Availability) => {
+    setAvailabilityDrafts((d) => ({ ...d, [id]: value }));
+    setNotice(null);
+  }, []);
 
   const send = useCallback(
     (payload: PriceUpdate[], isUndo: boolean) => {
@@ -219,10 +253,11 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
           const done = new Set(result.saved.map((s) => s.id));
           setOverrides((o) => ({
             ...o,
-            ...Object.fromEntries(result.saved.map((s) => [s.id, { ...o[s.id], priceCents: s.priceCents, verified: s.verified, ...(s.changedAt !== null ? { previousCents: s.previousCents, changedAt: s.changedAt } : {}) }])),
+            ...Object.fromEntries(result.saved.map((s) => [s.id, { ...o[s.id], priceCents: s.priceCents, verified: s.verified, availability: s.availability, ...(s.changedAt !== null ? { previousCents: s.previousCents, changedAt: s.changedAt } : {}) }])),
           }));
           setDrafts((d) => Object.fromEntries(Object.entries(d).filter(([id]) => !done.has(Number(id)))));
           setVerifiedDrafts((d) => Object.fromEntries(Object.entries(d).filter(([id]) => !done.has(Number(id)))));
+          setAvailabilityDrafts((d) => Object.fromEntries(Object.entries(d).filter(([id]) => !done.has(Number(id)))) as Record<number, Availability>);
           setFailed(result.failed);
           setSavedIds([...done]);
           const undo = result.saved.flatMap((s) => (s.previousCents !== null ? [{ id: s.id, price: centsToInput(s.previousCents) }] : []));
@@ -262,6 +297,7 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
   const discard = () => {
     setDrafts({});
     setVerifiedDrafts({});
+    setAvailabilityDrafts({});
     setFailed([]);
     setNotice(null);
   };
@@ -284,7 +320,7 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
   }, [dirty]);
 
   const chip = (active: boolean) => cn('h-10 shrink-0 cursor-pointer rounded-full px-4 text-sm font-medium', active ? 'bg-ink-900 text-white' : 'bg-white text-ink-700 ring-1 ring-line hover:bg-ink-50');
-  const scope = [brand, query.trim() && `«${query.trim()}»`, onlyUnverified && 'ενδεικτικές'].filter(Boolean).join(' · ') || 'όλο τον κατάλογο';
+  const scope = [brand, query.trim() && `«${query.trim()}»`, onlyUnverified && 'ενδεικτικές', onlyWaiting && 'όχι άμεσα διαθέσιμα'].filter(Boolean).join(' · ') || 'όλο τον κατάλογο';
 
   return (
     <div>
@@ -318,6 +354,9 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
         </select>
         {unverifiedTotal > 0 && (
           <button type="button" onClick={() => setOnlyUnverified((v) => !v)} aria-pressed={onlyUnverified} className={chip(onlyUnverified)}>Ενδεικτικές ({unverifiedTotal})</button>
+        )}
+        {(waitingTotal > 0 || onlyWaiting) && (
+          <button type="button" onClick={() => setOnlyWaiting((v) => !v)} aria-pressed={onlyWaiting} className={chip(onlyWaiting)}>Όχι άμεσα διαθέσιμα ({waitingTotal})</button>
         )}
       </div>
 
@@ -353,13 +392,13 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
       </details>
 
       <p className="mt-4 mb-2 text-xs text-ink-500" aria-live="polite">
-        {shown.length === rows.length ? `${rows.length} τιμές` : `${shown.length} από ${rows.length} τιμές`} · τιμές λιανικής με ΦΠΑ · Enter = αποθήκευση · ↑ ↓ = επόμενη τιμή
+        {shown.length === rows.length ? `${rows.length} τιμές` : `${shown.length} από ${rows.length} τιμές`} · τιμές λιανικής με ΦΠΑ · Enter = αποθήκευση · ↑ ↓ = επόμενη τιμή · η διαθεσιμότητα αποθηκεύεται μαζί με τις τιμές
       </p>
 
       {groups.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-ink-200 bg-white p-10 text-center text-sm text-ink-500">
           Δεν βρέθηκε προϊόν.{' '}
-          <button type="button" onClick={() => { setQuery(''); setBrand(''); setOnlyUnverified(false); searchRef.current?.focus(); }} className="cursor-pointer font-medium text-ink-900 underline underline-offset-2">Καθαρισμός φίλτρων</button>
+          <button type="button" onClick={() => { setQuery(''); setBrand(''); setOnlyUnverified(false); setOnlyWaiting(false); searchRef.current?.focus(); }} className="cursor-pointer font-medium text-ink-900 underline underline-offset-2">Καθαρισμός φίλτρων</button>
         </p>
       ) : (
         <ul className="space-y-2">
@@ -371,7 +410,7 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
               </Link>
               <ul className="divide-y divide-line">
                 {g.lines.map((r) => (
-                  <PriceLine key={r.id} row={r} draft={drafts[r.id]} verifiedDraft={verifiedDrafts[r.id]} failed={failed.includes(r.id)} justSaved={savedIds.includes(r.id)} onDraft={onDraft} onVerify={onVerify} onEnter={onEnter} />
+                  <PriceLine key={r.id} row={r} draft={drafts[r.id]} verifiedDraft={verifiedDrafts[r.id]} availabilityDraft={availabilityDrafts[r.id]} failed={failed.includes(r.id)} justSaved={savedIds.includes(r.id)} onDraft={onDraft} onVerify={onVerify} onAvailability={onAvailability} onEnter={onEnter} />
                 ))}
               </ul>
             </li>

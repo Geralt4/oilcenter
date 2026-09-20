@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import nodemailer, { type Transporter } from 'nodemailer';
+import { AVAILABILITY_LABELS } from '@/lib/availability';
 import type { OrderWithItems } from '@/lib/orders';
 import { ORDER_STATUS_LABELS } from '@/lib/orders';
 import { PAYMENT_LABELS, SHIPPING_LABELS } from '@/lib/pricing';
@@ -72,7 +73,7 @@ function itemsTable(order: OrderWithItems): string {
   const row = (label: string, value: string, bold = false) =>
     `<tr><td style="padding:6px 0;color:#59616f;${bold ? 'font-weight:700;color:#11141a;font-size:16px;' : ''}">${label}</td><td align="right" style="padding:6px 0;${bold ? 'font-weight:700;font-size:16px;' : ''}">${value}</td></tr>`;
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #e6e3dc;margin-top:20px;font-size:14px;">
-${order.items.map((i) => `<tr><td style="padding:12px 0;border-bottom:1px solid #e6e3dc;"><strong>${esc(i.name)}</strong><br><span style="color:#59616f;">${esc(i.variantLabel)} · ${i.quantity} × ${formatPrice(i.unitPriceCents)}</span></td><td align="right" valign="top" style="padding:12px 0;border-bottom:1px solid #e6e3dc;white-space:nowrap;">${formatPrice(i.lineTotalCents)}</td></tr>`).join('')}
+${order.items.map((i) => `<tr><td style="padding:12px 0;border-bottom:1px solid #e6e3dc;"><strong>${esc(i.name)}</strong><br><span style="color:#59616f;">${esc(i.variantLabel)} · ${i.quantity} × ${formatPrice(i.unitPriceCents)}</span>${i.availability && i.availability !== 'in_stock' ? `<br><span style="color:#b45309;font-size:13px;">${esc(AVAILABILITY_LABELS[i.availability])}</span>` : ''}</td><td align="right" valign="top" style="padding:12px 0;border-bottom:1px solid #e6e3dc;white-space:nowrap;">${formatPrice(i.lineTotalCents)}</td></tr>`).join('')}
 </table>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;font-size:14px;">
 ${row('Υποσύνολο', formatPrice(order.subtotalCents))}

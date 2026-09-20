@@ -1,5 +1,6 @@
 import { cache } from 'react';
 import { and, asc, eq, inArray } from 'drizzle-orm';
+import { bestAvailability, effectiveAvailability, type Availability } from '@/lib/availability';
 import { db } from '@/lib/db';
 import { brands, categories, productImages, products, variants, type BaseType, type Brand, type Category } from '@/lib/db/schema';
 import { normalizeText } from '@/lib/utils';
@@ -23,6 +24,9 @@ export type CatalogVariant = {
   /** 0 when `priced` is false — a placeholder price never leaves the server */
   priceCents: number;
   compareAtCents: number | null;
+  /** what the owner set, unless counted stock has run out (then 'unavailable') */
+  availability: Availability;
+  /** can be bought: anything but 'unavailable'. "On order" sizes count as buyable. */
   inStock: boolean;
   /** units left, or null when stock is not tracked */
   stockLeft: number | null;
@@ -48,6 +52,8 @@ export type CatalogProduct = {
   minPriceCents: number;
   maxPriceCents: number;
   inStock: boolean;
+  /** the best state among the sizes — what a product card says */
+  availability: Availability;
   onSale: boolean;
 };
 
@@ -77,6 +83,7 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
   const variantsByProduct = new Map<number, CatalogVariant[]>();
   for (const v of variantRows) {
     const list = variantsByProduct.get(v.productId) ?? [];
+    const availability = effectiveAvailability(v);
     list.push({
       id: v.id,
       sku: v.sku,
@@ -85,7 +92,8 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
       priced: v.priceVerified,
       priceCents: v.priceVerified ? v.priceCents : 0,
       compareAtCents: v.priceVerified && v.compareAtCents && v.compareAtCents > v.priceCents ? v.compareAtCents : null,
-      inStock: !v.trackStock || v.stock > 0,
+      availability,
+      inStock: availability !== 'unavailable',
       stockLeft: v.trackStock ? v.stock : null,
       imageUrl: v.imageUrl,
       weightGrams: v.weightGrams,
@@ -116,6 +124,7 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
       minPriceCents: prices.length ? Math.min(...prices) : 0,
       maxPriceCents: prices.length ? Math.max(...prices) : 0,
       inStock: vs.some((v) => v.inStock),
+      availability: bestAvailability(vs.map((v) => v.availability)),
       onSale: vs.some((v) => v.compareAtCents !== null),
       searchText: p.searchText,
     });
@@ -453,6 +462,8 @@ export type ResolvedCartLine = {
   /** weight of the whole line */
   weightGrams: number;
   unitWeightGrams: number;
+  /** null on a line that can no longer be bought */
+  availability: Availability | null;
   issue: 'unavailable' | 'out_of_stock' | 'quantity_reduced' | null;
 };
 
@@ -491,12 +502,14 @@ export async function resolveCartLines(lines: Array<{ variantId: number; quantit
       out.push({
         variantId, productId: row?.p.id ?? 0, slug: row?.p.slug ?? '', name: row?.p.name ?? 'Μη διαθέσιμο προϊόν', brandName: row?.brandName ?? null,
         variantLabel: row?.v.label ?? '', sku: row?.v.sku ?? '', imageUrl: null, unitPriceCents: 0, compareAtCents: null, quantity: 0, maxQuantity: 0,
-        lineTotalCents: 0, weightGrams: 0, unitWeightGrams: 0, issue: 'unavailable',
+        lineTotalCents: 0, weightGrams: 0, unitWeightGrams: 0, availability: null, issue: 'unavailable',
       });
       continue;
     }
     const { v, p } = row;
-    const max = v.trackStock ? Math.max(0, v.stock) : null;
+    // a size the owner marked "not available" is treated exactly like counted stock that ran out
+    const availability = effectiveAvailability(v);
+    const max = availability === 'unavailable' ? 0 : v.trackStock ? Math.max(0, v.stock) : null;
     const quantity = max === null ? requested : Math.min(requested, max);
     out.push({
       variantId,
@@ -514,6 +527,7 @@ export async function resolveCartLines(lines: Array<{ variantId: number; quantit
       lineTotalCents: v.priceCents * quantity,
       weightGrams: v.weightGrams * quantity,
       unitWeightGrams: v.weightGrams,
+      availability,
       issue: quantity === 0 ? 'out_of_stock' : quantity < requested ? 'quantity_reduced' : null,
     });
   }

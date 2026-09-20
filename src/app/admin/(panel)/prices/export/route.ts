@@ -3,7 +3,7 @@ import { getAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { brands, products, variants } from '@/lib/db/schema';
 
-/** sku;brand;product;pack;price;stock;verified — semicolon + BOM so Greek Excel opens it correctly on double-click. */
+/** sku;brand;product;pack;price;stock;verified;availability — semicolon + BOM so Greek Excel opens it correctly on double-click. */
 export async function GET() {
   if (!(await getAdmin())) return new Response('Unauthorized', { status: 401 });
 
@@ -21,8 +21,8 @@ export async function GET() {
     return /[";\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
   };
   const lines = [
-    ['sku', 'brand', 'product', 'pack', 'price', 'stock', 'verified'].join(';'),
-    ...rows.map(({ v, productName, brandName }) => [v.sku, brandName, productName, v.label, (v.priceCents / 100).toFixed(2).replace('.', ','), v.trackStock ? v.stock : '', v.priceVerified ? 'yes' : 'no'].map(cell).join(';')),
+    ['sku', 'brand', 'product', 'pack', 'price', 'stock', 'verified', 'availability'].join(';'),
+    ...rows.map(({ v, productName, brandName }) => [v.sku, brandName, productName, v.label, (v.priceCents / 100).toFixed(2).replace('.', ','), v.trackStock ? v.stock : '', v.priceVerified ? 'yes' : 'no', v.availability].map(cell).join(';')),
   ];
   return new Response(`﻿${lines.join('\r\n')}`, {
     headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="oilcenter-prices-${new Date().toISOString().slice(0, 10)}.csv"`, 'Cache-Control': 'no-store' },

@@ -18,7 +18,7 @@ import { cn, formatDateTime } from '@/lib/utils';
 export const metadata = { title: 'Skroutz' };
 
 /** Reasons the owner can do something about come first; switched-off products are left out on purpose. */
-const REASON_ORDER: FeedExclusion[] = ['price_unconfirmed', 'out_of_stock', 'no_brand', 'no_category', 'size_inactive', 'product_inactive'];
+const REASON_ORDER: FeedExclusion[] = ['price_unconfirmed', 'unavailable', 'out_of_stock', 'no_brand', 'no_category', 'size_inactive', 'product_inactive'];
 
 export default async function AdminSkroutzPage() {
   const settings = await getSettings();
@@ -95,9 +95,9 @@ export default async function AdminSkroutzPage() {
           <AdminForm action={saveSkroutzSettings} submitLabel="Αποθήκευση" variant="dark" size="sm">
             <div className="space-y-4">
               <Check name="feedEnabled" label="Το αρχείο είναι ανοιχτό για το Skroutz" defaultChecked={skroutz.feedEnabled} hint="Ανοίξτε το όταν το site είναι δημόσιο και έτοιμο. Αν το κλείσετε αφού συνδεθεί, το Skroutz θα σταματήσει να ενημερώνεται και μετά από λίγο θα κρύψει τα προϊόντα σας." />
-              <Field label="Διαθεσιμότητα που δηλώνεται" hint="Πόσο γρήγορα φεύγει από το κατάστημα μια παραγγελία. Οι φράσεις είναι αυτές που αναγνωρίζει το Skroutz. Το «Άμεσα διαθέσιμο» σημαίνει αποστολή την ίδια ημέρα.">
+              <Field label="Τι δηλώνεται για όσα είναι «Άμεσα διαθέσιμα»" hint="Οι φράσεις του Skroutz μιλούν για παράδοση στον πελάτη. Το «Άμεσα διαθέσιμο» σημαίνει αποστολή την ίδια ημέρα· αν δεν το εγγυάστε, κρατήστε το «1 έως 3 ημέρες». Όσα έχετε σημειώσει «Σε 1–3 ημέρες» δηλώνονται «4 έως 6 ημέρες», τα «Κατόπιν παραγγελίας» «7 έως 12 ημέρες», και τα «Μη διαθέσιμα» δεν στέλνονται καθόλου.">
                 <select name="availability" defaultValue={skroutz.availability} className="field cursor-pointer">
-                  {SKROUTZ_AVAILABILITY.map((a) => <option key={a} value={a}>{a}</option>)}
+                  {SKROUTZ_AVAILABILITY.slice(0, 2).map((a) => <option key={a} value={a}>{a}</option>)}
                 </select>
               </Field>
               <Field label="Τεμάχια που δηλώνονται ανά συσκευασία" hint="Το Skroutz ζητά αριθμό τεμαχίων. Για όσες συσκευασίες δεν μετράτε απόθεμα δηλώνεται αυτός ο αριθμός· για όσες μετράτε, το πραγματικό απόθεμα (στο 0 βγαίνουν από το αρχείο)." className="max-w-xs">
@@ -128,7 +128,7 @@ export default async function AdminSkroutzPage() {
       </Card>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <Card title="Τι μένει εκτός αρχείου" description="Στο Skroutz φτάνουν μόνο συσκευασίες με επιβεβαιωμένη τιμή, ενεργές και σε απόθεμα.">
+        <Card title="Τι μένει εκτός αρχείου" description="Στο Skroutz φτάνουν μόνο συσκευασίες με επιβεβαιωμένη τιμή, ενεργές και διαθέσιμες.">
           {leftOutByReason.length === 0 ? (
             <p className="text-sm text-ink-600">Τίποτα: όλες οι συσκευασίες είναι στο αρχείο.</p>
           ) : (
@@ -140,6 +140,7 @@ export default async function AdminSkroutzPage() {
                     <span className="tabular rounded-full bg-ink-100 px-2 py-0.5 text-xs">{g.list.length}</span>
                   </summary>
                   {g.reason === 'price_unconfirmed' && <p className="mt-2 text-sm text-ink-600">Γράψτε ή επιβεβαιώστε την τιμή στις <Link href="/admin/prices?filter=unverified" className="font-medium text-petrol-500 underline underline-offset-2">Τιμές</Link> και η συσκευασία μπαίνει στο αρχείο αμέσως.</p>}
+                  {g.reason === 'unavailable' && <p className="mt-2 text-sm text-ink-600">Μόλις ξαναέρθει, αλλάξτε τη διαθεσιμότητα στις <Link href="/admin/prices?filter=waiting" className="font-medium text-petrol-500 underline underline-offset-2">Τιμές</Link> και επιστρέφει και στο Skroutz.</p>}
                   <ul className="mt-2 space-y-1 text-sm text-ink-700">
                     {g.list.map((l) => (
                       <li key={l.variantId}><Link href={`/admin/products/${l.productId}`} className="hover:underline">{l.name}</Link></li>

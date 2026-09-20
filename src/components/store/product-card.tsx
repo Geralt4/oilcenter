@@ -4,14 +4,15 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
 import { Check, Heart, Phone, ShoppingCart } from 'lucide-react';
+import { AvailabilityTag } from '@/components/store/availability';
 import { useStoreConfig } from '@/components/store/store-context';
 import type { CatalogProduct } from '@/lib/catalog';
 import { useCart, useHydrated, useWishlist } from '@/lib/cart-store';
 import { cn, formatPrice, telHref } from '@/lib/utils';
 
 export function ProductCard({ product, priority = false }: { product: CatalogProduct; priority?: boolean }) {
-  // open on a size that can actually be bought: in stock and with a confirmed price
-  const firstAvailable = product.variants.find((v) => v.inStock && v.priced) ?? product.variants.find((v) => v.inStock) ?? product.variants[0];
+  // open on a size that can actually be bought — on the shelf if possible — and with a confirmed price
+  const firstAvailable = product.variants.find((v) => v.availability === 'in_stock' && v.priced) ?? product.variants.find((v) => v.inStock && v.priced) ?? product.variants.find((v) => v.inStock) ?? product.variants[0];
   const { phone } = useStoreConfig();
   const [variantId, setVariantId] = useState(firstAvailable.id);
   const [justAdded, setJustAdded] = useState(false);
@@ -37,6 +38,7 @@ export function ProductCard({ product, priority = false }: { product: CatalogPro
       unitPriceCents: variant.priceCents,
       weightGrams: variant.weightGrams,
       maxQuantity: variant.stockLeft,
+      availability: variant.availability,
     });
     setJustAdded(true);
     setTimeout(() => setJustAdded(false), 1600);
@@ -74,7 +76,7 @@ export function ProductCard({ product, priority = false }: { product: CatalogPro
         </button>
 
         {!product.inStock && (
-          <span className="absolute inset-x-3 bottom-3 rounded-lg bg-ink-900/85 py-1.5 text-center text-xs font-semibold text-white backdrop-blur">Εξαντλήθηκε</span>
+          <span className="absolute inset-x-3 bottom-3 rounded-lg bg-ink-900/85 py-1.5 text-center text-xs font-semibold text-white backdrop-blur">Προσωρινά μη διαθέσιμο</span>
         )}
       </div>
 
@@ -119,6 +121,8 @@ export function ProductCard({ product, priority = false }: { product: CatalogPro
               <p className="text-[0.9375rem] font-semibold text-petrol-500">Καλέστε για τιμή</p>
             )}
             {product.variants.length === 1 && <p className="text-xs text-ink-500">{variant.label}</p>}
+            {/* says nothing for a size that is on the shelf; a wait is worth a line */}
+            {variant.priced && variant.inStock && <AvailabilityTag availability={variant.availability} className="mt-0.5" />}
           </div>
           {!variant.priced ? (
             <a

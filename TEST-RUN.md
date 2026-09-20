@@ -55,7 +55,8 @@ All the questions of section 5 are in Greek, with room for each answer, in [`que
 - [ ] [Ilias] Barcodes (EAN) and manufacturer codes for every size — *Admin → Skroutz*, ideally with a USB barcode scanner (about 25 €): scan, and it saves and moves to the next size. Skroutz matches products on these; without them more products wait in its manual review `→ N5`
 - [ ] [you / Ilias] Connect the feed: site public on the real domain → switch the feed on → send the address through the Skroutz merchant panel. **Before that, ask Skroutz what happens to the 133 listings that are not on the site yet** `→ N4, P5`
 - [ ] [dev] Add the missing products as photos arrive, best sellers first `→ P5`
-- [ ] [dev] Availability labels `→ P6`
+- [x] [dev] Availability labels — **built and tested locally (20/9/2026), not deployed.** Per size: «Άμεσα διαθέσιμο» (default) / «Σε 1–3 ημέρες» / «Κατόπιν παραγγελίας» / «Μη διαθέσιμο» (shown, cannot be bought, not sent to Skroutz). Set next to each price in *Admin → Τιμές*. README → "Availability".
+- [ ] [Ilias] Mark the sizes he does not keep on the shelf — everything starts as «Άμεσα διαθέσιμο» `→ P6`
 - [ ] [dev] Go through the 43 flagged products with Ilias (`REVIEW.md`) `→ P4`
 - [ ] [you] Report at week 4 and week 8: visits, sources, top products, searches with no results, closed-checkout hits, sign-ups, calls / directions clicks
 - [ ] [you + Ilias] Go / no-go against the target agreed in `T2`
@@ -93,7 +94,7 @@ Where there is a default, "OK" is a complete answer.
 - **P3.** Confirm: (a) "Mobil Super 3000 10W-40" is really **Super 2000 X1**; (b) the Mannol air-filter oil is code **9964**; (c) the Selenia Gold can of unknown size is the **2 L**; (d) pack size of Selenia K Power Plus 5W-30; (e) Tutela MR3 grease is **850 g**; (f) Mobil Super 3000 XE 5W-30 is **4 L** (as on Skroutz) or 5 L.
 - **P4.** When can he go through the 43 flagged products (`REVIEW.md`)? About an hour together.
 - **P5.** The 133 products that are on Skroutz but not on the site: does he want them added? Can he photograph them (plain wall, phone is fine) or get pack shots from his distributors? Which 20–30 sell most?
-- **P6.** Availability: show everything as available, or labels such as «άμεσα διαθέσιμο» / «κατόπιν παραγγελίας»? Does he keep stock counts anywhere?
+- **P6.** Availability: every size now says «Άμεσα διαθέσιμο» until he changes it (*Admin → Τιμές*, the box next to each price). Which sizes are not on the shelf — brought from the supplier in 1–3 days, ordered specially, or not available at all? Are «1–3 ημέρες» the right words for his supplier, and what should «Κατόπιν παραγγελίας» promise? Does he keep stock counts anywhere?
 
 ### Links and Google
 - **L1.** Instagram profile link.

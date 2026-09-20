@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import { ShoppingCart, Trash2, Truck, X } from 'lucide-react';
 import { buttonClass } from '@/components/ui/button';
+import { AvailabilityTag } from '@/components/store/availability';
 import { OrdersClosedNotice } from '@/components/store/orders-closed';
 import { QuantityStepper } from '@/components/store/quantity-stepper';
 import { useStoreConfig } from '@/components/store/store-context';
@@ -128,6 +129,7 @@ export function CartDrawer() {
                     <p className="mt-0.5 text-xs text-ink-500">
                       {line.snapshot.variantLabel} · <span className="tabular">{formatPrice(line.snapshot.unitPriceCents)}</span>
                     </p>
+                    <AvailabilityTag availability={line.snapshot.availability} className="mt-0.5" />
                     <div className="mt-2 flex items-center justify-between gap-2">
                       <QuantityStepper size="sm" value={line.quantity} max={line.snapshot.maxQuantity} onChange={(q) => setQuantity(line.variantId, q)} />
                       <span className="tabular text-sm font-bold text-ink-900">{formatPrice(line.quantity * line.snapshot.unitPriceCents)}</span>
