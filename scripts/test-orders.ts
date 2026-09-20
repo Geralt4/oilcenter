@@ -19,7 +19,7 @@ function check(name: string, ok: boolean, detail?: unknown) {
 }
 
 async function main() {
-  const { eq } = await import('drizzle-orm');
+  const { eq, ne } = await import('drizzle-orm');
   const { db } = await import('../src/lib/db');
   const { coupons, orderEvents, orders, variants } = await import('../src/lib/db/schema');
   const { cancelOrder, createOrder, markOrderPaid } = await import('../src/lib/orders');
@@ -28,7 +28,7 @@ async function main() {
 
   const settings = structuredClone(DEFAULT_SETTINGS);
   const [variant] = await db.select().from(variants).limit(1);
-  await db.update(variants).set({ trackStock: true, stock: 2, priceCents: 1000, weightGrams: 1000 }).where(eq(variants.id, variant.id));
+  await db.update(variants).set({ trackStock: true, stock: 2, priceCents: 1000, weightGrams: 1000, priceVerified: true }).where(eq(variants.id, variant.id));
   const stock = async () => (await db.select({ s: variants.stock }).from(variants).where(eq(variants.id, variant.id)))[0].s;
 
   const base = {
@@ -86,6 +86,15 @@ async function main() {
   check('cash-on-delivery + store pickup is refused', !codPickup.ok && codPickup.reason === 'invalid_method', codPickup);
   const card = await createOrder({ ...base, paymentMethod: 'card', lines: [{ variantId: variant.id, quantity: 1 }] }, settings, opts);
   check('card is refused while no gateway is configured', !card.ok && card.reason === 'invalid_method', card);
+
+  console.log('Unconfirmed prices');
+  const [other] = await db.select().from(variants).where(ne(variants.id, variant.id)).limit(1);
+  await db.update(variants).set({ trackStock: false, priceCents: 1234, priceVerified: false }).where(eq(variants.id, other.id));
+  const placeholder = await createOrder({ ...base, lines: [{ variantId: other.id, quantity: 1 }] }, settings, opts);
+  check('a size whose price is not confirmed cannot be ordered', !placeholder.ok && placeholder.reason === 'cart_changed', placeholder);
+  await db.update(variants).set({ priceVerified: true }).where(eq(variants.id, other.id));
+  const confirmed = await createOrder({ ...base, lines: [{ variantId: other.id, quantity: 1 }] }, settings, opts);
+  check('…and can be once the owner confirms it', confirmed.ok && confirmed.order.subtotalCents === 1234, confirmed);
 
   console.log('Shipping tiers');
   const s = settings.shipping;
