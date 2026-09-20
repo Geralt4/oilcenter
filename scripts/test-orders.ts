@@ -4,13 +4,10 @@
  * Covers the things that cost real money when they go wrong: overselling, double cancel,
  * payment amount mismatch, duplicate gateway callbacks, coupon maths and shipping tiers.
  */
-import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
+import { rmSync } from 'node:fs';
+import { cloneDatabase } from './test-db';
 
-const dir = mkdtempSync(path.join(tmpdir(), 'oc-test-'));
-copyFileSync(path.resolve('data/shop.db'), path.join(dir, 'shop.db'));
-process.env.DATABASE_URL = `file:${path.join(dir, 'shop.db')}`;
+let dir = '';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail?: unknown) {
@@ -19,6 +16,7 @@ function check(name: string, ok: boolean, detail?: unknown) {
 }
 
 async function main() {
+  dir = await cloneDatabase('oc-test-');
   const { eq, ne } = await import('drizzle-orm');
   const { db } = await import('../src/lib/db');
   const { coupons, orderEvents, orders, variants } = await import('../src/lib/db/schema');
@@ -115,7 +113,7 @@ main()
     failures++;
   })
   .finally(() => {
-    rmSync(dir, { recursive: true, force: true });
+    if (dir) rmSync(dir, { recursive: true, force: true });
     console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
     process.exit(failures ? 1 : 0);
   });

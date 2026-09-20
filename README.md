@@ -27,7 +27,8 @@ Admin login = `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env.local`. Change the pas
 | `npm run db:generate` | create a new migration after editing `src/lib/db/schema.ts` |
 | `npm run admin:create -- <email> <password> [name]` | add an admin or reset a password |
 | `npm run catalog:build` | rebuild `catalog/catalog.json` + `public/catalog/*.webp` from the client's photos |
-| `npm run test:orders` | order-logic regression test (runs on a throwaway copy of the DB) |
+| `npm run test:orders` | order-logic regression test (runs on a throwaway snapshot of the DB) |
+| `npm run test:feed` | Skroutz feed regression test: what is listed, valid XML, barcodes (same throwaway snapshot) |
 | `npm run lint` / `typecheck` | ESLint / TypeScript |
 
 ## ⚠️ Before going live
@@ -168,8 +169,48 @@ does not list yet — is [`SKROUTZ-PRICES.md`](SKROUTZ-PRICES.md).
   is the way to ship any future data fix to the hosted shop — `railway ssh` needs an SSH key registered with Railway,
   which has not been set up.
 - Skroutz blocks non-browser clients, so the listing was read through a normal browser session; there is no scraper in
-  the repo. The durable fix for "two places to update every three days" is the opposite direction — an XML product
-  feed from this shop that Skroutz polls — which is not built yet.
+  the repo. The durable fix for "two places to update every three days" is the opposite direction — the XML product
+  feed below, which Skroutz polls.
+
+## Skroutz XML feed
+
+`/feeds/skroutz.xml` is the product file skroutz.gr reads ([their specification](https://developer.skroutz.gr/products/xml_feed)).
+Once Skroutz has the address it downloads the file about every hour (08:00–00:00), so a price saved in *Admin → Τιμές*
+reaches Skroutz without being typed a second time. Everything the owner needs is on **Admin → Skroutz**
+(`/admin/skroutz`): the address to hand over, an on/off switch, what is in the file and what is left out and why, when
+Skroutz last read it, and a quick editor for barcodes and manufacturer codes. **It is built and tested but not connected:**
+nobody has given the address to Skroutz, and the switch ships **off** (the address answers 404 to everyone but a
+logged-in admin).
+
+- **One `<product>` per pack size.** On Skroutz "…5W-30 1lt" and "…4lt" are separate products and their `<size>` field is
+  for clothing only, so the pack goes into the title: brand + name + pack ("Castrol MAGNATEC 5W-40 C3 4L").
+- **`<id>` is the SKU.** Skroutz requires an id that never changes and is never reused; the SKU survives a rebuild of
+  the database, a row id does not. Renaming a SKU makes Skroutz see a new product — don't, once the feed is connected.
+- **Only confirmed prices.** A size whose price is still a placeholder is left out, as are switched-off products and
+  sizes, and sizes with counted stock at 0 (Skroutz then shows them as unavailable until they return).
+- **Links open on the advertised size:** `/product/<slug>?v=<size id>` preselects the pack (Skroutz spot-checks that the
+  page shows the price in the file). The canonical URL stays without the parameter.
+- **Barcode (EAN) and manufacturer code (MPN)** are what Skroutz matches products on; both are "required" in their
+  spec and the catalogue has none yet. Until they are entered the feed sends the SKU as `<mpn>` and omits `<ean>`;
+  Skroutz then falls back to matching by title, which is slower and lands more products in manual review. Entry is
+  built for a USB barcode scanner — click the first box, scan, and every scan saves and moves to the next size — and
+  there is a CSV import (`sku;ean;mpn`). Barcodes are checked against their check digit (`src/lib/gtin.ts`) here and in
+  the product form; a wrong or duplicated one is refused and never sent.
+- Availability phrase (one of the four Skroutz recognises) and the quantity declared for sizes whose stock is not
+  counted are settings on the same page. Weight, VAT rate, category path and a `<specifications>` block (viscosity,
+  type, approvals, pack) come from the catalogue. Paragraphs that talk to the shop's own customer ("…ή καλέστε μας")
+  are dropped from `<description>`.
+- SkroutzBot cannot log in anywhere, so while `SITE_PASSWORD` locks the site it can read neither the file nor the
+  product pages and photos it checks. The admin page warns about this, about demo mode, about a temporary domain and
+  about closed ordering. `robots.txt` keeps `/feeds/` out of search engines.
+- Code: `src/lib/skroutz-feed.ts` (builder + fetch log), `src/app/feeds/skroutz.xml/route.ts`,
+  `src/app/admin/(panel)/skroutz/page.tsx`, `src/components/admin/codes-editor.tsx`. Test: `npm run test:feed`.
+
+**Connecting it** (after launch on the real domain): switch the feed on → *Λήψη XML* and upload the file to
+[validator.skroutz.gr](https://validator.skroutz.gr) → send the address to Skroutz through the merchant panel
+(*Βοήθεια → Προϊόντα → Αρχείο XML*); they review it and reply with corrections if they want any. **Ask them first what
+happens to the listings the shop has on Skroutz today that are not on this site** (133 when last counted, see
+`SKROUTZ-PRICES.md`): as a rule, once a feed is connected the shop shows only what the file contains.
 
 ## Adding products
 

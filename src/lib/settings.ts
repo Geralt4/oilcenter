@@ -81,7 +81,19 @@ export type ShopSettings = {
   tax: {
     vatRate: number;
   };
+  /** the product feed skroutz.gr reads (/feeds/skroutz.xml) */
+  skroutz: {
+    /** false = the feed address answers 404 to everyone except a logged-in admin */
+    feedEnabled: boolean;
+    /** one of SKROUTZ_AVAILABILITY: how fast an order for a size that is in stock leaves the shop */
+    availability: string;
+    /** units declared for sizes whose stock is not counted (Skroutz requires a number) */
+    defaultQuantity: number;
+  };
 };
+
+/** The fixed availability phrases Skroutz recognises in a feed (developer.skroutz.gr → XML Feed → Availability). */
+export const SKROUTZ_AVAILABILITY = ['Άμεσα διαθέσιμο', 'Διαθέσιμο από 1 έως 3 ημέρες', 'Διαθέσιμο από 4 έως 6 ημέρες', 'Διαθέσιμο από 7 έως 12 ημέρες'] as const;
 
 export const DEFAULT_SETTINGS: ShopSettings = {
   shop: {
@@ -143,6 +155,11 @@ export const DEFAULT_SETTINGS: ShopSettings = {
   },
   tax: {
     vatRate: 24,
+  },
+  skroutz: {
+    feedEnabled: false,
+    availability: 'Διαθέσιμο από 1 έως 3 ημέρες',
+    defaultQuantity: 5,
   },
 };
 

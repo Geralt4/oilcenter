@@ -28,11 +28,13 @@ type Props = {
   product: { id: number; slug: string; name: string; brandName: string | null; shortDescription: string | null };
   images: Array<{ url: string; alt: string | null }>;
   variants: ViewVariant[];
+  /** pack size asked for in the URL (?v=), e.g. by a link from the Skroutz feed */
+  initialVariantId?: number | null;
 };
 
-export function ProductView({ product, images, variants }: Props) {
+export function ProductView({ product, images, variants, initialVariantId }: Props) {
   const config = useStoreConfig();
-  const initial = variants.find((v) => v.inStock && v.priceVerified) ?? variants.find((v) => v.inStock) ?? variants[0];
+  const initial = variants.find((v) => v.id === initialVariantId) ?? variants.find((v) => v.inStock && v.priceVerified) ?? variants.find((v) => v.inStock) ?? variants[0];
   const [variantId, setVariantId] = useState(initial.id);
   const [activeImage, setActiveImage] = useState(initial.imageUrl ?? images[0]?.url ?? null);
   const [quantity, setQuantity] = useState(1);

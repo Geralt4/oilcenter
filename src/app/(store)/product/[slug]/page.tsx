@@ -9,7 +9,7 @@ import { productJsonLd } from '@/lib/seo';
 import { getSettings } from '@/lib/settings.server';
 import { formatWeight } from '@/lib/utils';
 
-type Props = { params: Promise<{ slug: string }> };
+type Props = { params: Promise<{ slug: string }>; searchParams: Promise<{ v?: string | string[] }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
@@ -25,10 +25,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function ProductPage({ params }: Props) {
+export default async function ProductPage({ params, searchParams }: Props) {
   const { slug } = await params;
   const product = await getProductBySlug(slug);
   if (!product) notFound();
+  // ?v=<size id>: links from the Skroutz feed open on the pack size they advertise (the canonical URL stays without it)
+  const { v: wanted } = await searchParams;
+  const initialVariantId = Number(Array.isArray(wanted) ? wanted[0] : wanted) || null;
 
   const [settings, trail, related] = await Promise.all([getSettings(), getCategoryTrailById(product.categoryId), getRelatedProducts(product, 4)]);
 
@@ -67,6 +70,7 @@ export default async function ProductPage({ params }: Props) {
           product={{ id: product.id, slug: product.slug, name: product.name, brandName: product.brand?.name ?? null, shortDescription: product.shortDescription }}
           images={product.images.map((i) => ({ url: i.url, alt: i.alt }))}
           variants={variants}
+          initialVariantId={initialVariantId}
         />
       </div>
 

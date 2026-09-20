@@ -11,10 +11,11 @@ import { createSession, destroySession, requireAdmin } from '@/lib/auth/session'
 import { db } from '@/lib/db';
 import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, variants, type BaseType, type OrderStatus } from '@/lib/db/schema';
 import { orderStatusMail, sendMail } from '@/lib/email';
+import { isValidGtin, normalizeGtin } from '@/lib/gtin';
 import { normalizeProductPhoto } from '@/lib/images';
 import { addOrderEvent, cancelOrder, getOrderByNumber, ORDER_STATUS_LABELS } from '@/lib/orders';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
-import { DEFAULT_SETTINGS, type BankAccount, type DayHours, type ShopSettings } from '@/lib/settings';
+import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours, type ShopSettings } from '@/lib/settings';
 import { getSettings, saveSettingsGroup } from '@/lib/settings.server';
 import { normalizeText, parsePriceToCents, parseVolumeMl, slugify } from '@/lib/utils';
 
@@ -115,6 +116,7 @@ const VariantInput = z.object({
   trackStock: z.boolean(),
   weightGrams: z.number().int().min(0).max(100000),
   barcode: z.string().trim().max(32).optional(),
+  mpn: z.string().trim().max(80).optional(),
   imageUrl: z.string().trim().max(300).optional(),
   isActive: z.boolean(),
   priceVerified: z.boolean(),
@@ -158,6 +160,8 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   }
   const priced = variantRows.map((v) => ({ ...v, priceCents: parsePriceToCents(v.price), compareAtCents: v.compareAt ? parsePriceToCents(v.compareAt) : null }));
   if (priced.some((v) => v.priceCents === null || v.priceCents <= 0)) return { ok: false, message: 'Κάθε συσκευασία χρειάζεται έγκυρη τιμή (π.χ. 12,90).' };
+  const badBarcode = priced.find((v) => v.barcode && !isValidGtin(v.barcode));
+  if (badBarcode) return { ok: false, message: `Το barcode «${badBarcode.barcode}» (${badBarcode.label}) δεν είναι έγκυρο: χρειάζονται 8, 12 ή 13 ψηφία — πιθανότατα ένα ψηφίο είναι λάθος.` };
 
   const brandId = int(fd, 'brandId') || null;
   const categoryId = int(fd, 'categoryId') || null;
@@ -195,7 +199,7 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     for (const [sort, v] of priced.entries()) {
       const row = {
         productId: pid, label: v.label, volumeMl: /\d\s*g$/i.test(v.label) ? null : parseVolumeMl(v.label), priceCents: v.priceCents!, compareAtCents: v.compareAtCents,
-        stock: v.stock, trackStock: v.trackStock, weightGrams: v.weightGrams, barcode: v.barcode || null, imageUrl: v.imageUrl || null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
+        stock: v.stock, trackStock: v.trackStock, weightGrams: v.weightGrams, barcode: v.barcode ? normalizeGtin(v.barcode) : null, mpn: v.mpn || null, imageUrl: v.imageUrl || null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
         sku: v.sku || `${slug}-${slugify(v.label)}`.toUpperCase().slice(0, 60),
       };
       if (v.id) await tx.update(variants).set(row).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));
@@ -316,7 +320,7 @@ export async function importPricesCsv(_prev: AdminFormState, fd: FormData): Prom
   const file = fd.get('file');
   if (!(file instanceof File) || !file.size) return { ok: false, message: 'Επιλέξτε αρχείο CSV.' };
   if (file.size > 2 * 1024 * 1024) return { ok: false, message: 'Το αρχείο είναι πολύ μεγάλο.' };
-  const lines = (await file.text()).replace(/^﻿/, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = (await file.text()).replace(/^\uFEFF/, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const sep = (lines[0] ?? '').includes(';') ? ';' : ',';
   const header = (lines[0] ?? '').toLowerCase().split(sep).map((h) => h.replace(/"/g, '').trim());
   const col = { sku: header.indexOf('sku'), price: header.findIndex((h) => h.startsWith('price') || h.startsWith('τιμ')), stock: header.findIndex((h) => h.startsWith('stock') || h.startsWith('απόθ') || h.startsWith('αποθ')) };
@@ -501,4 +505,112 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
 
   revalidatePath('/', 'layout');
   return { ok: true, message: 'Οι ρυθμίσεις αποθηκεύτηκαν.' };
+}
+
+// ─── Skroutz feed ────────────────────────────────────────────────────────────
+export async function saveSkroutzSettings(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
+  await requireAdmin();
+  const feedEnabled = bool(fd, 'feedEnabled');
+  await saveSettingsGroup('skroutz', {
+    feedEnabled,
+    availability: SKROUTZ_AVAILABILITY.find((a) => a === str(fd, 'availability')) ?? DEFAULT_SETTINGS.skroutz.availability,
+    // 0 would tell Skroutz that every size whose stock is not counted is sold out
+    defaultQuantity: Math.min(1000, Math.max(1, int(fd, 'defaultQuantity', DEFAULT_SETTINGS.skroutz.defaultQuantity))),
+  });
+  revalidatePath('/admin/skroutz');
+  return { ok: true, message: feedEnabled ? 'Αποθηκεύτηκε. Το αρχείο είναι ανοιχτό για το Skroutz.' : 'Αποθηκεύτηκε. Το αρχείο παραμένει κλειστό: το βλέπετε μόνο εσείς.' };
+}
+
+export type CodeUpdate = { id: number; barcode: string; mpn: string };
+export type CodeUpdateResult = {
+  ok: boolean;
+  message: string;
+  saved: CodeUpdate[];
+  /** rows left untouched, and why */
+  failed: Array<{ id: number; reason: 'invalid' | 'duplicate' }>;
+};
+
+const CodeUpdates = z.array(z.object({ id: z.number().int().positive(), barcode: z.string().trim().max(32), mpn: z.string().trim().max(80) })).min(1).max(2000);
+
+/** Barcode + manufacturer code per pack size, from the quick editor in Admin → Skroutz. An empty value clears the field. */
+export async function updateCodes(input: CodeUpdate[]): Promise<CodeUpdateResult> {
+  await requireAdmin();
+  const parsed = CodeUpdates.safeParse(input);
+  if (!parsed.success) return { ok: false, message: 'Δεν υπάρχουν αλλαγές προς αποθήκευση.', saved: [], failed: [] };
+
+  const all = await db.select({ id: variants.id, barcode: variants.barcode }).from(variants);
+  const known = new Set(all.map((v) => v.id));
+  // every pack size has its own barcode: the same one twice means the same bottle was scanned twice
+  const owner = new Map(all.flatMap((v) => (v.barcode ? [[v.barcode, v.id] as const] : [])));
+  const saved: CodeUpdate[] = [];
+  const failed: CodeUpdateResult['failed'] = [];
+
+  await db.transaction(async (tx) => {
+    for (const u of parsed.data) {
+      if (!known.has(u.id)) continue;
+      const barcode = normalizeGtin(u.barcode);
+      if (barcode && !isValidGtin(barcode)) {
+        failed.push({ id: u.id, reason: 'invalid' });
+        continue;
+      }
+      if (barcode && owner.has(barcode) && owner.get(barcode) !== u.id) {
+        failed.push({ id: u.id, reason: 'duplicate' });
+        continue;
+      }
+      await tx.update(variants).set({ barcode: barcode || null, mpn: u.mpn || null }).where(eq(variants.id, u.id));
+      for (const [code, id] of owner) if (id === u.id) owner.delete(code);
+      if (barcode) owner.set(barcode, u.id);
+      saved.push({ id: u.id, barcode, mpn: u.mpn });
+    }
+  });
+
+  revalidatePath('/admin/skroutz');
+  const count = saved.length === 1 ? 'Αποθηκεύτηκε 1 συσκευασία' : `Αποθηκεύτηκαν ${saved.length} συσκευασίες`;
+  if (failed.length) return { ok: false, message: `${count}. ${failed.length === 1 ? 'Ένα barcode δεν έγινε δεκτό' : `${failed.length} barcodes δεν έγιναν δεκτά`} (σημειωμένα με κόκκινο).`, saved, failed };
+  return { ok: true, message: saved.length ? `${count}.` : 'Καμία αλλαγή.', saved, failed };
+}
+
+/** CSV columns: sku;ean;mpn (either of the last two may be missing) — for a list sent by a distributor. Empty cells change nothing. */
+export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
+  await requireAdmin();
+  const file = fd.get('file');
+  if (!(file instanceof File) || !file.size) return { ok: false, message: 'Επιλέξτε αρχείο CSV.' };
+  if (file.size > 2 * 1024 * 1024) return { ok: false, message: 'Το αρχείο είναι πολύ μεγάλο.' };
+  const lines = (await file.text()).replace(/^\uFEFF/, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const sep = (lines[0] ?? '').includes(';') ? ';' : ',';
+  const header = (lines[0] ?? '').toLowerCase().split(sep).map((h) => h.replace(/"/g, '').trim());
+  const col = { sku: header.indexOf('sku'), ean: header.findIndex((h) => h === 'ean' || h.startsWith('barcode') || h === 'gtin'), mpn: header.findIndex((h) => h === 'mpn' || h.startsWith('κωδ')) };
+  if (col.sku < 0 || (col.ean < 0 && col.mpn < 0)) return { ok: false, message: 'Η πρώτη γραμμή πρέπει να έχει στήλη «sku» και τουλάχιστον μία από τις «ean», «mpn».' };
+
+  const rows = await db.select({ id: variants.id, sku: variants.sku, barcode: variants.barcode }).from(variants);
+  const bySku = new Map(rows.map((v) => [v.sku, v]));
+  const owner = new Map(rows.flatMap((v) => (v.barcode ? [[v.barcode, v.id] as const] : [])));
+  let updated = 0;
+  const unknown: string[] = [];
+  const rejected: string[] = [];
+  for (const line of lines.slice(1)) {
+    const cells = line.split(sep).map((c) => c.replace(/^"|"$/g, '').trim());
+    const sku = (cells[col.sku] ?? '').toUpperCase();
+    if (!sku) continue;
+    const current = bySku.get(sku);
+    if (!current) {
+      unknown.push(sku);
+      continue;
+    }
+    const patch: { barcode?: string; mpn?: string } = {};
+    const ean = col.ean >= 0 ? normalizeGtin(cells[col.ean] ?? '') : '';
+    if (ean) {
+      if (!isValidGtin(ean) || (owner.has(ean) && owner.get(ean) !== current.id)) rejected.push(sku);
+      else patch.barcode = ean;
+    }
+    const mpn = col.mpn >= 0 ? (cells[col.mpn] ?? '').slice(0, 80) : '';
+    if (mpn) patch.mpn = mpn;
+    if (!patch.barcode && !patch.mpn) continue;
+    await db.update(variants).set(patch).where(eq(variants.id, current.id));
+    if (patch.barcode) owner.set(patch.barcode, current.id);
+    updated++;
+  }
+  revalidatePath('/admin/skroutz');
+  const list = (label: string, skus: string[]) => (skus.length ? ` ${label}: ${skus.slice(0, 6).join(', ')}${skus.length > 6 ? '…' : ''}.` : '');
+  return { ok: unknown.length + rejected.length === 0, message: `${updated === 1 ? 'Ενημερώθηκε 1 συσκευασία' : `Ενημερώθηκαν ${updated} συσκευασίες`}.${list('Μη έγκυρο ή διπλό barcode', rejected)}${list('Άγνωστοι κωδικοί', unknown)}` };
 }

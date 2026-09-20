@@ -19,7 +19,8 @@
     "setup": "npm run db:migrate && npm run db:seed && npm run db:patch",
     "catalog:build": "tsx scripts/build-catalog.ts",
     "prices:skroutz": "tsx scripts/apply-skroutz-prices.ts",
-    "test:orders": "tsx scripts/test-orders.ts"
+    "test:orders": "tsx scripts/test-orders.ts",
+    "test:feed": "tsx scripts/test-feed.ts"
   },
   "engines": {
     "node": ">=20.9"

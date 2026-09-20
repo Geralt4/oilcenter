@@ -51,7 +51,9 @@ All the questions of section 5 are in Greek, with room for each answer, in [`que
 
 ## 3. During the test run (6–8 weeks)
 - [ ] [Ilias] keeps prices current in *Admin → Τιμές* (and on Skroutz, until the feed below exists)
-- [ ] [dev] Skroutz XML feed, so a price is changed once and Skroutz follows `→ N4`
+- [x] [dev] Skroutz XML feed, so a price is changed once and Skroutz follows — **built and tested locally (20/9/2026), switched off, not connected.** *Admin → Skroutz* has the address, the switch, what is left out and why, and the barcode editor. README → "Skroutz XML feed".
+- [ ] [Ilias] Barcodes (EAN) and manufacturer codes for every size — *Admin → Skroutz*, ideally with a USB barcode scanner (about 25 €): scan, and it saves and moves to the next size. Skroutz matches products on these; without them more products wait in its manual review `→ N5`
+- [ ] [you / Ilias] Connect the feed: site public on the real domain → switch the feed on → check the file at validator.skroutz.gr → send the address through the Skroutz merchant panel. **Before that, ask Skroutz what happens to the 133 listings that are not on the site yet** `→ N4, P5`
 - [ ] [dev] Add the missing products as photos arrive, best sellers first `→ P5`
 - [ ] [dev] Availability labels `→ P6`
 - [ ] [dev] Go through the 43 flagged products with Ilias (`REVIEW.md`) `→ P4`
@@ -113,3 +115,4 @@ Where there is a default, "OK" is a complete answer.
 - **N2.** Which courier ships his Skroutz orders today, and at what rates?
 - **N3.** How does he issue receipts for Skroutz orders today (cash register, software)?
 - **N4.** How does he update prices on Skroutz today — by hand in the merchant panel, or from a file? Are his Skroutz orders placed through Skroutz itself (Marketplace)?
+- **N5.** Who has the login of the Skroutz merchant panel (Χώρος Συνεργατών)? Can he enter the barcode and the manufacturer's code of every size in *Admin → Skroutz* — does he have a barcode scanner, or will he type them?

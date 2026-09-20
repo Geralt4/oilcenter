@@ -10,7 +10,7 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
   if (storefront.demoMode) return { rules: [{ userAgent: '*', disallow: '/' }] };
 
   return {
-    rules: [{ userAgent: '*', allow: '/', disallow: ['/admin', '/api/', '/cart', '/checkout', '/order/', '/order-status', '/account', '/login', '/register', '/forgot-password', '/reset-password', '/wishlist'] }],
+    rules: [{ userAgent: '*', allow: '/', disallow: ['/admin', '/api/', '/feeds/', '/cart', '/checkout', '/order/', '/order-status', '/account', '/login', '/register', '/forgot-password', '/reset-password', '/wishlist'] }],
     sitemap: `${siteUrl()}/sitemap.xml`,
   };
 }

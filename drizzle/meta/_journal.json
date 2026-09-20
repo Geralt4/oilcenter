@@ -22,6 +22,13 @@
       "when": 1789912411648,
       "tag": "0002_stats_and_signups",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789914085522,
+      "tag": "0003_skroutz_feed",
+      "breakpoints": true
     }
   ]
 }

@@ -19,7 +19,7 @@ export async function ProductEditor({ product, created }: Props) {
 
   const rows: VariantRow[] = (product?.variants ?? []).map((v) => ({
     id: v.id, label: v.label, sku: v.sku, price: centsToInput(v.priceCents), compareAt: centsToInput(v.compareAtCents), stock: v.stock, trackStock: v.trackStock,
-    weightGrams: v.weightGrams, barcode: v.barcode ?? '', imageUrl: v.imageUrl ?? '', isActive: v.isActive, priceVerified: v.priceVerified,
+    weightGrams: v.weightGrams, barcode: v.barcode ?? '', mpn: v.mpn ?? '', imageUrl: v.imageUrl ?? '', isActive: v.isActive, priceVerified: v.priceVerified,
   }));
 
   return (

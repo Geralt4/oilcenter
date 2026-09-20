@@ -129,7 +129,10 @@ export const variants = sqliteTable(
     stock: integer('stock').notNull().default(0),
     trackStock: integer('track_stock', { mode: 'boolean' }).notNull().default(true),
     weightGrams: integer('weight_grams').notNull().default(0),
+    /** EAN / GTIN printed under the barcode on the pack. Each pack size has its own. */
     barcode: text('barcode'),
+    /** the manufacturer's own article number for this pack (Liqui Moly "3320", Motul "109471"). Skroutz matches products on it. */
+    mpn: text('mpn'),
     imageUrl: text('image_url'),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     /** false until the shop owner has confirmed the price (seed data ships with placeholders) */
