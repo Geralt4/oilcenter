@@ -1,15 +1,18 @@
+import { Download } from 'lucide-react';
 import { changeAdminPassword, saveSettings } from '@/app/admin/actions';
 import { AdminForm } from '@/components/admin/admin-form';
 import { Card, Check, Field, PageHeader } from '@/components/admin/ui';
+import { buttonClass } from '@/components/ui/button';
+import { backupsSupported, listBackups } from '@/lib/backup';
 import { cardProvider } from '@/lib/payments';
 import { DAY_NAMES } from '@/lib/settings';
 import { getSettings } from '@/lib/settings.server';
-import { centsToInput } from '@/lib/utils';
+import { centsToInput, formatDate } from '@/lib/utils';
 
 export const metadata = { title: 'Ρυθμίσεις' };
 
 export default async function AdminSettingsPage() {
-  const s = await getSettings();
+  const [s, backups] = await Promise.all([getSettings(), listBackups()]);
   const { shop, storefront, shipping, payments, tax } = s;
   const provider = cardProvider();
   const accounts = [...payments.bankAccounts, { bank: '', iban: '', holder: '' }, { bank: '', iban: '', holder: '' }, { bank: '', iban: '', holder: '' }, { bank: '', iban: '', holder: '' }].slice(0, 4);
@@ -130,6 +133,31 @@ export default async function AdminSettingsPage() {
             <Field label="Νέος κωδικός" hint="Τουλάχιστον 10 χαρακτήρες."><input type="password" name="newPassword" autoComplete="new-password" required minLength={10} className="field" /></Field>
           </div>
         </AdminForm>
+      </Card>
+
+      <Card
+        title="Αντίγραφα ασφαλείας"
+        description="Κάθε βράδυ αποθηκεύεται αυτόματα ένα αντίγραφο όλης της βάσης (προϊόντα, τιμές, παραγγελίες, ρυθμίσεις) και κρατιούνται τα 14 τελευταία. Βρίσκονται στον ίδιο δίσκο με το site, γι' αυτό κατεβάζετε πού και πού ένα και στον υπολογιστή σας."
+        className="mt-6 max-w-xl"
+      >
+        <div id="backups">
+          {!backupsSupported() ? (
+            <p className="text-sm text-ink-600">Η βάση φιλοξενείται εξωτερικά· τα αντίγραφα τα κρατά ο πάροχος της βάσης.</p>
+          ) : (
+            <>
+              <p className="text-sm text-ink-700">
+                {backups.length === 0
+                  ? 'Δεν υπάρχει ακόμη αυτόματο αντίγραφο (δημιουργείται μόνο στο δημοσιευμένο site, λίγο μετά την εκκίνηση).'
+                  : `Τελευταίο αυτόματο αντίγραφο: ${formatDate(new Date(`${backups[0].day}T12:00:00`))} · ${backups.length} ${backups.length === 1 ? 'αποθηκευμένο' : 'αποθηκευμένα'}.`}
+              </p>
+              <a href="/admin/backup" className={buttonClass({ variant: 'dark', className: 'mt-4' })}>
+                <Download className="h-4 w-4" />
+                Λήψη αντιγράφου τώρα
+              </a>
+              <p className="mt-3 text-xs text-ink-500">Το αρχείο περιέχει στοιχεία πελατών. Φυλάξτε το σε ασφαλές μέρος και μην το στέλνετε με e-mail.</p>
+            </>
+          )}
+        </div>
       </Card>
     </>
   );
