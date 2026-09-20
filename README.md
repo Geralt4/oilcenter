@@ -125,4 +125,23 @@ The app needs Node ≥ 20.9 and **one persistent directory** (`DATA_DIR`) for th
 Set `SITE_URL` to the public origin, generate a fresh `AUTH_SECRET` (`openssl rand -base64 48`), and back up
 `DATA_DIR` nightly. The in-memory rate limiter assumes a single Node process.
 
+### Hosted preview (Railway)
+
+The preview the owner reviews runs on Railway: project `oilcenter`, service `web`, built from the `Dockerfile`
+(`railway.json` sets the builder and the `/api/health` check), with the volume `web-volume` (500 MB) mounted at `/app/data`.
+
+- URL: <https://web-production-2fe57.up.railway.app> — admin at `/admin`. The admin e-mail and password of the hosted
+  shop are in the git-ignored `.env.railway.local`; on Railway they are the `ADMIN_EMAIL` / `ADMIN_PASSWORD` variables.
+  The password variable is only read when the admin user is first created: change it afterwards from *Admin → Ρυθμίσεις*.
+- Ship a new version: `railway up --service web --ci` from this directory (uploads the working tree, honours `.gitignore`).
+- Logs: `railway logs --service web --deployment --lines 100`. Variables: `railway variable list --service web`
+  (prints secret values — do not paste the output anywhere).
+- `SITE_URL` is not set: the app falls back to Railway's `RAILWAY_PUBLIC_DOMAIN`. When the real domain is attached
+  (`railway domain www.oilcenter.gr --service web`, then the DNS records it prints), set `SITE_URL=https://www.oilcenter.gr`.
+  Railway injects the domain variable only into deployments created **after** the domain exists, so redeploy after adding one.
+- The volume survives redeploys: a restart logs "Database already has 175 products — skipping catalogue seed".
+  Catalogue edits made in the hosted admin therefore stay; `catalog/catalog.json` is only used for an empty database.
+- Railway is retiring `railway.json` in favour of `.railway/railway.ts` on 2026-12-01 (`railway config migrate` shows the
+  translation as a dry run). Until it is migrated, a deploy after that date may lose the health check.
+
 Old URLs from the 2015 site (`/castrol.html`, `/contact.html`, …) are 301-redirected in `next.config.ts`.
