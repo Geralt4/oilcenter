@@ -1,0 +1,744 @@
+[
+ {
+  "file": "Accelerate!/Accelerate!/0A687C39-2D08-4EAF-9E8E-63B99F68845D.PNG",
+  "brand": "accelerate",
+  "name": "ATF III H (red)",
+  "viscosity": null,
+  "pack": "1L",
+  "pack_confidence": "read",
+  "kind": "atf",
+  "base": "synthetic-technology",
+  "specs": [
+   "DEXRON III H",
+   "MAN 339 Typ Z-1",
+   "ZF TE-ML 04D, 14A"
+  ],
+  "group": "acc-atf-iii-h",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/1A3B1155-A10D-4CAD-868A-374E3F9A016E.PNG",
+  "brand": "accelerate",
+  "name": "Hydraulic Oil HLP 68",
+  "viscosity": null,
+  "pack": "20L",
+  "pack_confidence": "read",
+  "kind": "hydraulic_oil",
+  "base": null,
+  "specs": [
+   "DIN 51524 Teil 2 HLP"
+  ],
+  "group": "acc-hlp-68",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/518489D9-96F2-409B-AD49-7824E9C801BC.PNG",
+  "brand": "accelerate",
+  "name": "10W-60 Race",
+  "viscosity": "10W-60",
+  "pack": "1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic",
+  "specs": [
+   "ACEA A3/B4",
+   "API SP"
+  ],
+  "group": "acc-10w60-race",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/78FDD821-6EFB-4EF1-99E0-74BE27063517.PNG",
+  "brand": "accelerate",
+  "name": "Diesel HMB 20W-50",
+  "viscosity": "20W-50",
+  "pack": "20L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_truck",
+  "base": null,
+  "specs": [
+   "API CI-4/SL",
+   "ACEA E7/B4/A3",
+   "MB 228.3 & 229.1",
+   "MAN M 3275",
+   "MTU Type 2"
+  ],
+  "group": "acc-diesel-hmb-20w50",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/E1964ED2-3DCF-44D1-9E60-A0D009CBAE27.PNG",
+  "brand": "accelerate",
+  "name": "STOU 10W-30",
+  "viscosity": "10W-30",
+  "pack": "20L",
+  "pack_confidence": "read",
+  "kind": "tractor_oil",
+  "base": null,
+  "specs": [
+   "API CE/SF",
+   "API CH-4",
+   "API GL-4"
+  ],
+  "group": "acc-stou-10w30",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/IMG_8094.PNG",
+  "brand": "accelerate",
+  "name": "0W-20 GF",
+  "viscosity": "0W-20",
+  "pack": "1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic",
+  "specs": [
+   "API SP",
+   "ILSAC GF-6A"
+  ],
+  "group": "acc-0w20-gf",
+  "issues": [],
+  "note": "Hybrid. Η υπόλοιπη γραμμή προδιαγραφών δεν διαβάζεται καθαρά στη φωτογραφία.",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/IMG_8119.PNG",
+  "brand": "accelerate",
+  "name": "10W-40 High Power CSS",
+  "viscosity": "10W-40",
+  "pack": "4L",
+  "pack_confidence": "inferred",
+  "kind": "engine_oil_car",
+  "base": "semi-synthetic",
+  "specs": [
+   "ACEA A3/B4",
+   "API SN/CF",
+   "MB 229.1",
+   "VW 505 00",
+   "Renault RN 0700",
+   "PSA B71 2296"
+  ],
+  "group": "acc-10w40-css",
+  "issues": [],
+  "note": "Η χωρητικότητα του δοχείου δεν φαίνεται στη φωτογραφία (εκτίμηση 4L).",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/IMG_8122.PNG",
+  "brand": "accelerate",
+  "name": "10W-40 High Power CSS",
+  "viscosity": "10W-40",
+  "pack": "1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "semi-synthetic",
+  "specs": [
+   "ACEA A3/B4",
+   "API SL/CF",
+   "MB 229.1",
+   "VW 505 00"
+  ],
+  "group": "acc-10w40-css",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/IMG_8125.PNG",
+  "brand": "accelerate",
+  "name": "5W-30 Longlife SYN",
+  "viscosity": "5W-30",
+  "pack": "1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic",
+  "specs": [
+   "ACEA C3",
+   "API SN",
+   "VW 504 00 / 507 00",
+   "MB 229.51",
+   "BMW Longlife-04",
+   "Porsche C30"
+  ],
+  "group": "acc-5w30-longlife",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/IMG_8128.PNG",
+  "brand": "accelerate",
+  "name": "5W-30 Longlife SYN",
+  "viscosity": "5W-30",
+  "pack": "4L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic",
+  "specs": [
+   "ACEA C3",
+   "API SN",
+   "VW 504 00 / 507 00",
+   "MB 229.51",
+   "BMW Longlife-04"
+  ],
+  "group": "acc-5w30-longlife",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/IMG_8132.PNG",
+  "brand": "accelerate",
+  "name": "5W-30 Eco-SYN",
+  "viscosity": "5W-30",
+  "pack": "1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic",
+  "specs": [
+   "ACEA C3",
+   "API SP",
+   "VW 502 00 / 505 00 / 505 01",
+   "MB 229.51",
+   "BMW Longlife-04",
+   "Renault RN 0700 / 0710"
+  ],
+  "group": "acc-5w30-ecosyn",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/IMG_8135.PNG",
+  "brand": "accelerate",
+  "name": "5W-30 Eco-SYN",
+  "viscosity": "5W-30",
+  "pack": "4L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic",
+  "specs": [
+   "ACEA C3"
+  ],
+  "group": "acc-5w30-ecosyn",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/IMG_8138.PNG",
+  "brand": "accelerate",
+  "name": "5W-30 Eco-AC",
+  "viscosity": "5W-30",
+  "pack": "1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic",
+  "specs": [
+   "ACEA C2",
+   "ACEA A5/B5",
+   "API SP",
+   "Renault RN 0700",
+   "PSA B71 2290",
+   "Fiat 9.55535-S1"
+  ],
+  "group": "acc-5w30-ecoac",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/IMG_8141.PNG",
+  "brand": "accelerate",
+  "name": "5W-30 Eco-AC",
+  "viscosity": "5W-30",
+  "pack": "4L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic",
+  "specs": [
+   "ACEA C2",
+   "ACEA A5/B5",
+   "API SP"
+  ],
+  "group": "acc-5w30-ecoac",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/IMG_8149.PNG",
+  "brand": "accelerate",
+  "name": "5W-40 Tec-SYN",
+  "viscosity": "5W-40",
+  "pack": "1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic-technology",
+  "specs": [
+   "ACEA A3/B4",
+   "API SN/CF",
+   "MB 229.3",
+   "VW 502 00 / 505 00",
+   "BMW Longlife-98"
+  ],
+  "group": "acc-5w40-tecsyn",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/IMG_8152.PNG",
+  "brand": "accelerate",
+  "name": "5W-40 Tec-SYN",
+  "viscosity": "5W-40",
+  "pack": "5L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic-technology",
+  "specs": [
+   "ACEA A3/B4",
+   "API SN/CF",
+   "MB 229.3",
+   "VW 502 00 / 505 00"
+  ],
+  "group": "acc-5w40-tecsyn",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/IMG_8472.PNG",
+  "brand": "accelerate",
+  "name": "15W-40 High Power CSS",
+  "viscosity": "15W-40",
+  "pack": "4L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "semi-synthetic",
+  "specs": [
+   "ACEA A3/B4",
+   "API SL/CF",
+   "MB 229.1",
+   "VW 505 00"
+  ],
+  "group": "acc-15w40-css",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Accelerate!/Accelerate!/IMG_8473.PNG",
+  "brand": "accelerate",
+  "name": "15W-40 High Power CSS",
+  "viscosity": "15W-40",
+  "pack": "1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "semi-synthetic",
+  "specs": [
+   "ACEA A3/B4",
+   "API SL/CF",
+   "MB 229.1",
+   "VW 505 00"
+  ],
+  "group": "acc-15w40-css",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Avista!/Avista!/0C6AEA8C-4276-455B-B57F-75150294F7FB.PNG",
+  "brand": "Avista",
+  "name": "pure CF-4 15W-40",
+  "viscosity": "15W-40",
+  "pack": "20L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_truck",
+  "base": null,
+  "specs": [
+   "API CF-4",
+   "API SJ"
+  ],
+  "group": "avista-pure-cf4-15w40",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Avista!/Avista!/A3915B1F-5617-43CA-B064-002916610A80.PNG",
+  "brand": "Avista",
+  "name": "peer CLASSIC GL3 SAE 140",
+  "viscosity": "140",
+  "pack": "20L",
+  "pack_confidence": "read",
+  "kind": "gear_oil",
+  "base": null,
+  "specs": [
+   "API GL-3"
+  ],
+  "group": "avista-peer-classic-140",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Avista!/Avista!/BE93BD81-E34A-49D9-82B5-EDCC2E389DB4.PNG",
+  "brand": "Avista",
+  "name": "peer CLASSIC GL3 SAE 90",
+  "viscosity": "90",
+  "pack": "20L",
+  "pack_confidence": "read",
+  "kind": "gear_oil",
+  "base": null,
+  "specs": [
+   "API GL-3"
+  ],
+  "group": "avista-peer-classic-90",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Avista!/Avista!/IMG_7907.PNG",
+  "brand": "Avista",
+  "name": "peer EVO PRIME 75W-90 GL4 PC",
+  "viscosity": "75W-90",
+  "pack": "1L",
+  "pack_confidence": "inferred",
+  "kind": "gear_oil",
+  "base": "synthetic-technology",
+  "specs": [
+   "API GL-4",
+   "BMW MTF LT-2, LT-3",
+   "Ford WSS-M2C200-C",
+   "MB 235.10",
+   "Volvo 97308, 97309"
+  ],
+  "group": "avista-peer-75w90-gl4",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Avista!/Avista!/IMG_7910.PNG",
+  "brand": "Avista",
+  "name": "peer EVO PRIME 75W-80 GL4 PC",
+  "viscosity": "75W-80",
+  "pack": "1L",
+  "pack_confidence": "inferred",
+  "kind": "gear_oil",
+  "base": "synthetic-technology",
+  "specs": [
+   "API GL-4",
+   "BMW MTF LT-2, LT-3",
+   "MB 235.10",
+   "PSA B71 2330"
+  ],
+  "group": "avista-peer-75w80-gl4",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Avista!/Avista!/IMG_8905.JPG",
+  "brand": "Avista",
+  "name": "peer EVO 75W-90 GL5",
+  "viscosity": "75W-90",
+  "pack": "1L",
+  "pack_confidence": "inferred",
+  "kind": "gear_oil",
+  "base": "synthetic-technology",
+  "specs": [
+   "API GL-5"
+  ],
+  "group": "avista-peer-75w90-gl5",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Avista!/Avista!/IMG_8906.JPG",
+  "brand": "Avista",
+  "name": "pulse EVO 2 Stroke",
+  "viscosity": null,
+  "pack": "1L",
+  "pack_confidence": "inferred",
+  "kind": "engine_oil_moto_2t",
+  "base": null,
+  "specs": [
+   "API TC",
+   "JASO FB"
+  ],
+  "group": "avista-pulse-2t",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Avista!/Avista!/IMG_8911.JPG",
+  "brand": "Avista",
+  "name": "pace EVO 0W-20 FE",
+  "viscosity": "0W-20",
+  "pack": "5L",
+  "pack_confidence": "inferred",
+  "kind": "engine_oil_car",
+  "base": "synthetic",
+  "specs": [
+   "ACEA C5",
+   "VW 508 00 / 509 00",
+   "Porsche C20"
+  ],
+  "group": "avista-pace-0w20-fe",
+  "issues": [],
+  "note": "Η χωρητικότητα του δοχείου δεν αναγράφεται στη φωτογραφία (4L ή 5L — επιβεβαιώστε).",
+  "confidence": 0.9
+ },
+ {
+  "file": "Avista!/Avista!/IMG_8912.JPG",
+  "brand": "Avista",
+  "name": "pulse EVO 10W-40 4 Stroke",
+  "viscosity": "10W-40",
+  "pack": "1L",
+  "pack_confidence": "inferred",
+  "kind": "engine_oil_moto_4t",
+  "base": "synthetic-technology",
+  "specs": [
+   "JASO MA-2",
+   "API SN"
+  ],
+  "group": "avista-pulse-10w40-4t",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Avista!/Avista!/IMG_8913.JPG",
+  "brand": "Avista",
+  "name": "pulse 20W-50 4 Stroke",
+  "viscosity": "20W-50",
+  "pack": "1L",
+  "pack_confidence": "inferred",
+  "kind": "engine_oil_moto_4t",
+  "base": null,
+  "specs": [
+   "JASO MA-2",
+   "API SL"
+  ],
+  "group": "avista-pulse-20w50-4t",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Avista!/Avista!/IMG_8985.JPG",
+  "brand": "Avista",
+  "name": "pace EVO 0W-40 GER",
+  "viscosity": "0W-40",
+  "pack": "1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic",
+  "specs": [
+   "API SN",
+   "ACEA A3/B4",
+   "MB 229.5",
+   "BMW LL-01",
+   "Renault RN 0700 / 0710",
+   "Porsche A40",
+   "VW 502 00 / 505 00"
+  ],
+  "group": "avista-pace-0w40-ger",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Avista!/Avista!/IMG_9010.JPG",
+  "brand": "Avista",
+  "name": "pace EVO 0W-30 C2",
+  "viscosity": "0W-30",
+  "pack": "1L",
+  "pack_confidence": "inferred",
+  "kind": "engine_oil_car",
+  "base": "synthetic-technology",
+  "specs": [
+   "ACEA C2",
+   "API SN"
+  ],
+  "group": "avista-pace-0w30-c2",
+  "issues": [
+   "low_resolution"
+  ],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Oilcenter.gr/Oilcenter.gr/063D45E9-7C24-45CB-8C5D-B9A6FD7B822E.PNG",
+  "brand": "Mobil",
+  "name": "Super 3000 0W-16",
+  "viscosity": "0W-16",
+  "pack": "5L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic-technology",
+  "specs": [],
+  "group": "mobil-super-3000-0w16",
+  "issues": [
+   "in_store_photo"
+  ],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Oilcenter.gr/Oilcenter.gr/46822BA0-7F2A-4AE6-8CFF-8605176DB334.PNG",
+  "brand": "Mobil",
+  "name": "Mobil 1 FS 0W-40",
+  "viscosity": "0W-40",
+  "pack": "5L+1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic",
+  "specs": [],
+  "group": "mobil-1-fs-0w40",
+  "issues": [
+   "in_store_photo",
+   "two_products_in_one_photo"
+  ],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Oilcenter.gr/Oilcenter.gr/51E1912B-C485-4302-91E5-0DF9A2A862E8.PNG",
+  "brand": "Mobil",
+  "name": "Mobil 1 ESP 5W-30",
+  "viscosity": "5W-30",
+  "pack": "5L+1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic",
+  "specs": [],
+  "group": "mobil-1-esp-5w30",
+  "issues": [
+   "two_products_in_one_photo"
+  ],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Oilcenter.gr/Oilcenter.gr/52F87761-5EE5-4615-9840-568540C7B9CA.PNG",
+  "brand": "Mobil",
+  "name": "Mobil 1 FS x2 5W-50",
+  "viscosity": "5W-50",
+  "pack": "5L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic",
+  "specs": [],
+  "group": "mobil-1-fs-x2-5w50",
+  "issues": [
+   "in_store_photo"
+  ],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Oilcenter.gr/Oilcenter.gr/996308A6-16C7-423B-9ECC-E5E18C4EF9B2.PNG",
+  "brand": "Mobil",
+  "name": "Super 3000 X1 5W-40",
+  "viscosity": "5W-40",
+  "pack": "5L+1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic-technology",
+  "specs": [],
+  "group": "mobil-super-3000-x1-5w40",
+  "issues": [
+   "in_store_photo",
+   "two_products_in_one_photo"
+  ],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Oilcenter.gr/Oilcenter.gr/DD193968-8A57-45C2-8C38-B5A86C7BE853.PNG",
+  "brand": "Mobil",
+  "name": "Super 3000 10W-40",
+  "viscosity": "10W-40",
+  "pack": "5L+1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": null,
+  "specs": [],
+  "group": "mobil-super-10w40",
+  "issues": [
+   "in_store_photo",
+   "two_products_in_one_photo"
+  ],
+  "note": "Ελέγξτε την ονομασία: η ετικέτα στη φωτογραφία γράφει «Super 3000 10W-40», ενώ το 10W-40 της Mobil κυκλοφορεί συνήθως ως «Super 2000 X1».",
+  "confidence": 0.9
+ },
+ {
+  "file": "Oilcenter.gr/Oilcenter.gr/IMG_5670.PNG",
+  "brand": "Mobil",
+  "name": "Mobil 1 ESP 5W-30",
+  "viscosity": "5W-30",
+  "pack": "5L+1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic",
+  "specs": [],
+  "group": "mobil-1-esp-5w30",
+  "issues": [
+   "in_store_photo",
+   "two_products_in_one_photo"
+  ],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Oilcenter.gr/Oilcenter.gr/IMG_5737.PNG",
+  "brand": "Mobil",
+  "name": "Super 3000 XE 5W-30",
+  "viscosity": "5W-30",
+  "pack": "5L+1L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic-technology",
+  "specs": [
+   "dexos2"
+  ],
+  "group": "mobil-super-3000-xe-5w30",
+  "issues": [
+   "in_store_photo",
+   "two_products_in_one_photo"
+  ],
+  "note": "",
+  "confidence": 0.9
+ },
+ {
+  "file": "Oilcenter.gr/Oilcenter.gr/IMG_7936.PNG",
+  "brand": "Mobil",
+  "name": "Super 3000 X1 5W-40",
+  "viscosity": "5W-40",
+  "pack": "5L",
+  "pack_confidence": "read",
+  "kind": "engine_oil_car",
+  "base": "synthetic-technology",
+  "specs": [],
+  "group": "mobil-super-3000-x1-5w40",
+  "issues": [],
+  "note": "",
+  "confidence": 0.9
+ }
+]

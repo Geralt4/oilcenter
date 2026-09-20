@@ -1,0 +1,26 @@
+import type { Metadata } from 'next';
+import { CheckoutForm } from '@/components/store/checkout-form';
+import { Breadcrumbs } from '@/components/store/product-listing';
+import { getCustomer } from '@/lib/auth/session';
+import { fullAddress } from '@/lib/settings';
+import { getSettings } from '@/lib/settings.server';
+
+export const metadata: Metadata = { title: 'Ολοκλήρωση παραγγελίας', robots: { index: false, follow: false } };
+
+export default async function CheckoutPage() {
+  const [settings, customer] = await Promise.all([getSettings(), getCustomer()]);
+  return (
+    <div className="container-page py-6 sm:py-8">
+      <Breadcrumbs items={[{ name: 'Καλάθι', href: '/cart' }, { name: 'Ολοκλήρωση παραγγελίας', href: '/checkout' }]} />
+      <h1 className="display mt-5 mb-7 text-4xl sm:text-5xl">Ολοκλήρωση παραγγελίας</h1>
+      <CheckoutForm
+        pickupAddress={fullAddress(settings.shop)}
+        prefill={
+          customer
+            ? { email: customer.email, phone: customer.phone ?? '', firstName: customer.firstName, lastName: customer.lastName, street: customer.street ?? '', city: customer.city ?? '', postalCode: customer.postalCode ?? '', region: customer.region ?? '' }
+            : {}
+        }
+      />
+    </div>
+  );
+}

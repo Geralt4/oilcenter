@@ -1,0 +1,608 @@
+[
+  {
+    "file": "Motul/Motul/IMG_8474.PNG",
+    "brand": "Motul",
+    "line": "4100",
+    "name": "4100 Turbolight 10W-40",
+    "viscosity": "10W-40",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "semi-synthetic",
+    "specs": [
+      "ACEA A3/B4",
+      "PSA B71 2300",
+      "RENAULT RN0700",
+      "VW 501 01"
+    ],
+    "label_text": "motor oil · SAE 10W-40 · Technosynthese® · 5L (1.32 US gal). [NOTE: photo is AI-upscaled and the small print is partly garbled. Raw renderings: 'MB-Approval 229.3 / 229.1H' (malformed, left out of specs), 'PSA 871 2300', 'RENAULT RND700', 'VW 501 01 / 505 50' (2nd number garbled, left out), 'ACEA A3/84'; API donut unreadable. Verify approvals against the Motul datasheet.]",
+    "group": "motul-4100-turbolight-10w-40",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.85
+  },
+  {
+    "file": "Motul/Motul/IMG_8475.JPG",
+    "brand": "Motul",
+    "line": "4100",
+    "name": "4100 Turbolight 10W-40",
+    "viscosity": "10W-40",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "semi-synthetic",
+    "specs": [
+      "PSA B71 2300",
+      "RENAULT RN0700",
+      "VW 501 01"
+    ],
+    "label_text": "motor oil · SAE 10W-40 · Technosynthese® · 1L. [NOTE: photo is AI-upscaled and the small print is partly garbled. Raw renderings: 'MB-Approval 229.3 / 229.1H' (malformed, left out of specs), 'PSA 871 2300', 'RENAULT RND700', 'VW 501 01 / 505 05' (2nd number garbled, left out), 'ACEA A2/B4' (not a valid class, left out), 'Technosynthess', pack line '1L (0.325 S. gsl)'; API donut unreadable. Verify approvals against the Motul datasheet.]",
+    "group": "motul-4100-turbolight-10w-40",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.85
+  },
+  {
+    "file": "Motul/Motul/IMG_8476.PNG",
+    "brand": "Motul",
+    "line": "8100",
+    "name": "8100 X-clean FE 5W-30",
+    "viscosity": "5W-30",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": null,
+    "specs": [
+      "ACEA C2, C3",
+      "CHRYSLER MS-11106",
+      "MB-Approval 229.52",
+      "PSA B71 2290",
+      "RENAULT RN17"
+    ],
+    "label_text": "Green 'FE' after X-clean; 'C2, C3' printed under the product name (ACEA classes read from there). motor oil · SAE 5W-30 · 5L (1.32 US gal). [NOTE: photo is AI-upscaled and the small print is partly garbled. Raw renderings: 'FIAT 9.55335-S1 / 33' (left out of specs), 'PSA 871 2290', ACEA box 2nd line unreadable, API donut unreadable. Base line is rendered 'Technosynfhese®' (garbled) while the other 8100 labels read '100% Synthetic', so base left null - verify.]",
+    "group": "motul-8100-x-clean-fe-5w-30",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.8
+  },
+  {
+    "file": "Motul/Motul/IMG_8477.PNG",
+    "brand": "Motul",
+    "line": "8100",
+    "name": "8100 X-cess 5W-30",
+    "viscosity": "5W-30",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic",
+    "specs": [
+      "BMW LL-01",
+      "MB-Approval 229.5 / 226.5",
+      "RENAULT RN0710 / RN0700",
+      "VW 502 00 / 505 00"
+    ],
+    "label_text": "SAE 5W-30 · 100% Synthetic · 5L (1.32 US gal). Grey jug. No 'gen2' tag on this label. [NOTE: ACEA box is rendered 'A2/B4' (not a valid class, left out of specs); API donut unreadable.]",
+    "group": "motul-8100-x-cess-5w-30",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.85
+  },
+  {
+    "file": "Motul/Motul/IMG_8478.PNG",
+    "brand": "Motul",
+    "line": "4100",
+    "name": "4100 SYN-nergy 15W-40",
+    "viscosity": "15W-40",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "semi-synthetic",
+    "specs": [
+      "API SP",
+      "ACEA A3/B4"
+    ],
+    "label_text": "EXTENDED ENGINE LIFE · SAE 15W-40 · GASOLINE & DIESEL · TECHNOSYNTHESE® · MOTOR OIL · 5L. New-style Motul label with QR code. [NOTE: three icon captions under the spec block are garbled in the photo (first one reads 'HIGH PROTECTION').]",
+    "group": "motul-4100-syn-nergy-15w-40",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.87
+  },
+  {
+    "file": "Motul/Motul/IMG_8479.PNG",
+    "brand": "Motul",
+    "line": "8100",
+    "name": "8100 X-clean EFE 5W-30",
+    "viscosity": "5W-30",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic",
+    "specs": [
+      "ACEA C2, C3",
+      "BMW LL-04",
+      "CHRYSLER MS-11106",
+      "MB-Approval 229.52",
+      "OPEL-VAUXHALL OV 040 1547-G30/D30",
+      "VW 505 00 / 505 01"
+    ],
+    "label_text": "Green 'EFE' after X-clean (*Extra Fuel Economy); 'C2, C3' printed under the product name (ACEA classes read from there). motor oil · SAE 5W-30 · 100% Synthetic · 5L (1.32 US gal). [NOTE: small print partly garbled by AI upscaling. 'FIAT 9.55555-S1/S3' is left out of specs (FIAT number looks garbled); ACEA box is rendered 'ACKA 0Y-30'; API donut unreadable.]",
+    "group": "motul-8100-x-clean-efe-5w-30",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.88
+  },
+  {
+    "file": "Motul/Motul/IMG_8480.PNG",
+    "brand": "Motul",
+    "line": "8100",
+    "name": "8100 X-clean EFE 5W-30",
+    "viscosity": "5W-30",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic",
+    "specs": [
+      "ACEA C2, C3",
+      "BMW LL-04",
+      "CHRYSLER MS-11106",
+      "MB-Approval 229.52",
+      "OPEL-VAUXHALL OV 040 1547-G30/D30",
+      "VW 505 00"
+    ],
+    "label_text": "Green 'EFE' after X-clean (*Extra Fuel Economy); 'C2, C3' printed under the product name (ACEA classes read from there). motor oil · SAE 5W-30 · 100% Synthetic · 1L (1.05 US qt). [NOTE: small print partly garbled by AI upscaling. Raw renderings: 'FIAT 9.55555-S1/ S3' (left out of specs), 'VW 505 00 / 500 01' (2nd number garbled, left out; the 5L photo reads 505 01), ACEA box 'ACKA 5W-30', API donut garbled. An AI-generation sparkle watermark is visible on the bottle's bottom-right corner.]",
+    "group": "motul-8100-x-clean-efe-5w-30",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.88
+  },
+  {
+    "file": "Motul/Motul/IMG_8481.PNG",
+    "brand": "Motul",
+    "line": "8100",
+    "name": "8100 ECO-nergy 5W-30",
+    "viscosity": "5W-30",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic",
+    "specs": [
+      "ACEA A5/B5",
+      "FIAT 9.55535-G1",
+      "FORD WSS M2C913-D",
+      "RENAULT RN0700"
+    ],
+    "label_text": "motor oil · SAE 5W-30 · 100% Synthetic · 5L (1.32 US gal; the '5' is rendered 'S'). [NOTE: soft, AI-upscaled photo; small print partly garbled. Raw renderings: 'CHRYSLER MS.50081', 'FIAT 9.SS53S-G1', 'JAGUAR LAND ROVER STJLR.02.S003', 'VW VWC 530 36', 'ACEA A5 / 85'; API donut unreadable. The Chrysler, Jaguar Land Rover and 'VW' lines are left out of specs - verify against the Motul datasheet.]",
+    "group": "motul-8100-eco-nergy-5w-30",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.8
+  },
+  {
+    "file": "Motul/Motul/IMG_8482.PNG",
+    "brand": "Motul",
+    "line": "8100",
+    "name": "8100 X-cess 5W-40",
+    "viscosity": "5W-40",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic",
+    "specs": [],
+    "label_text": "motor oil · SAE 5W-40 · 100% Synthetic · 5L (1.32 US gal). No 'gen2' tag visible. [NOTE / WARNING: the approvals block on this photo is identical - same layout and same garbles - to the ECO-nergy 5W-30 photo IMG_8481: 'CHRYSLER MS.50081', 'FIAT 9.55535-G1', 'FORD WSS M2C913-D', 'RENAULT RN0700', 'JAGUAR LAND ROVER STJLR:02.5003', 'VW VWC 530 36', 'ACEA A5/85'. These are 5W-30 / ACEA A5/B5 approvals that do not fit a 5W-40 oil, so this picture looks AI-edited from the ECO-nergy image. Specs deliberately left empty - use the 1L photo IMG_8486 or the Motul datasheet.]",
+    "group": "motul-8100-x-cess-5w-40",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.5
+  },
+  {
+    "file": "Motul/Motul/IMG_8483.PNG",
+    "brand": "Motul",
+    "line": "8100",
+    "name": "8100 X-clean gen2 5W-40",
+    "viscosity": "5W-40",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic",
+    "specs": [
+      "ACEA C3",
+      "BMW LL-04",
+      "MB-Approval 229.52 / 226.5",
+      "OPEL-VAUXHALL OV 040 1547-G40 / D40",
+      "RENAULT RN0710 / RN0700"
+    ],
+    "label_text": "Yellow 'gen2' after X-clean. motor oil · SAE 5W-40 · 100% Synthetic · 1L (1.05 US qt). [NOTE: API donut text is garbled/unreadable. An AI-generation sparkle watermark is visible on the bottle's bottom-right corner.]",
+    "group": "motul-8100-x-clean-gen2-5w-40",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.88
+  },
+  {
+    "file": "Motul/Motul/IMG_8486.JPG",
+    "brand": "Motul",
+    "line": "8100",
+    "name": "8100 X-cess 5W-40",
+    "viscosity": "5W-40",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": null,
+    "specs": [
+      "ACEA A3/B4",
+      "API SN/CF",
+      "BMW LL-01",
+      "GM-OPEL LL B-025",
+      "MB 229.5 / 226.5",
+      "PORSCHE A40",
+      "PSA B71 2296",
+      "RENAULT RN0710",
+      "VW 502 00"
+    ],
+    "label_text": "motor oil · SAE 5W-40 · 100% Synthetic · 1L (1.05 US qt). [NOTE: gold text to the right of 'X-cess' reads 'Synthetic-technology' - that is the spot where Motul prints the 'gen2' tag, so this may really be X-cess gen2 (cannot be confirmed from the photo). Because the label shows both 'Synthetic-technology' and '100% Synthetic', base is left null. Small print is AI-regenerated; raw renderings: 'BMW LL- 01 - 2019', 'CHRYSLER MS-12901', 'FIAT 9.55555 - H2/M2/N2/22', 'PSA 871 2296', 'RENAULT RN0710 / RN6700', 'VW 502 00 / 502 00'. Chrysler and FIAT lines, 'RN6700' and the repeated VW number are left out of specs.]",
+    "group": "motul-8100-x-cess-5w-40",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.72
+  },
+  {
+    "file": "Motul/Motul/IMG_8487.JPG",
+    "brand": "Motul",
+    "line": "8100",
+    "name": "8100 ECO-clean 0W-20",
+    "viscosity": "0W-20",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic-technology",
+    "specs": [
+      "ACEA C5, C6",
+      "BMW LL-17 FE+",
+      "CHRYSLER MS-12145",
+      "FORD WSS-M2C947-B1",
+      "JAGUAR LAND ROVER STJLR.03.5006",
+      "OPEL-VAUXHALL OV 040 1547 - A20"
+    ],
+    "label_text": "'C5, C6' printed under the product name (ACEA classes read from there). motor oil · SAE 0W-20 · Synthese-Technologie · 5L (1.32 US gal; the '5' is rendered 'S'). [NOTE: small print partly garbled by AI upscaling. Left out of specs: 'FIAT 9 55663-GSX/DSX', the Ford continuation '954-A1/762-A1', 'MB-Approval 229.72/229.91' (2nd number is not a valid MB sheet, so the whole line is doubtful), ACEA box rendered 'C5, C8'; API donut unreadable. Verify against the Motul datasheet.]",
+    "group": "motul-8100-eco-clean-0w-20",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.8
+  },
+  {
+    "file": "Motul/Motul/IMG_8491.JPG",
+    "brand": "Motul",
+    "line": "8100",
+    "name": "8100 ECO-lite 0W-20",
+    "viscosity": "0W-20",
+    "pack": "1L",
+    "pack_confidence": "inferred",
+    "kind": "engine_oil_car",
+    "base": "synthetic",
+    "specs": [
+      "CHRYSLER MS-6395",
+      "FIAT 9.55535-CR1",
+      "FORD WSS-M2C947-A / -B1 / 962-A1",
+      "GM dexos1 GEN3"
+    ],
+    "label_text": "motor oil · SAE 0W-20 · Motor Oil · 100% Synthetic. API 'FOR GASOLINE ENGINES' starburst mark. [NOTE: no pack size is printed in this photo (bottom-right reads 'Motor Oil' where the size normally is) - 1L inferred from the small bottle shape. API donut text garbled.]",
+    "group": "motul-8100-eco-lite-0w-20",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.85
+  },
+  {
+    "file": "Motul/Motul/IMG_8492.JPG",
+    "brand": "Motul",
+    "line": "8100",
+    "name": "8100 ECO-lite 0W-20",
+    "viscosity": "0W-20",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic",
+    "specs": [
+      "CHRYSLER MS-6395",
+      "GM dexos1 GEN3"
+    ],
+    "label_text": "motor oil · SAE 0W-20 · 100% Synthetic · 5L (1.32 US gal). API 'FOR GASOLINE ENGINES' starburst mark. [NOTE: small print partly garbled by AI upscaling. Raw renderings: 'CHRYSLER M8-6395', 'FIAT 9.55536-CR1', 'FORD WSS-M2CN67A/ P4781/ 962-A1'; API donut unreadable. FIAT and FORD lines are left out of specs here - they are legible on the 1L photo IMG_8491.]",
+    "group": "motul-8100-eco-lite-0w-20",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.82
+  },
+  {
+    "file": "Motul/Motul/IMG_8493.JPG",
+    "brand": "Motul",
+    "line": "Gear 300",
+    "name": "Gear 300 LS 75W-90",
+    "viscosity": "75W-90",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "gear_oil",
+    "base": "synthetic",
+    "specs": [],
+    "label_text": "Limited slip · Huile de boîte et pont · Transmission and differential fluid · SAE 75W90 · 100% synthetic · 1L (1.05 US Quart). Chequered-flag racing design. No API GL class printed on the front label.",
+    "group": "motul-gear-300-ls-75w-90",
+    "issues": [],
+    "confidence": 0.92
+  },
+  {
+    "file": "Motul/Motul/IMG_8494.JPG",
+    "brand": "Motul",
+    "line": "Motylgear",
+    "name": "Motylgear 75W-90",
+    "viscosity": "75W-90",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "gear_oil",
+    "base": "semi-synthetic",
+    "specs": [],
+    "label_text": "Huile de boîte et pont · Transmission and differential fluid · SAE 75W90 · Technosynthese® · 1L (1.05 US Quart). No API GL class printed on the front label.",
+    "group": "motul-motylgear-75w-90",
+    "issues": [],
+    "confidence": 0.93
+  },
+  {
+    "file": "Motul/Motul/IMG_8495.JPG",
+    "brand": "Motul",
+    "line": "Motylgear",
+    "name": "Motylgear 75W-85",
+    "viscosity": "75W-85",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "gear_oil",
+    "base": "semi-synthetic",
+    "specs": [],
+    "label_text": "Huile de boîte · Transmission fluid · SAE 75W85 · Technosynthese® · 1L (1.05 US Quart). No API GL class printed on the front label.",
+    "group": "motul-motylgear-75w-85",
+    "issues": [],
+    "confidence": 0.88
+  },
+  {
+    "file": "Motul/Motul/IMG_8496.JPG",
+    "brand": "Motul",
+    "line": "Multi DCTF",
+    "name": "Multi DCTF",
+    "viscosity": null,
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "atf",
+    "base": "semi-synthetic",
+    "specs": [],
+    "label_text": "Huile de boîte à double embrayage · Dual Clutch Transmission fluid · Technosynthese® · 1L (1.05 US Quart). No OEM specs printed on the front label.",
+    "group": "motul-multi-dctf",
+    "issues": [],
+    "confidence": 0.93
+  },
+  {
+    "file": "Motul/Motul/IMG_8497.JPG",
+    "brand": "Motul",
+    "line": "Gear Power",
+    "name": "Gear Power LV 70W",
+    "viscosity": "70W",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "gear_oil",
+    "base": "synthetic",
+    "specs": [
+      "API GL-4"
+    ],
+    "label_text": "Economie de carburant / Fuel economy · Huile de boîte manuelle · Manual transmission fluid · 70W · 100% Synthetic · 1L (1.05 US qt).",
+    "group": "motul-gear-power-lv-70w",
+    "issues": [],
+    "confidence": 0.93
+  },
+  {
+    "file": "Motul/Motul/IMG_8498.JPG",
+    "brand": "Motul",
+    "line": "Gear Power",
+    "name": "Gear Power FE 75W",
+    "viscosity": "75W",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "gear_oil",
+    "base": "synthetic",
+    "specs": [
+      "API GL-4"
+    ],
+    "label_text": "Economie de carburant / Fuel economy · Huile de boîte manuelle · Manual transmission fluid · 75W · 100% Synthetic · 1L (1.05 US qt).",
+    "group": "motul-gear-power-fe-75w",
+    "issues": [],
+    "confidence": 0.93
+  },
+  {
+    "file": "Motul/Motul/IMG_8499.JPG",
+    "brand": "Motul",
+    "line": "Multi CVTF",
+    "name": "Multi CVTF",
+    "viscosity": null,
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "atf",
+    "base": "semi-synthetic",
+    "specs": [],
+    "label_text": "Huile de boîte automatique · Continuously variable transmission fluid · Technosynthese® · 1L (1.05 US Quart). No OEM specs printed on the front label.",
+    "group": "motul-multi-cvtf",
+    "issues": [],
+    "confidence": 0.95
+  },
+  {
+    "file": "Motul/Motul/IMG_8500.JPG",
+    "brand": "Motul",
+    "line": "5100",
+    "name": "5100 4T 10W-40",
+    "viscosity": "10W-40",
+    "pack": "4L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_moto_4t",
+    "base": null,
+    "specs": [],
+    "label_text": "RECREATIONAL & COMMUTING · ROAD & OFF-ROAD · 10W-40 · ESTER · 4T MOTOR OIL · 4L. New-style label (green motorcycle outline, QR code). [NOTE: the green word under ESTER is garbled in the photo ('TEENNESTIFIINSE', presumably Technosynthese) so base is left null here; the three icon captions are unreadable. No JASO class printed on the front.]",
+    "group": "motul-5100-4t-10w-40",
+    "issues": [
+      "low_resolution",
+      "reflection_or_shadow"
+    ],
+    "confidence": 0.88
+  },
+  {
+    "file": "Motul/Motul/IMG_8501.JPG",
+    "brand": "Motul",
+    "line": "7100",
+    "name": "7100 4T 5W-40",
+    "viscosity": "5W-40",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_moto_4t",
+    "base": "synthetic-technology",
+    "specs": [
+      "JASO MA2"
+    ],
+    "label_text": "ROAD / OFF-ROAD / ADVENTURE · 4T · 4-STROKE MOTOR OIL · 'MA2' box (JASO class; the label prints only 'MA2') · ESTER · bottom strip reads 'SYNTHESE TECHNOLOGIE' · Protection / Performance / Easy start icons · 1L. Older-style label (rider photo, vertical MOTUL logo). [NOTE: the new-style 7100 10W-40 label IMG_8510 reads '100% SYNTHETIC' - check which wording you want for the 7100 line.]",
+    "group": "motul-7100-4t-5w-40",
+    "issues": [],
+    "confidence": 0.9
+  },
+  {
+    "file": "Motul/Motul/IMG_8502.JPG",
+    "brand": "Motul",
+    "line": "5100",
+    "name": "5100 4T 10W-40",
+    "viscosity": "10W-40",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_moto_4t",
+    "base": "semi-synthetic",
+    "specs": [
+      "JASO MA2"
+    ],
+    "label_text": "ROAD / OFF-ROAD · 4T · 4-STROKE MOTOR OIL · 'MA2' box (JASO class; the label prints only 'MA2') · ESTER · TECHNOSYNTHESE® · Protection / Performance / Easy start icons · 1L. Older-style label (rider photo, vertical MOTUL logo).",
+    "group": "motul-5100-4t-10w-40",
+    "issues": [],
+    "confidence": 0.92
+  },
+  {
+    "file": "Motul/Motul/IMG_8503.JPG",
+    "brand": "Motul",
+    "line": "Scooter Expert",
+    "name": "Scooter Expert MB 4T 10W-40",
+    "viscosity": "10W-40",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_moto_4t",
+    "base": "semi-synthetic",
+    "specs": [
+      "JASO MB"
+    ],
+    "label_text": "SCOOTER EXPERT MB · URBAN & COMMUTING · SCOOTER & MAXI SCOOTER · 10W-40 · TECHNOSYNTHESE® · 4T MOTOR OIL · 1L. New-style label with QR code. 'MB' is printed as part of the product name (JASO MB scooter class; the word JASO itself is not printed). [NOTE: icon captions partly garbled - middle one reads 'FUEL ECO', last one '... PROTECTION'.]",
+    "group": "motul-scooter-expert-mb-4t-10w-40",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.9
+  },
+  {
+    "file": "Motul/Motul/IMG_8505.JPG",
+    "brand": "Motul",
+    "line": "5100",
+    "name": "5100 4T 10W-30",
+    "viscosity": "10W-30",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_moto_4t",
+    "base": "semi-synthetic",
+    "specs": [],
+    "label_text": "RECREATIONAL & COMMUTING · ROAD & OFF-ROAD · 10W-30 · ESTER · TECHNOSYNTHESE® · 4T MOTOR OIL · Smooth shifting / Optimized fuel eco / Easy start-up · 1L. New-style label (green motorcycle outline, QR code). No JASO class printed on the front.",
+    "group": "motul-5100-4t-10w-30",
+    "issues": [],
+    "confidence": 0.95
+  },
+  {
+    "file": "Motul/Motul/IMG_8506.JPG",
+    "brand": "Motul",
+    "line": "Scooter Expert",
+    "name": "Scooter Expert 2T",
+    "viscosity": null,
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_moto_2t",
+    "base": "semi-synthetic",
+    "specs": [
+      "JASO FD"
+    ],
+    "label_text": "2T · SCOOTER EXPERT · TECHNOSYNTHESE® · 'FD' box (JASO class; the label prints only 'FD') · ANTI-FUMÉE / ANTI-SMOKE · 1L. Green label with scooter rider photo, vertical MOTUL logo. [NOTE: the small text beside '2T' is garbled in the photo ('BIOTOOKE MOTOR OIL DIRECT INAECTION'), as is the quart figure after '1L'.]",
+    "group": "motul-scooter-expert-2t",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.9
+  },
+  {
+    "file": "Motul/Motul/IMG_8509.JPG",
+    "brand": "Motul",
+    "line": "5100",
+    "name": "5100 4T 15W-50",
+    "viscosity": "15W-50",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_moto_4t",
+    "base": "semi-synthetic",
+    "specs": [],
+    "label_text": "RECREATIONAL & COMMUTING · ROAD & OFF-ROAD · 15W-50 · ESTER · TECHNOSYNTHESE® · 4T MOTOR OIL · 1L. New-style label (green motorcycle outline, QR code). [NOTE: 'TECHNOSYNTHESE' is rendered 'TECHNCSYNTHESE' and the three icon captions are garbled in the photo. No JASO class printed on the front.]",
+    "group": "motul-5100-4t-15w-50",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.9
+  },
+  {
+    "file": "Motul/Motul/IMG_8510.JPG",
+    "brand": "Motul",
+    "line": "7100",
+    "name": "7100 4T 10W-40",
+    "viscosity": "10W-40",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_moto_4t",
+    "base": "synthetic",
+    "specs": [],
+    "label_text": "SPORT & ADVENTURE · ROAD & OFF-ROAD · 10W-40 · ESTER · 100% SYNTHETIC · 4T MOTOR OIL · Engine response / Improved shifting / High protection · 1L. New-style label (orange motorcycle outline, QR code). [NOTE: icon captions slightly garbled in the photo. No JASO class printed on the front.]",
+    "group": "motul-7100-4t-10w-40",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.92
+  },
+  {
+    "file": "Motul/Motul/IMG_8511.JPG",
+    "brand": "Motul",
+    "line": "Scooter Power",
+    "name": "Scooter Power 2T",
+    "viscosity": null,
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_moto_2t",
+    "base": "synthetic",
+    "specs": [
+      "JASO FD"
+    ],
+    "label_text": "2T · 2-STROKE MOTOR OIL · SCOOTER POWER · 100% SYNTHETIC · ESTER · 'FD' box (JASO class; the label prints only 'FD') · ANTI-FUMÉE / ANTI-SMOKE · 1L (1.05 US Quart). Red label with scooter rider, vertical MOTUL logo. [NOTE: small text beside '2T' continues 'DIRECT IMJECTION' (sic) - likely an AI-upscaling garble, treat with caution.]",
+    "group": "motul-scooter-power-2t",
+    "issues": [],
+    "confidence": 0.93
+  }
+]

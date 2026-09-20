@@ -1,0 +1,566 @@
+[
+  {
+    "file": "GM/GM/IMG_8182.PNG",
+    "brand": "GM",
+    "line": "Genuine Motor Oil",
+    "name": "Genuine Motor Oil dexos2 5W-30",
+    "viscosity": "5W-30",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": null,
+    "specs": [
+      "dexos2",
+      "API SN",
+      "GM-LL-A-025",
+      "GM-LL-B-025",
+      "BMW Longlife-04"
+    ],
+    "label_text": "NOTE: photo looks AI-enhanced/regenerated - small print is distorted. Genuine GM Motor Oil. dexos2 logo. 'Fuel Economy, Longlife'. 'Meets specification of:' list. NOT reliably legible and therefore left out of specs: ACEA class digit (renders 'ACEA C?'), second API class (renders 'SN/?F'), VW line (renders approx. 'VW 50?.?0, 50?.00, 50?.01'), MB line (renders 'MB 229.??'). GM-LL and BMW lines are distorted but decodable. 'e 5 l'.",
+    "group": "gm-genuine-motor-oil-dexos2-5w-30",
+    "issues": [
+      "grey_background"
+    ],
+    "confidence": 0.85
+  },
+  {
+    "file": "GM/GM/IMG_8183.PNG",
+    "brand": "GM",
+    "line": "Genuine Motor Oil",
+    "name": "Genuine Motor Oil dexos1 5W-30",
+    "viscosity": "5W-30",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": null,
+    "specs": [
+      "dexos1",
+      "ILSAC GF-6A"
+    ],
+    "label_text": "NOTE: photo looks AI-enhanced/regenerated - small print is distorted. Genuine GM Motor Oil. dexos1 logo (green); the small line under the logo (generation) is illegible. 'Fuel Economy, CO2 reduction'. 'Meets specification of:' first bullet illegible (looks like an API class, renders 'A?? ??'), second bullet 'ILSAC GF-6A' (digit slightly distorted). 'e 5 l'.",
+    "group": "gm-genuine-motor-oil-dexos1-5w-30",
+    "issues": [],
+    "confidence": 0.85
+  },
+  {
+    "file": "Shell/Shell /IMG_8201.PNG",
+    "brand": "Shell",
+    "line": "Helix HX7",
+    "name": "Helix HX7 10W-40",
+    "viscosity": "10W-40",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic-technology",
+    "specs": [
+      "API SN PLUS",
+      "ACEA A3/B4"
+    ],
+    "label_text": "NOTE: photo looks AI-enhanced/regenerated - small print is distorted. FOR DIESEL AND GASOLINE ENGINES. SYNTHETIC TECHNOLOGY MOTOR OIL. Spec line next to the QR code is tiny and heavily distorted (renders approx. 'A?I SN ?LUS, A?? S?, ACEA A?/B4'); product code under '5L' illegible.",
+    "group": "shell-helix-hx7-10w-40",
+    "issues": [
+      "grey_background",
+      "reflection_or_shadow"
+    ],
+    "confidence": 0.78
+  },
+  {
+    "file": "Shell/Shell /IMG_8202.PNG",
+    "brand": "Shell",
+    "line": "Helix HX7",
+    "name": "Helix HX7 10W-40",
+    "viscosity": "10W-40",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic-technology",
+    "specs": [
+      "API SN PLUS",
+      "API SN",
+      "ACEA A3/B4"
+    ],
+    "label_text": "FOR DIESEL AND GASOLINE ENGINES. SYNTHETIC TECHNOLOGY MOTOR OIL. Piston badge text distorted. The ACEA line is distorted in the photo (renders 'SHEA A3/84'). Code under pack size reads '600053840' - the identical code also appears on the HX6 photo IMG_8203, so treat the code as unreliable.",
+    "group": "shell-helix-hx7-10w-40",
+    "issues": [
+      "grey_background"
+    ],
+    "confidence": 0.88
+  },
+  {
+    "file": "Shell/Shell /IMG_8203.PNG",
+    "brand": "Shell",
+    "line": "Helix HX6",
+    "name": "Helix HX6 10W-40",
+    "viscosity": "10W-40",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic-technology",
+    "specs": [
+      "API SN PLUS",
+      "API SN",
+      "ACEA A3/B4"
+    ],
+    "label_text": "FOR DIESEL AND GASOLINE ENGINES. SYNTHETIC TECHNOLOGY MOTOR OIL. Piston badge: 'Active Cleaning Technology' (distorted). 'A3/B4' renders as 'A3/84'. Code under pack size reads '600053840' - same code as on the HX7 photo IMG_8202, so treat the code as unreliable.",
+    "group": "shell-helix-hx6-10w-40",
+    "issues": [],
+    "confidence": 0.9
+  },
+  {
+    "file": "Shell/Shell /IMG_8204.PNG",
+    "brand": "Shell",
+    "line": "Helix Ultra",
+    "name": "Helix Ultra 5W-40",
+    "viscosity": "5W-40",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic",
+    "specs": [
+      "API SN PLUS",
+      "API SN",
+      "ACEA A3/B4"
+    ],
+    "label_text": "NOTE: photo looks AI-enhanced/regenerated - small print is distorted. FULLY SYNTHETIC MOTOR OIL. 'Made from natural gas' (red line, distorted). DIESEL & GASOLINE ENGINES. PUREPLUS TECHNOLOGY. ULTIMATE PERFORMANCE. Ferrari shield with 'Technical Partner' (distorted). Spec block bottom-left is tiny and heavily distorted (renders approx. 'A?I SN ?LUS, ?? SN, AC?A A?/84') - specs decoded from that pattern, verify. Code under pack size reads approx. '600051454' (unreliable).",
+    "group": "shell-helix-ultra-5w-40",
+    "issues": [
+      "grey_background",
+      "reflection_or_shadow"
+    ],
+    "confidence": 0.75
+  },
+  {
+    "file": "Valvoline/Valvoline/92298DC7-ED2D-447F-BF75-3E85EA0CFE37.PNG",
+    "brand": "Valvoline",
+    "line": "MaxLife",
+    "name": "MaxLife 10W-40",
+    "viscosity": "10W-40",
+    "pack": "4L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic-technology",
+    "specs": [
+      "ACEA A3/B4"
+    ],
+    "label_text": "DIESEL, PETROL & LPG. SYNTHETIC TECHNOLOGY. HIGH MILEAGE. Suitable for petrol, LPG and diesel engines. Extends performance of high mileage engines. EELQMS logo. Older label design (states 'Synthetic Technology'; the newer-design MaxLife photos IMG_8518/IMG_8519 state 'Semi-Synthetic').",
+    "group": "valvoline-maxlife-10w-40",
+    "issues": [],
+    "confidence": 0.95
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_6925.jpg",
+    "brand": "Valvoline",
+    "line": "HVLP",
+    "name": "HVLP 46",
+    "viscosity": null,
+    "pack": "20L",
+    "pack_confidence": "read",
+    "kind": "hydraulic_oil",
+    "base": null,
+    "specs": [
+      "HVLP"
+    ],
+    "label_text": "HVLP 46. HYDRAULIC OIL. 20L canister. ('46' is the viscosity grade in the HVLP designation; no SAE grade.)",
+    "group": "valvoline-hvlp-46",
+    "issues": [
+      "reflection_or_shadow"
+    ],
+    "confidence": 0.95
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8080.PNG",
+    "brand": "Valvoline",
+    "line": "SynPower",
+    "name": "SynPower 10W-40",
+    "viscosity": "10W-40",
+    "pack": "4L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "semi-synthetic",
+    "specs": [
+      "ACEA A3/B4"
+    ],
+    "label_text": "SEMI-SYNTHETIC. SYNPOWER. ENGINE OIL. Ultimate Protection. Maintains Engine Performance. EELQMS logo. New label design.",
+    "group": "valvoline-synpower-10w-40",
+    "issues": [],
+    "confidence": 0.95
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8514.JPG",
+    "brand": "Valvoline",
+    "line": "SynPower",
+    "name": "SynPower 10W-40",
+    "viscosity": "10W-40",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic-technology",
+    "specs": [
+      "ACEA A3/B4"
+    ],
+    "label_text": "SYNTHETIC TECHNOLOGY. Recommended for Mercedes-Benz, Renault, and VW. Ultimate performance and protection. Approved formulation. ('A3/B4' renders as 'A3/84' in the photo.) Older label design (states 'Synthetic Technology'; the newer 4L label IMG_8080 states 'Semi-Synthetic').",
+    "group": "valvoline-synpower-10w-40",
+    "issues": [],
+    "confidence": 0.92
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8518.JPG",
+    "brand": "Valvoline",
+    "line": "MaxLife",
+    "name": "MaxLife 10W-40",
+    "viscosity": "10W-40",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "semi-synthetic",
+    "specs": [],
+    "label_text": "NOTE: photo looks AI-enhanced/regenerated - small print is distorted. SEMI-SYNTHETIC. MAXLIFE. ENGINE OIL. '1L' printed twice (by the QR code and bottom right). The three yellow claim/spec bars and the word under 'ENGINE OIL' are garbled nonsense in this photo (e.g. third bar renders 'ACEA A284, AP: SN 7') - no spec is legible. New label design.",
+    "group": "valvoline-maxlife-10w-40",
+    "issues": [
+      "grey_background",
+      "reflection_or_shadow"
+    ],
+    "confidence": 0.8
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8519.JPG",
+    "brand": "Valvoline",
+    "line": "MaxLife",
+    "name": "MaxLife 10W-40",
+    "viscosity": "10W-40",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "semi-synthetic",
+    "specs": [],
+    "label_text": "NOTE: photo looks AI-enhanced/regenerated - small print is distorted. SEMI-SYNTHETIC. MAXLIFE. ENGINE OIL. '5L' printed twice (by the QR code and bottom right). Yellow bars render 'Better - Oil Consumption', 'Clean - Engine Power'; the third (spec) bar is garbled symbols - no spec is legible. New label design.",
+    "group": "valvoline-maxlife-10w-40",
+    "issues": [],
+    "confidence": 0.8
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8520.JPG",
+    "brand": "Valvoline",
+    "line": "All-Climate",
+    "name": "All-Climate 20W-50",
+    "viscosity": "20W-50",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": null,
+    "specs": [],
+    "label_text": "ALL-CLIMATE. Suitable for petrol, LPG and diesel engines (small print slightly distorted). No spec printed on the front label.",
+    "group": "valvoline-all-climate-20w-50",
+    "issues": [
+      "reflection_or_shadow"
+    ],
+    "confidence": 0.92
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8521.JPG",
+    "brand": "Valvoline",
+    "line": "All-Climate Extra",
+    "name": "All-Climate Extra 15W-40",
+    "viscosity": "15W-40",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": null,
+    "specs": [],
+    "label_text": "NOTE: photo looks AI-enhanced/regenerated - small print is distorted. Product name renders as 'ALL-CLIMAT EXTRA' (final E missing in the photo). 15W-40 ENGINE OIL. The red text block and the three grey claim/spec bars on the right are garbled and illegible - no spec is legible.",
+    "group": "valvoline-all-climate-extra-15w-40",
+    "issues": [
+      "reflection_or_shadow"
+    ],
+    "confidence": 0.75
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8522.JPG",
+    "brand": "Valvoline",
+    "line": "SynPower",
+    "name": "SynPower MST C3 5W-40",
+    "viscosity": "5W-40",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic",
+    "specs": [],
+    "label_text": "NOTE: photo looks AI-enhanced/regenerated - small print is distorted. SYNTHETIC ENGINE OIL. SYNPOWER MST C3. Yellow bars garbled (approx. 'Protects Engine and Emissions System', 'Maintains Engine Performance'); third bar renders approx. 'ACEA C? - MB-Approved 2??.??' - not legible, so no specs recorded (the 'C3' is part of the product name).",
+    "group": "valvoline-synpower-mst-c3-5w-40",
+    "issues": [
+      "reflection_or_shadow"
+    ],
+    "confidence": 0.85
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8523.JPG",
+    "brand": "Valvoline",
+    "line": "SynPower",
+    "name": "SynPower MST C3 5W-40",
+    "viscosity": "5W-40",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic",
+    "specs": [],
+    "label_text": "NOTE: photo looks AI-enhanced/regenerated - small print is distorted. SYNTHETIC ENGINE OIL. SYNPOWER MST C3. 'Protects Engine and Emissions System', 'Maintains Engine Performance' (both misspelled in the photo). Third bar renders 'ACEA C? - MB-Approved 285S1' - not reliably legible, so no specs recorded. PACK CONFLICT: label shows '5L' next to the QR code AND '1L' bottom right; the container is clearly a 1L bottle, so 1L recorded.",
+    "group": "valvoline-synpower-mst-c3-5w-40",
+    "issues": [
+      "reflection_or_shadow"
+    ],
+    "confidence": 0.8
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8542.JPG",
+    "brand": "Valvoline",
+    "line": "SynPower",
+    "name": "SynPower FE 5W-30",
+    "viscosity": "5W-30",
+    "pack": "5L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic",
+    "specs": [],
+    "label_text": "'Valvoline 150 Years' badge. FULL SYNTHETIC. FUEL ECONOMY (FE). The three small claim/spec bars are too blurred to read - no spec is legible.",
+    "group": "valvoline-synpower-fe-5w-30",
+    "issues": [
+      "low_resolution"
+    ],
+    "confidence": 0.85
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8544.JPG",
+    "brand": "Valvoline",
+    "line": "SynPower",
+    "name": "SynPower FE 5W-30",
+    "viscosity": "5W-30",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic",
+    "specs": [
+      "ACEA A1/B1",
+      "ACEA A5/B5"
+    ],
+    "label_text": "Phone screenshot (status bar '12:02', signal/wifi/battery icons at top). 'Valvoline 150 Years' badge. FULL SYNTHETIC. FUEL ECONOMY (FE). Recommended for Ford, Renault, and Fiat (small print distorted). Ultimate performance and protection. Approved formulation. Spec bar renders as 'AEEA A1/81, A5/85'. Same picture as IMG_8548.",
+    "group": "valvoline-synpower-fe-5w-30",
+    "issues": [
+      "phone_screenshot_ui",
+      "duplicate_of:Valvoline/Valvoline/IMG_8548.JPG"
+    ],
+    "confidence": 0.85
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8548.JPG",
+    "brand": "Valvoline",
+    "line": "SynPower",
+    "name": "SynPower FE 5W-30",
+    "viscosity": "5W-30",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_car",
+    "base": "synthetic",
+    "specs": [
+      "ACEA A1/B1",
+      "ACEA A5/B5"
+    ],
+    "label_text": "'Valvoline 150 Years' badge. FULL SYNTHETIC. FUEL ECONOMY (FE). Recommended for Ford, Renault, and Fiat (small print distorted). Ultimate performance and protection. Approved formulation. Spec bar renders as 'ACEA A1/91, A5?85' (distorted).",
+    "group": "valvoline-synpower-fe-5w-30",
+    "issues": [],
+    "confidence": 0.85
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8549.JPG",
+    "brand": "Valvoline",
+    "line": "SynPower 4T",
+    "name": "SynPower 4T 5W-40",
+    "viscosity": "5W-40",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_moto_4t",
+    "base": "synthetic",
+    "specs": [],
+    "label_text": "SYNPOWER. 4T. FULL SYNTHETIC MOTORCYCLE OIL. '1L e'. Motorcycle outline graphic. No spec printed on the front label.",
+    "group": "valvoline-synpower-4t-5w-40",
+    "issues": [],
+    "confidence": 0.95
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8550.JPG",
+    "brand": "Valvoline",
+    "line": "SynPower 4T",
+    "name": "SynPower 4T 10W-50",
+    "viscosity": "10W-50",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_moto_4t",
+    "base": "synthetic",
+    "specs": [],
+    "label_text": "SYNPOWER. 4T. FULL SYNTHETIC MOTORCYCLE OIL. '1L e'. Motorcycle outline graphic. No spec printed on the front label.",
+    "group": "valvoline-synpower-4t-10w-50",
+    "issues": [],
+    "confidence": 0.95
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8552.JPG",
+    "brand": "Valvoline",
+    "line": "SynPower 4T",
+    "name": "SynPower 4T 10W-30",
+    "viscosity": "10W-30",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_moto_4t",
+    "base": "synthetic",
+    "specs": [],
+    "label_text": "SYNPOWER. 4T. FULL SYNTHETIC MOTORCYCLE OIL. Motorcycle outline graphic. No spec printed on the front label.",
+    "group": "valvoline-synpower-4t-10w-30",
+    "issues": [],
+    "confidence": 0.95
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8553.JPG",
+    "brand": "Valvoline",
+    "line": "DCT",
+    "name": "DCT Dual Clutch Transmission Fluid",
+    "viscosity": null,
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "atf",
+    "base": null,
+    "specs": [],
+    "label_text": "DCT. Dual Clutch Transmission Fluid. Car and gear-selector graphics. No spec printed on the front label.",
+    "group": "valvoline-dct",
+    "issues": [],
+    "confidence": 0.95
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8554.JPG",
+    "brand": "Valvoline",
+    "line": "CVT",
+    "name": "CVT",
+    "viscosity": null,
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "atf",
+    "base": null,
+    "specs": [],
+    "label_text": "CVT. No descriptor line is visible under 'CVT' in this photo. Car and gear-selector graphics. No spec printed on the front label.",
+    "group": "valvoline-cvt",
+    "issues": [],
+    "confidence": 0.93
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8555.JPG",
+    "brand": "Valvoline",
+    "line": "ATF",
+    "name": "ATF Automatic Transmission Fluid",
+    "viscosity": null,
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "atf",
+    "base": null,
+    "specs": [],
+    "label_text": "ATF. Automatic Transmission Fluid. No variant suffix (e.g. Dexron/type) is printed on the front label. Car and gear-selector graphics.",
+    "group": "valvoline-atf",
+    "issues": [],
+    "confidence": 0.93
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8556.JPG",
+    "brand": "Valvoline",
+    "line": "Gear Oil",
+    "name": "Gear Oil 75W-80 RPC",
+    "viscosity": "75W-80",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "gear_oil",
+    "base": null,
+    "specs": [],
+    "label_text": "GEAR OIL. 75W-80. RPC. Car and gearbox graphics. No API GL class printed on the front label.",
+    "group": "valvoline-gear-oil-75w-80-rpc",
+    "issues": [],
+    "confidence": 0.93
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8557.JPG",
+    "brand": "Valvoline",
+    "line": "Axle Oil",
+    "name": "Light & Heavy Duty Axle Oil 80W-90",
+    "viscosity": "80W-90",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "gear_oil",
+    "base": null,
+    "specs": [],
+    "label_text": "LIGHT & HEAVY DUTY. AXLE OIL. 80W-90. Truck, car and differential graphics. No API GL class printed on the front label.",
+    "group": "valvoline-light-heavy-duty-axle-oil-80w-90",
+    "issues": [],
+    "confidence": 0.95
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8558.JPG",
+    "brand": "Valvoline",
+    "line": "Axle Oil Pro",
+    "name": "Heavy Duty Axle Oil Pro 80W-90 Limited Slip",
+    "viscosity": "80W-90",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "gear_oil",
+    "base": null,
+    "specs": [
+      "Arvin Meritor Axles (LS)"
+    ],
+    "label_text": "HEAVY DUTY. AXLE OIL PRO. 80W-90. Limited Slip. Two gold bars: the first is garbled (renders '2E-NE-ML - UTB-2T0', possibly a ZF TE-ML list - not legible, left out of specs); the second reads 'ARVIN MERITOR AXLES (LS)' (renders 'ARLES'). Silver bottle. Truck and differential graphics.",
+    "group": "valvoline-heavy-duty-axle-oil-pro-80w-90-ls",
+    "issues": [],
+    "confidence": 0.9
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8560.JPG",
+    "brand": "Valvoline",
+    "line": "Gear Oil",
+    "name": "Gear Oil 75W-90",
+    "viscosity": "75W-90",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "gear_oil",
+    "base": null,
+    "specs": [],
+    "label_text": "GEAR OIL. 75W-90. Car and gearbox graphics. No API GL class printed on the front label.",
+    "group": "valvoline-gear-oil-75w-90",
+    "issues": [],
+    "confidence": 0.95
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8561.JPG",
+    "brand": "Valvoline",
+    "line": "Gear Oil",
+    "name": "Gear Oil 75W-80",
+    "viscosity": "75W-80",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "gear_oil",
+    "base": null,
+    "specs": [],
+    "label_text": "GEAR OIL. 75W-80. No 'RPC' suffix on this label (unlike IMG_8556). Car and gearbox graphics. No API GL class printed on the front label.",
+    "group": "valvoline-gear-oil-75w-80",
+    "issues": [],
+    "confidence": 0.88
+  },
+  {
+    "file": "Valvoline/Valvoline/IMG_8564.JPG",
+    "brand": "Valvoline",
+    "line": "DuraBlend 4T",
+    "name": "DuraBlend 4T 15W-50",
+    "viscosity": "15W-50",
+    "pack": "1L",
+    "pack_confidence": "read",
+    "kind": "engine_oil_moto_4t",
+    "base": "semi-synthetic",
+    "specs": [],
+    "label_text": "DURABLEND. 4T. SEMI-SYNTHETIC MOTORCYCLE OIL. Motorcycle outline graphic. No spec printed on the front label.",
+    "group": "valvoline-durablend-4t-15w-50",
+    "issues": [],
+    "confidence": 0.95
+  }
+]

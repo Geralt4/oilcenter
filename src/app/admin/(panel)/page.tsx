@@ -1,0 +1,115 @@
+import Link from 'next/link';
+import { and, count, desc, eq, gte, isNotNull, ne, sql } from 'drizzle-orm';
+import { CircleAlert, CircleCheck } from 'lucide-react';
+import { Card, PageHeader, PaymentBadge, StatusBadge, td, th } from '@/components/admin/ui';
+import { db } from '@/lib/db';
+import { orders, products, variants } from '@/lib/db/schema';
+import { releaseAbandonedCardOrders } from '@/lib/orders';
+import { cardProvider } from '@/lib/payments';
+import { getSettings } from '@/lib/settings.server';
+import { cn, formatDateTime, formatPrice } from '@/lib/utils';
+
+const DAY = 24 * 60 * 60 * 1000;
+const daysAgo = (days: number) => new Date(Date.now() - days * DAY);
+
+export default async function AdminDashboard() {
+  await releaseAbandonedCardOrders();
+  const settings = await getSettings();
+  const real = and(eq(orders.isTest, false), ne(orders.status, 'cancelled'));
+  const since = daysAgo;
+  const sum = sql<number>`coalesce(sum(${orders.totalCents}), 0)`;
+
+  const [[today], [week], [month], [pending], [unverified], [flagged], [productCount], recent] = await Promise.all([
+    db.select({ n: count(), total: sum }).from(orders).where(and(real, gte(orders.createdAt, since(1)))),
+    db.select({ n: count(), total: sum }).from(orders).where(and(real, gte(orders.createdAt, since(7)))),
+    db.select({ n: count(), total: sum }).from(orders).where(and(real, gte(orders.createdAt, since(30)))),
+    db.select({ n: count() }).from(orders).where(eq(orders.status, 'pending')),
+    db.select({ n: count() }).from(variants).where(and(eq(variants.priceVerified, false), eq(variants.isActive, true))),
+    db.select({ n: count() }).from(products).where(isNotNull(products.internalNotes)),
+    db.select({ n: count() }).from(products).where(eq(products.isActive, true)),
+    db.select().from(orders).orderBy(desc(orders.createdAt)).limit(8),
+  ]);
+
+  const { shop, payments, storefront } = settings;
+  const checklist = [
+    { done: unverified.n === 0, label: 'Επιβεβαίωση τιμών', detail: unverified.n ? `${unverified.n} συσκευασίες έχουν ακόμη ενδεικτική τιμή.` : 'Όλες οι τιμές είναι επιβεβαιωμένες.', href: '/admin/prices?filter=unverified' },
+    { done: flagged.n === 0, label: 'Έλεγχος στοιχείων προϊόντων', detail: flagged.n ? `${flagged.n} προϊόντα έχουν σημείωση προς έλεγχο (π.χ. συσκευασία που δεν φαινόταν στη φωτογραφία).` : 'Κανένα προϊόν δεν περιμένει έλεγχο.', href: '/admin/products?filter=review' },
+    { done: shop.hoursVerified, label: 'Ωράριο λειτουργίας', detail: shop.hoursVerified ? 'Επιβεβαιωμένο.' : 'Το ωράριο είναι ενδεικτικό. Διορθώστε το και σημειώστε το ως επιβεβαιωμένο.', href: '/admin/settings#hours' },
+    { done: Boolean(shop.vatNumber && shop.gemi), label: 'ΑΦΜ & Αρ. ΓΕΜΗ', detail: 'Ο νόμος απαιτεί να φαίνεται στο ηλεκτρονικό κατάστημα ποιος είναι ο πωλητής (εμφανίζονται στο υποσέλιδο). Η ΔΟΥ είναι προαιρετική.', href: '/admin/settings#company' },
+    { done: !payments.bankTransfer || payments.bankAccounts.length > 0, label: 'Τραπεζικός λογαριασμός (IBAN)', detail: 'Χρειάζεται για την πληρωμή με κατάθεση — αλλιώς απενεργοποιήστε την.', href: '/admin/settings#payments' },
+    { done: Boolean(process.env.SMTP_HOST), label: 'Αποστολή e-mail (SMTP)', detail: process.env.SMTP_HOST ? 'Ρυθμισμένο.' : 'Δεν έχει ρυθμιστεί: τα e-mail γράφονται σε αρχεία αντί να στέλνονται. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
+    { done: cardProvider() !== null, label: 'Πληρωμές με κάρτα', detail: cardProvider() ? `Ενεργός πάροχος: ${cardProvider()}.` : 'Δεν έχει συνδεθεί πάροχος (Viva ή Stripe): η επιλογή «κάρτα» δεν εμφανίζεται στο ταμείο. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
+    { done: !storefront.demoMode, label: 'Απενεργοποίηση δοκιμαστικής λειτουργίας', detail: storefront.demoMode ? 'Όσο είναι ενεργή, εμφανίζεται προειδοποίηση στο κατάστημα και οι παραγγελίες σημειώνονται ως δοκιμαστικές. Κλείστε την ΤΕΛΕΥΤΑΙΑ.' : 'Το κατάστημα δέχεται πραγματικές παραγγελίες.', href: '/admin/settings#storefront' },
+  ];
+  const remaining = checklist.filter((c) => !c.done).length;
+
+  const stats = [
+    { label: 'Σήμερα', orders: today.n, total: today.total },
+    { label: '7 ημέρες', orders: week.n, total: week.total },
+    { label: '30 ημέρες', orders: month.n, total: month.total },
+  ];
+
+  return (
+    <>
+      <PageHeader title="Επισκόπηση" description={`${productCount.n} ενεργά προϊόντα · ${pending.n} παραγγελίες σε αναμονή`} />
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        {stats.map((s) => (
+          <Card key={s.label}>
+            <p className="text-sm font-medium text-ink-500">{s.label}</p>
+            <p className="tabular mt-1 text-3xl font-bold text-ink-950">{formatPrice(s.total)}</p>
+            <p className="text-sm text-ink-600">{s.orders} {s.orders === 1 ? 'παραγγελία' : 'παραγγελίες'}</p>
+          </Card>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-ink-500">Στα ποσά δεν περιλαμβάνονται δοκιμαστικές και ακυρωμένες παραγγελίες.</p>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_1.1fr]">
+        <Card title={remaining ? `Πριν ανοίξει το κατάστημα — απομένουν ${remaining}` : 'Το κατάστημα είναι έτοιμο'} description="Η λίστα ενημερώνεται αυτόματα καθώς ολοκληρώνετε κάθε βήμα.">
+          <ul className="divide-y divide-line">
+            {checklist.map((c) => {
+              const body = (
+                <>
+                  {c.done ? <CircleCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" /> : <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />}
+                  <span className="min-w-0">
+                    <span className={cn('block text-sm font-semibold', c.done ? 'text-ink-500 line-through' : 'text-ink-950')}>{c.label}</span>
+                    <span className="block text-sm text-ink-600">{c.detail}</span>
+                  </span>
+                </>
+              );
+              return (
+                <li key={c.label}>
+                  {c.href && !c.done ? <Link href={c.href} className="-mx-2 flex gap-3 rounded-xl px-2 py-3 hover:bg-ink-50">{body}</Link> : <div className="flex gap-3 py-3">{body}</div>}
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+
+        <Card title="Τελευταίες παραγγελίες">
+          {recent.length === 0 ? (
+            <p className="text-sm text-ink-600">Δεν υπάρχουν παραγγελίες ακόμη.</p>
+          ) : (
+            <div className="-mx-4 overflow-x-auto sm:-mx-6">
+              <table className="w-full min-w-[32rem]">
+                <thead><tr className="border-b border-line"><th className={cn(th, 'pl-4 sm:pl-6')}>Αριθμός</th><th className={th}>Πελάτης</th><th className={th}>Κατάσταση</th><th className={th}>Πληρωμή</th><th className={cn(th, 'pr-4 text-right sm:pr-6')}>Σύνολο</th></tr></thead>
+                <tbody className="divide-y divide-line">
+                  {recent.map((o) => (
+                    <tr key={o.id} className="hover:bg-ink-50">
+                      <td className={cn(td, 'pl-4 sm:pl-6')}><Link href={`/admin/orders/${o.id}`} className="tabular font-semibold text-petrol-500 hover:underline">{o.number}</Link><span className="block text-xs text-ink-500">{formatDateTime(o.createdAt)}</span></td>
+                      <td className={td}>{o.firstName} {o.lastName}{o.isTest && <span className="ml-1.5 rounded bg-petrol-100 px-1.5 py-0.5 text-[0.625rem] font-bold text-petrol-700">TEST</span>}</td>
+                      <td className={td}><StatusBadge status={o.status} /></td>
+                      <td className={td}><PaymentBadge status={o.paymentStatus} /></td>
+                      <td className={cn(td, 'tabular pr-4 text-right font-semibold sm:pr-6')}>{formatPrice(o.totalCents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <Link href="/admin/orders" className="mt-4 inline-block text-sm font-semibold text-petrol-500 hover:underline">Όλες οι παραγγελίες →</Link>
+        </Card>
+      </div>
+    </>
+  );
+}

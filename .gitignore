@@ -1,0 +1,27 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+
+# runtime data: SQLite database, admin uploads, dev email outbox, backups
+/data/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# raw client assets (source photos, ~60 MB of zips). Processed images live in /public/catalog.
+/Tsakiridis */
+
+# misc
+.DS_Store
+npm-debug.log*
+.vercel
+
+# unzipped client photos used by catalog:build
+/.cache/
