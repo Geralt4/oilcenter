@@ -37,8 +37,9 @@ export default async function ProductPage({ params }: Props) {
     sku: v.sku,
     label: v.label,
     volumeMl: v.volumeMl,
-    priceCents: v.priceCents,
-    compareAtCents: v.compareAtCents && v.compareAtCents > v.priceCents ? v.compareAtCents : null,
+    // a placeholder price never leaves the server: the page says «Καλέστε για τιμή» instead
+    priceCents: v.priceVerified ? v.priceCents : 0,
+    compareAtCents: v.priceVerified && v.compareAtCents && v.compareAtCents > v.priceCents ? v.compareAtCents : null,
     inStock: !v.trackStock || v.stock > 0,
     stockLeft: v.trackStock ? v.stock : null,
     imageUrl: v.imageUrl,

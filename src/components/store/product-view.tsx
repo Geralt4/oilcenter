@@ -32,7 +32,7 @@ type Props = {
 
 export function ProductView({ product, images, variants }: Props) {
   const config = useStoreConfig();
-  const initial = variants.find((v) => v.inStock) ?? variants[0];
+  const initial = variants.find((v) => v.inStock && v.priceVerified) ?? variants.find((v) => v.inStock) ?? variants[0];
   const [variantId, setVariantId] = useState(initial.id);
   const [activeImage, setActiveImage] = useState(initial.imageUrl ?? images[0]?.url ?? null);
   const [quantity, setQuantity] = useState(1);
@@ -112,15 +112,21 @@ export function ProductView({ product, images, variants }: Props) {
         <h1 className="mt-1 text-3xl leading-tight font-bold tracking-tight text-ink-950 sm:text-4xl">{product.name}</h1>
         {product.shortDescription && <p className="mt-3 text-lg text-ink-600">{product.shortDescription}</p>}
 
-        <div className="mt-6 flex flex-wrap items-end gap-x-3 gap-y-1">
-          <p className="tabular text-4xl font-bold text-ink-950">{formatPrice(variant.priceCents)}</p>
-          {variant.compareAtCents && <p className="tabular pb-1 text-lg text-ink-400 line-through">{formatPrice(variant.compareAtCents)}</p>}
-          <p className="pb-1.5 text-sm text-ink-500">
-            με ΦΠΑ{perLitre && variant.volumeMl !== 1000 ? <> · <span className="tabular">{formatPrice(perLitre)}</span> / λίτρο</> : null}
-          </p>
-        </div>
-        {/* only for prices the owner has not confirmed yet (Admin → Τιμές) */}
-        {!variant.priceVerified && <p className="mt-1 text-sm font-medium text-petrol-500">Ενδεικτική τιμή — καλέστε μας για την τρέχουσα τιμή.</p>}
+        {variant.priceVerified ? (
+          <div className="mt-6 flex flex-wrap items-end gap-x-3 gap-y-1">
+            <p className="tabular text-4xl font-bold text-ink-950">{formatPrice(variant.priceCents)}</p>
+            {variant.compareAtCents && <p className="tabular pb-1 text-lg text-ink-400 line-through">{formatPrice(variant.compareAtCents)}</p>}
+            <p className="pb-1.5 text-sm text-ink-500">
+              με ΦΠΑ{perLitre && variant.volumeMl !== 1000 ? <> · <span className="tabular">{formatPrice(perLitre)}</span> / λίτρο</> : null}
+            </p>
+          </div>
+        ) : (
+          // the owner has not confirmed this price yet (Admin → Τιμές): the placeholder never reaches the browser
+          <div className="mt-6">
+            <p className="text-3xl font-bold text-petrol-500">Καλέστε για τιμή</p>
+            <p className="mt-1 text-sm text-ink-600">Η τιμή αυτής της συσκευασίας ενημερώνεται. Πάρτε μας ένα τηλέφωνο και θα σας την πούμε αμέσως.</p>
+          </div>
+        )}
 
         {variants.length > 1 && (
           <fieldset className="mt-7">
@@ -140,7 +146,7 @@ export function ProductView({ product, images, variants }: Props) {
                   )}
                 >
                   <span className="tabular block font-display text-xl font-bold">{v.label}</span>
-                  <span className={cn('tabular text-sm', v.id === variant.id ? 'text-oil-300' : 'text-ink-500')}>{v.inStock ? formatPrice(v.priceCents) : 'Εξαντλήθηκε'}</span>
+                  <span className={cn('tabular text-sm', v.id === variant.id ? 'text-oil-300' : 'text-ink-500')}>{!v.inStock ? 'Εξαντλήθηκε' : v.priceVerified ? formatPrice(v.priceCents) : 'Καλέστε'}</span>
                 </button>
               ))}
             </div>
@@ -148,19 +154,28 @@ export function ProductView({ product, images, variants }: Props) {
         )}
 
         <div className="mt-7 flex flex-wrap items-stretch gap-3">
-          <QuantityStepper value={quantity} onChange={setQuantity} max={variant.stockLeft} />
-          <button
-            type="button"
-            onClick={onAdd}
-            disabled={!variant.inStock}
-            className={cn(
-              'flex h-12 min-w-52 flex-1 cursor-pointer items-center justify-center gap-2.5 rounded-xl px-6 text-base font-semibold transition-colors disabled:cursor-not-allowed disabled:bg-ink-100 disabled:text-ink-400',
-              justAdded ? 'bg-emerald-600 text-white' : 'bg-oil-500 text-ink-950 shadow-[0_8px_20px_-8px_rgb(242_163_11/0.8)] hover:bg-oil-400',
-            )}
-          >
-            {justAdded ? <Check className="h-5 w-5" /> : <ShoppingCart className="h-5 w-5" />}
-            {!variant.inStock ? 'Μη διαθέσιμο' : justAdded ? 'Προστέθηκε στο καλάθι' : `Προσθήκη · ${formatPrice(lineTotal)}`}
-          </button>
+          {variant.priceVerified ? (
+            <>
+              <QuantityStepper value={quantity} onChange={setQuantity} max={variant.stockLeft} />
+              <button
+                type="button"
+                onClick={onAdd}
+                disabled={!variant.inStock}
+                className={cn(
+                  'flex h-12 min-w-52 flex-1 cursor-pointer items-center justify-center gap-2.5 rounded-xl px-6 text-base font-semibold transition-colors disabled:cursor-not-allowed disabled:bg-ink-100 disabled:text-ink-400',
+                  justAdded ? 'bg-emerald-600 text-white' : 'bg-oil-500 text-ink-950 shadow-[0_8px_20px_-8px_rgb(242_163_11/0.8)] hover:bg-oil-400',
+                )}
+              >
+                {justAdded ? <Check className="h-5 w-5" /> : <ShoppingCart className="h-5 w-5" />}
+                {!variant.inStock ? 'Μη διαθέσιμο' : justAdded ? 'Προστέθηκε στο καλάθι' : `Προσθήκη · ${formatPrice(lineTotal)}`}
+              </button>
+            </>
+          ) : (
+            <a href={telHref(config.phone)} className="tabular flex h-12 min-w-52 flex-1 items-center justify-center gap-2.5 rounded-xl bg-ink-900 px-6 text-base font-semibold text-white hover:bg-ink-700">
+              <Phone className="h-5 w-5" />
+              {config.phone}
+            </a>
+          )}
           <button
             type="button"
             onClick={() => toggleWish(product.id)}

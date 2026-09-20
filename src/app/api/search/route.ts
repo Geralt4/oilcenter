@@ -11,8 +11,9 @@ export async function GET(request: Request) {
       name: p.name,
       brandName: p.brand?.name ?? null,
       imageUrl: p.imageUrl,
-      minPriceCents: p.minPriceCents,
-      multiplePrices: p.minPriceCents !== p.maxPriceCents,
+      // null = no size of this product has a confirmed price yet («Καλέστε για τιμή»)
+      minPriceCents: p.hasPrice ? p.minPriceCents : null,
+      multiplePrices: p.hasPrice && (p.minPriceCents !== p.maxPriceCents || p.variants.some((v) => !v.priced)),
     })),
   });
 }

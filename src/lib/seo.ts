@@ -46,8 +46,12 @@ export function localBusinessJsonLd(settings: ShopSettings) {
 
 export function productJsonLd(product: ProductDetail, settings: ShopSettings) {
   const url = `${siteUrl()}/product/${product.slug}`;
-  const prices = product.variants.map((v) => v.priceCents / 100);
-  const inStock = product.variants.some((v) => !v.trackStock || v.stock > 0);
+  // Only prices the owner has confirmed, and only while the shop really sells online: an offer tells Google "you can buy
+  // this here at this price", which is false in demo mode, while ordering is closed, and for placeholder prices.
+  const sellable = product.variants.filter((v) => v.priceVerified);
+  const prices = sellable.map((v) => v.priceCents / 100);
+  const inStock = sellable.some((v) => !v.trackStock || v.stock > 0);
+  const { demoMode, ordersEnabled } = settings.storefront;
   return {
     '@context': 'https://schema.org',
     '@type': 'Product',
@@ -58,14 +62,13 @@ export function productJsonLd(product: ProductDetail, settings: ShopSettings) {
     brand: product.brand ? { '@type': 'Brand', name: product.brand.name } : undefined,
     category: product.category?.name,
     url,
-    // Demo-mode prices are placeholders: never hand them to search engines as offers.
-    ...(!settings.storefront.demoMode && {
+    ...(!demoMode && ordersEnabled && prices.length > 0 && {
       offers: {
         '@type': 'AggregateOffer',
         priceCurrency: 'EUR',
         lowPrice: Math.min(...prices).toFixed(2),
         highPrice: Math.max(...prices).toFixed(2),
-        offerCount: product.variants.length,
+        offerCount: sellable.length,
         availability: inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
         url,
         seller: { '@id': `${siteUrl()}/#store` },

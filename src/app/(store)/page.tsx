@@ -193,7 +193,7 @@ export default async function HomePage() {
                       </span>
                       <span className="block border-t border-line p-3">
                         <span className="line-clamp-1 text-sm font-semibold">{p.name}</span>
-                        <span className="tabular text-sm text-ink-500">από {formatPrice(p.minPriceCents)}</span>
+                        <span className="tabular text-sm text-ink-500">{p.hasPrice ? `από ${formatPrice(p.minPriceCents)}` : 'Καλέστε για τιμή'}</span>
                       </span>
                     </Link>
                   </li>

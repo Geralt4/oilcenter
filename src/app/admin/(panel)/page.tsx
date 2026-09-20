@@ -33,7 +33,7 @@ export default async function AdminDashboard() {
 
   const { shop, payments, storefront } = settings;
   const checklist = [
-    { done: unverified.n === 0, label: 'Επιβεβαίωση τιμών', detail: unverified.n ? `${unverified.n} συσκευασίες έχουν ακόμη ενδεικτική τιμή.` : 'Όλες οι τιμές είναι επιβεβαιωμένες.', href: '/admin/prices?filter=unverified' },
+    { done: unverified.n === 0, label: 'Επιβεβαίωση τιμών', detail: unverified.n ? `${unverified.n} συσκευασίες δεν έχουν επιβεβαιωμένη τιμή: στο κατάστημα γράφουν «Καλέστε για τιμή» και δεν μπαίνουν στο καλάθι.` : 'Όλες οι τιμές είναι επιβεβαιωμένες.', href: '/admin/prices?filter=unverified' },
     { done: flagged.n === 0, label: 'Έλεγχος στοιχείων προϊόντων', detail: flagged.n ? `${flagged.n} προϊόντα έχουν σημείωση προς έλεγχο (π.χ. συσκευασία που δεν φαινόταν στη φωτογραφία).` : 'Κανένα προϊόν δεν περιμένει έλεγχο.', href: '/admin/products?filter=review' },
     { done: shop.hoursVerified, label: 'Ωράριο λειτουργίας', detail: shop.hoursVerified ? 'Επιβεβαιωμένο.' : 'Το ωράριο είναι ενδεικτικό. Διορθώστε το και σημειώστε το ως επιβεβαιωμένο.', href: '/admin/settings#hours' },
     { done: Boolean(shop.vatNumber && shop.gemi), label: 'ΑΦΜ & Αρ. ΓΕΜΗ', detail: 'Ο νόμος απαιτεί να φαίνεται στο ηλεκτρονικό κατάστημα ποιος είναι ο πωλητής (εμφανίζονται στο υποσέλιδο). Η ΔΟΥ είναι προαιρετική.', href: '/admin/settings#company' },
@@ -42,7 +42,7 @@ export default async function AdminDashboard() {
     { done: Boolean(process.env.SMTP_HOST), label: 'Αποστολή e-mail (SMTP)', detail: process.env.SMTP_HOST ? 'Ρυθμισμένο.' : 'Δεν έχει ρυθμιστεί: τα e-mail γράφονται σε αρχεία αντί να στέλνονται. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
     { done: cardProvider() !== null, label: 'Πληρωμές με κάρτα', detail: cardProvider() ? `Ενεργός πάροχος: ${cardProvider()}.` : 'Δεν έχει συνδεθεί πάροχος (Viva ή Stripe): η επιλογή «κάρτα» δεν εμφανίζεται στο ταμείο. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
     { done: storefront.ordersEnabled, label: 'Άνοιγμα online παραγγελιών', detail: storefront.ordersEnabled ? 'Οι επισκέπτες μπορούν να παραγγείλουν.' : 'Κλειστές: οι επισκέπτες βλέπουν προϊόντα και τιμές αλλά όχι ταμείο. Εσείς, όσο είστε συνδεδεμένος, μπορείτε να κάνετε δοκιμαστικές παραγγελίες. Ανοίξτε τες όταν είναι όλα έτοιμα.', href: '/admin/settings#storefront' },
-    { done: !storefront.demoMode, label: 'Απενεργοποίηση δοκιμαστικής λειτουργίας', detail: storefront.demoMode ? 'Όσο είναι ενεργή, εμφανίζεται προειδοποίηση στο κατάστημα και οι παραγγελίες σημειώνονται ως δοκιμαστικές. Κλείστε την ΤΕΛΕΥΤΑΙΑ.' : 'Το κατάστημα δέχεται πραγματικές παραγγελίες.', href: '/admin/settings#storefront' },
+    { done: !storefront.demoMode, label: 'Απενεργοποίηση δοκιμαστικής λειτουργίας', detail: storefront.demoMode ? 'Όσο είναι ενεργή, το site μένει κρυφό από το Google και οι παραγγελίες σημειώνονται ως δοκιμαστικές. Κλείστε την όταν το site είναι έτοιμο να το δει ο κόσμος — γίνεται και με τις online παραγγελίες ακόμη κλειστές.' : 'Το site είναι δημόσιο και ορατό στο Google.', href: '/admin/settings#storefront' },
   ];
   const remaining = checklist.filter((c) => !c.done).length;
 

@@ -12,7 +12,8 @@ type Suggestion = {
   name: string;
   brandName: string | null;
   imageUrl: string | null;
-  minPriceCents: number;
+  /** null = «Καλέστε για τιμή» */
+  minPriceCents: number | null;
   multiplePrices: boolean;
 };
 
@@ -149,10 +150,14 @@ export function SearchBox({ autoFocus = false, onNavigate }: { autoFocus?: boole
                         {item.brandName && <span className="eyebrow block text-[0.6875rem] text-ink-400">{item.brandName}</span>}
                         <span className="block truncate text-sm font-semibold text-ink-900">{item.name}</span>
                       </span>
-                      <span className="tabular shrink-0 text-sm font-bold text-ink-900">
-                        {item.multiplePrices && <span className="mr-1 text-xs font-medium text-ink-400">από</span>}
-                        {formatPrice(item.minPriceCents)}
-                      </span>
+                      {item.minPriceCents === null ? (
+                        <span className="shrink-0 text-xs font-semibold text-petrol-500">Καλέστε για τιμή</span>
+                      ) : (
+                        <span className="tabular shrink-0 text-sm font-bold text-ink-900">
+                          {item.multiplePrices && <span className="mr-1 text-xs font-medium text-ink-400">από</span>}
+                          {formatPrice(item.minPriceCents)}
+                        </span>
+                      )}
                     </Link>
                   </li>
                 ))}

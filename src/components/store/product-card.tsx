@@ -3,13 +3,16 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
-import { Check, Heart, ShoppingCart } from 'lucide-react';
+import { Check, Heart, Phone, ShoppingCart } from 'lucide-react';
+import { useStoreConfig } from '@/components/store/store-context';
 import type { CatalogProduct } from '@/lib/catalog';
 import { useCart, useHydrated, useWishlist } from '@/lib/cart-store';
-import { cn, formatPrice } from '@/lib/utils';
+import { cn, formatPrice, telHref } from '@/lib/utils';
 
 export function ProductCard({ product, priority = false }: { product: CatalogProduct; priority?: boolean }) {
-  const firstAvailable = product.variants.find((v) => v.inStock) ?? product.variants[0];
+  // open on a size that can actually be bought: in stock and with a confirmed price
+  const firstAvailable = product.variants.find((v) => v.inStock && v.priced) ?? product.variants.find((v) => v.inStock) ?? product.variants[0];
+  const { phone } = useStoreConfig();
   const [variantId, setVariantId] = useState(firstAvailable.id);
   const [justAdded, setJustAdded] = useState(false);
   const variant = product.variants.find((v) => v.id === variantId) ?? firstAvailable;
@@ -107,10 +110,26 @@ export function ProductCard({ product, priority = false }: { product: CatalogPro
 
         <div className="relative z-10 mt-auto flex items-end justify-between gap-2 pt-1">
           <div className="leading-tight">
-            {variant.compareAtCents && <p className="tabular text-xs text-ink-400 line-through">{formatPrice(variant.compareAtCents)}</p>}
-            <p className="tabular text-lg font-bold text-ink-950 sm:text-xl">{formatPrice(variant.priceCents)}</p>
+            {variant.priced ? (
+              <>
+                {variant.compareAtCents && <p className="tabular text-xs text-ink-400 line-through">{formatPrice(variant.compareAtCents)}</p>}
+                <p className="tabular text-lg font-bold text-ink-950 sm:text-xl">{formatPrice(variant.priceCents)}</p>
+              </>
+            ) : (
+              <p className="text-[0.9375rem] font-semibold text-petrol-500">Καλέστε για τιμή</p>
+            )}
             {product.variants.length === 1 && <p className="text-xs text-ink-500">{variant.label}</p>}
           </div>
+          {!variant.priced ? (
+            <a
+              href={telHref(phone)}
+              aria-label={`Καλέστε για την τιμή: ${product.name} ${variant.label}`}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-ink-900 text-white hover:bg-ink-700 sm:w-auto sm:gap-2 sm:px-4"
+            >
+              <Phone className="h-5 w-5" />
+              <span className="hidden text-sm font-semibold sm:inline">Κλήση</span>
+            </a>
+          ) : (
           <button
             type="button"
             onClick={onAdd}
@@ -124,6 +143,7 @@ export function ProductCard({ product, priority = false }: { product: CatalogPro
             {justAdded ? <Check className="h-5 w-5" /> : <ShoppingCart className="h-5 w-5" />}
             <span className="hidden text-sm font-semibold sm:inline">{justAdded ? 'Προστέθηκε' : 'Καλάθι'}</span>
           </button>
+          )}
         </div>
       </div>
     </article>

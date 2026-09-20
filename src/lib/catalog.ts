@@ -18,6 +18,9 @@ export type CatalogVariant = {
   sku: string;
   label: string;
   volumeMl: number | null;
+  /** false = the owner has not confirmed this price yet: the storefront says «Καλέστε για τιμή» and the size cannot be bought */
+  priced: boolean;
+  /** 0 when `priced` is false — a placeholder price never leaves the server */
   priceCents: number;
   compareAtCents: number | null;
   inStock: boolean;
@@ -40,6 +43,8 @@ export type CatalogProduct = {
   createdAt: number;
   imageUrl: string | null;
   variants: CatalogVariant[];
+  /** at least one size has a confirmed price; when false, min/max are 0 */
+  hasPrice: boolean;
   minPriceCents: number;
   maxPriceCents: number;
   inStock: boolean;
@@ -77,8 +82,9 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
       sku: v.sku,
       label: v.label,
       volumeMl: v.volumeMl,
-      priceCents: v.priceCents,
-      compareAtCents: v.compareAtCents && v.compareAtCents > v.priceCents ? v.compareAtCents : null,
+      priced: v.priceVerified,
+      priceCents: v.priceVerified ? v.priceCents : 0,
+      compareAtCents: v.priceVerified && v.compareAtCents && v.compareAtCents > v.priceCents ? v.compareAtCents : null,
       inStock: !v.trackStock || v.stock > 0,
       stockLeft: v.trackStock ? v.stock : null,
       imageUrl: v.imageUrl,
@@ -92,7 +98,7 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
     const vs = variantsByProduct.get(p.id);
     if (!vs?.length) continue; // nothing purchasable → not shown
     const brand = p.brandId ? brandById.get(p.brandId) : undefined;
-    const prices = vs.map((v) => v.priceCents);
+    const prices = vs.filter((v) => v.priced).map((v) => v.priceCents);
     out.push({
       id: p.id,
       slug: p.slug,
@@ -106,8 +112,9 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
       createdAt: p.createdAt.getTime(),
       imageUrl: firstImage.get(p.id) ?? vs.find((v) => v.imageUrl)?.imageUrl ?? null,
       variants: vs,
-      minPriceCents: Math.min(...prices),
-      maxPriceCents: Math.max(...prices),
+      hasPrice: prices.length > 0,
+      minPriceCents: prices.length ? Math.min(...prices) : 0,
+      maxPriceCents: prices.length ? Math.max(...prices) : 0,
       inStock: vs.some((v) => v.inStock),
       onSale: vs.some((v) => v.compareAtCents !== null),
       searchText: p.searchText,
@@ -288,7 +295,8 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
     base: (p: IndexedProduct) => !baseSet.size || (p.baseType !== null && baseSet.has(p.baseType)),
     stock: (p: IndexedProduct) => !filters.inStockOnly || p.inStock,
     sale: (p: IndexedProduct) => !filters.onSaleOnly || p.onSale,
-    price: (p: IndexedProduct) => (min === undefined || p.maxPriceCents >= min) && (max === undefined || p.minPriceCents <= max),
+    // a price filter can only match products that show a price
+    price: (p: IndexedProduct) => (min === undefined && max === undefined) || (p.hasPrice && (min === undefined || p.maxPriceCents >= min) && (max === undefined || p.minPriceCents <= max)),
   };
   type TestKey = keyof typeof tests;
   const applyExcept = (skip: TestKey | null) =>
@@ -313,6 +321,8 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
   const sorted = [...matched].sort((a, b) => {
     // sold-out products sink regardless of the chosen order
     if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
+    // «Καλέστε για τιμή» products have no place in a price order: they go last either way
+    if ((sort === 'price-asc' || sort === 'price-desc') && a.hasPrice !== b.hasPrice) return a.hasPrice ? -1 : 1;
     switch (sort) {
       case 'price-asc':
         return a.minPriceCents - b.minPriceCents;
@@ -329,7 +339,7 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / perPage));
   const page = Math.min(Math.max(1, filters.page ?? 1), pageCount);
-  const priced = applyExcept('price');
+  const priced = applyExcept('price').filter((p) => p.hasPrice);
 
   return {
     products: sorted.slice((page - 1) * perPage, page * perPage).map(strip),
@@ -476,7 +486,8 @@ export async function resolveCartLines(lines: Array<{ variantId: number; quantit
   const out: ResolvedCartLine[] = [];
   for (const [variantId, requested] of wanted) {
     const row = byVariant.get(variantId);
-    if (!row || !row.v.isActive || !row.p.isActive) {
+    // a size whose price the owner has not confirmed cannot be bought: same treatment as a withdrawn product
+    if (!row || !row.v.isActive || !row.p.isActive || !row.v.priceVerified) {
       out.push({
         variantId, productId: row?.p.id ?? 0, slug: row?.p.slug ?? '', name: row?.p.name ?? 'Μη διαθέσιμο προϊόν', brandName: row?.brandName ?? null,
         variantLabel: row?.v.label ?? '', sku: row?.v.sku ?? '', imageUrl: null, unitPriceCents: 0, compareAtCents: null, quantity: 0, maxQuantity: 0,
