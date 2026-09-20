@@ -131,9 +131,9 @@ Prices move every few days, so this is the most-used admin screen: *Admin → Τ
 
 On 2026-09-20 the 290 listings of the shop's [Skroutz page](https://www.skroutz.gr/shop/30368/Tsakiridis-Oil-Center/products.html)
 were matched by hand to the catalogue: 157 of the 215 SKUs got their real price (140 exact → marked confirmed, 17
-probable → price applied but still flagged). The result lives in `catalog/skroutz-prices.json`; the human-readable
-report — what to double-check, what is still a placeholder, and the 133 Skroutz products the site does not list yet —
-is [`SKROUTZ-PRICES.md`](SKROUTZ-PRICES.md).
+probable → price applied but still flagged). The result lives in `catalog/skroutz-prices.json`; the report for the
+shop owner — written in Greek: what to double-check, what is still a placeholder, and the 133 Skroutz products the site
+does not list yet — is [`SKROUTZ-PRICES.md`](SKROUTZ-PRICES.md).
 
 - `npm run db:seed` applies the file to a fresh database; `npm run prices:skroutz` applies it to an existing one
   (`--dry` previews, `--force` also overwrites prices the owner already confirmed).

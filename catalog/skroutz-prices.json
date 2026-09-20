@@ -288,7 +288,7 @@
    "skroutzTitle": "Castrol Edge Titanium FST Λάδι 5W-40 1lt",
    "priceCents": 1250,
    "confidence": "exact",
-   "note": "Skroutz: «Edge Titanium FST 5W-40»."
+   "note": "Στο Skroutz γράφεται «Edge Titanium FST 5W-40»."
   },
   {
    "sku": "CASTROL-MAGNATEC-10W-40-A-B-1L",
@@ -321,7 +321,7 @@
    "skroutzTitle": "Castrol Ford Magnatec Professional E Λάδι 5W-20 5lt",
    "priceCents": 6490,
    "confidence": "exact",
-   "note": "Skroutz: «Ford Magnatec Professional E 5W-20»."
+   "note": "Στο Skroutz γράφεται «Ford Magnatec Professional E 5W-20»."
   },
   {
    "sku": "CASTROL-MAGNATEC-5W-30-A5-1L",
@@ -388,7 +388,7 @@
    "skroutzTitle": "Castrol Power 1 Racing 4T Συνθετικό Λάδι 10W-50 1lt",
    "priceCents": 1360,
    "confidence": "probable",
-   "note": "Skroutz: «Power 1 Racing 4T 10W-50» — η παλιά ονομασία του Power1 Ultimate."
+   "note": "Στο Skroutz γράφεται «Power 1 Racing 4T 10W-50» — η παλιά ονομασία του Power1 Ultimate."
   },
   {
    "sku": "CASTROL-TRANSMAX-ATF-DEXRON-VI-MERCON-LV-MULTIVEHICLE-1L",
@@ -453,7 +453,7 @@
    "skroutzTitle": "Liqui Moly Πρόσθετο Καθαριστικό DPF 250ml",
    "priceCents": 1310,
    "confidence": "exact",
-   "note": "Skroutz: «Καθαριστικό DPF 250ml» (κωδικός 5148)."
+   "note": "Στο Skroutz γράφεται «Καθαριστικό DPF 250ml» (κωδικός 5148)."
   },
   {
    "sku": "LIQUI-MOLY-HYDRAULIC-LIFTER-ADDITIVE-300ML",
@@ -495,7 +495,7 @@
    "skroutzTitle": "Liqui Moly Πρόσθετο Σφραγιστικό Διαρροών Λαδιού 300ml",
    "priceCents": 1250,
    "confidence": "exact",
-   "note": "Skroutz: «Σφραγιστικό Διαρροών Λαδιού 300ml»."
+   "note": "Στο Skroutz γράφεται «Σφραγιστικό Διαρροών Λαδιού 300ml»."
   },
   {
    "sku": "LIQUI-MOLY-PRO-LINE-DIESEL-SYSTEM-REINIGER-500ML",
@@ -504,7 +504,7 @@
    "skroutzTitle": "Liqui Moly Pro-Line Jet Clean Diesel System Πρόσθετο Βελτιωτικό Καυσίμου 500ml",
    "priceCents": 1290,
    "confidence": "probable",
-   "note": "Skroutz: «Pro-Line Jet Clean Diesel System 500ml» — ελέγξτε ότι είναι το ίδιο προϊόν."
+   "note": "Στο Skroutz γράφεται «Pro-Line Jet Clean Diesel System 500ml» — ελέγξτε ότι είναι το ίδιο προϊόν."
   },
   {
    "sku": "LIQUI-MOLY-PRO-LINE-MOTORSPULUNG-ENGINE-FLUSH-500ML",
@@ -723,7 +723,7 @@
    "skroutzTitle": "Mobil Super 2000 X1 Ημισυνθετικό Λάδι 10W-40 1lt",
    "priceCents": 840,
    "confidence": "probable",
-   "note": "Skroutz: «Super 2000 X1 10W-40». Μάλλον αυτό είναι και το σωστό όνομα του προϊόντος (βλ. REVIEW.md)."
+   "note": "Στο Skroutz γράφεται «Super 2000 X1 10W-40». Μάλλον αυτό είναι και το σωστό όνομα του προϊόντος — αν ισχύει, θα το διορθώσουμε και στο site."
   },
   {
    "sku": "MOBIL-SUPER-3000-10W-40-5L",
@@ -732,7 +732,7 @@
    "skroutzTitle": "Mobil Super 2000 X1 Ημισυνθετικό Λάδι 10W-40 5lt",
    "priceCents": 3270,
    "confidence": "probable",
-   "note": "Skroutz: «Super 2000 X1 10W-40». Μάλλον αυτό είναι και το σωστό όνομα του προϊόντος (βλ. REVIEW.md)."
+   "note": "Στο Skroutz γράφεται «Super 2000 X1 10W-40». Μάλλον αυτό είναι και το σωστό όνομα του προϊόντος — αν ισχύει, θα το διορθώσουμε και στο site."
   },
   {
    "sku": "MOBIL-SUPER-3000-X1-5W-40-1L",
@@ -1038,7 +1038,7 @@
    "skroutzTitle": "Selenia Συνθετικό Λάδι 10W-40 1lt",
    "priceCents": 1090,
    "confidence": "exact",
-   "note": "Skroutz: «Selenia 10W-40 1lt»."
+   "note": "Στο Skroutz γράφεται «Selenia 10W-40 1lt»."
   },
   {
    "sku": "SELENIA-DIGITEK-PURE-ENERGY-1L",
@@ -1144,7 +1144,7 @@
    "skroutzTitle": "Petronas Tutela MR3 Γράσο Λιθίου 850gr",
    "priceCents": 1050,
    "confidence": "exact",
-   "note": "Skroutz: συσκευασία 850gr — συμπληρώστε την και στο προϊόν."
+   "note": "Στο Skroutz η συσκευασία είναι 850gr — να συμπληρωθεί και στο προϊόν του site."
   },
   {
    "sku": "PETRONAS-TUTELA-TRANSMISSION-CS-SPEED-1L",
@@ -1177,7 +1177,7 @@
    "skroutzTitle": "Valvoline All Climate Λάδι 15W-40 5lt",
    "priceCents": 3990,
    "confidence": "exact",
-   "note": "Skroutz: «All Climate 15W-40 5lt»."
+   "note": "Στο Skroutz γράφεται «All Climate 15W-40 5lt»."
   },
   {
    "sku": "VALVOLINE-ATF-AUTOMATIC-TRANSMISSION-FLUID-1L",
