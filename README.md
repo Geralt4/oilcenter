@@ -171,7 +171,8 @@ Set `SITE_URL` to the public origin, generate a fresh `AUTH_SECRET` (`openssl ra
 ### Hosted preview (Railway)
 
 The preview the owner reviews runs on Railway: project `oilcenter`, service `web`, built from the `Dockerfile`
-(`railway.json` sets the builder and the `/api/health` check), with the volume `web-volume` (500 MB) mounted at `/app/data`.
+(`railway.json` sets the builder and the `/api/health` check until the move to `.railway/railway.ts` described below is
+finished), with the volume `web-volume` (500 MB) mounted at `/app/data`.
 
 - URL: <https://web-production-2fe57.up.railway.app> — admin at `/admin`. The admin e-mail and password of the hosted
   shop are in the git-ignored `.env.railway.local`; on Railway they are the `ADMIN_EMAIL` / `ADMIN_PASSWORD` variables.
@@ -184,7 +185,42 @@ The preview the owner reviews runs on Railway: project `oilcenter`, service `web
   Railway injects the domain variable only into deployments created **after** the domain exists, so redeploy after adding one.
 - The volume survives redeploys: a restart logs "Database already has 175 products — skipping catalogue seed".
   Catalogue edits made in the hosted admin therefore stay; `catalog/catalog.json` is only used for an empty database.
-- Railway is retiring `railway.json` in favour of `.railway/railway.ts` on 2026-12-01 (`railway config migrate` shows the
-  translation as a dry run). Until it is migrated, a deploy after that date may lose the health check.
+- Anything set on Railway outside the repo (a variable, the custom domain) must also be listed in `.railway/railway.ts`
+  once that file is in force — see below.
+
+#### Railway settings: from `railway.json` to `.railway/railway.ts`
+
+Railway stops reading `railway.json` (Config as Code) on **2026-12-01**. Its replacement, `.railway/railway.ts`, is written
+and checked but **not applied yet**: the preview was offline on purpose when it was prepared (2026-09-20), and finishing the
+move needs a deploy. Until the steps below are done `railway.json` stays in force — the builder, the `/api/health` check
+and the restart policy come from it alone; the service on Railway has none of them stored.
+
+What is different: Railway never reads `.railway/railway.ts` on deploy. `railway config apply` compares the file with the live
+project and writes the difference into the service settings. The file describes the **whole project, and whatever it
+leaves out is deleted**. The file that `railway config migrate` generates lists only the health check — applying that one
+would have deleted the service variables and detached the database volume. The file in this repo therefore lists the
+volume, its mount and every variable of `.env.example` (as `preserve()`: the value stays on Railway, and a variable that
+is not set is left alone), and keeps the restart policy in a raw `deploy` block, which `migrate` silently drops.
+
+Finish the move at the next deploy:
+
+1. `npm install --prefix .railway` — the SDK the CLI needs; it lives there so it never reaches the production image.
+2. `railway config plan` has to show `0 to add, 2 to change, 0 to destroy`: `build.builder → "DOCKERFILE"`, and
+   `deploy.healthcheckPath`, `healthcheckTimeout`, `restartPolicyType`, `restartPolicyMaxRetries`. **Stop at any `Delete`
+   line or any change to `web-volume`** (the shop database) and fix the file instead; never pass `--confirm-destructive`.
+   A `Delete variable` line means the variable is missing from the `env` list.
+3. `railway config apply` and confirm. It may start a deployment by itself.
+4. `git rm railway.json` (do not commit yet), then `railway up --service web --ci`. Only a deploy *without* `railway.json`
+   proves the new settings, because that file overrides them.
+5. Check all four: the build log (`railway logs --service web --build --lines 200`) shows the Dockerfile build and a health
+   check on `/api/health`; `curl https://web-production-2fe57.up.railway.app/api/health` answers `{"ok":true,"products":175}`;
+   the runtime log says "Database already has 175 products — skipping catalogue seed"; `railway config plan` reports that
+   the configuration is up to date.
+6. All four hold: commit the removal and shorten this section. Otherwise `git restore --staged --worktree railway.json` and
+   `railway up` again — that is the configuration that was running before.
+
+Afterwards the settings change like this: edit `.railway/railway.ts`, `railway config plan`, `railway config apply`. A new variable
+goes into the `env` list, the custom domain into `domains: ["www.oilcenter.gr"]` (`railway config pull --json` shows how
+Railway describes the live project), or the next apply proposes to delete it.
 
 Old URLs from the 2015 site (`/castrol.html`, `/contact.html`, …) are 301-redirected in `next.config.ts`.
