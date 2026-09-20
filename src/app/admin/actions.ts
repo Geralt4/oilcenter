@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { hashPassword, randomToken, verifyPassword } from '@/lib/auth/password';
 import { createSession, destroySession, requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { adminUsers, brands, categories, contactMessages, coupons, orders, priceChanges, productImages, products, variants, type BaseType, type OrderStatus } from '@/lib/db/schema';
+import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, variants, type BaseType, type OrderStatus } from '@/lib/db/schema';
 import { orderStatusMail, sendMail } from '@/lib/email';
 import { normalizeProductPhoto } from '@/lib/images';
 import { addOrderEvent, cancelOrder, getOrderByNumber, ORDER_STATUS_LABELS } from '@/lib/orders';
@@ -432,8 +432,16 @@ export async function messageAction(fd: FormData): Promise<void> {
   revalidatePath('/admin/messages');
 }
 
+/** A visitor who asked for the "orders are open" e-mail wants off the list (their right under GDPR). */
+export async function deleteSignup(fd: FormData): Promise<void> {
+  await requireAdmin();
+  const id = int(fd, 'id');
+  if (id) await db.delete(launchSignups).where(eq(launchSignups.id, id));
+  revalidatePath('/admin/stats');
+}
+
 // ─── Settings ────────────────────────────────────────────────────────────────
-const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+const TIME =/^([01]\d|2[0-3]):[0-5]\d$/;
 
 /** Links pasted by the owner end up in <a href>: accept http(s) only, and forgive a missing "https://". */
 function cleanUrl(raw: string): string {
@@ -482,7 +490,7 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
   if (!shop.phone || !shop.street || !shop.city) return { ok: false, message: 'Τηλέφωνο, οδός και πόλη είναι υποχρεωτικά.' };
 
   await saveSettingsGroup('shop', shop);
-  await saveSettingsGroup('storefront', { demoMode: bool(fd, 'demoMode'), ordersEnabled: bool(fd, 'ordersEnabled'), announcement: str(fd, 'announcement'), lowStockThreshold: int(fd, 'lowStockThreshold', 3) });
+  await saveSettingsGroup('storefront', { demoMode: bool(fd, 'demoMode'), ordersEnabled: bool(fd, 'ordersEnabled'), launchSignup: bool(fd, 'launchSignup'), announcement: str(fd, 'announcement'), lowStockThreshold: int(fd, 'lowStockThreshold', 3) });
   await saveSettingsGroup('shipping', {
     courierEnabled: bool(fd, 'courierEnabled'), pickupEnabled: bool(fd, 'pickupEnabled'), carrierName: str(fd, 'carrierName') || 'Courier', deliveryEstimate: str(fd, 'deliveryEstimate'),
     baseCents: euro('baseCents', current.shipping.baseCents), baseWeightKg: num('baseWeightKg', current.shipping.baseWeightKg), perExtraKgCents: euro('perExtraKgCents', current.shipping.perExtraKgCents),

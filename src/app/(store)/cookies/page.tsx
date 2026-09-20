@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { LegalShell } from '@/components/store/legal-shell';
 
 export const metadata: Metadata = { title: 'Πολιτική cookies', alternates: { canonical: '/cookies' } };
@@ -6,7 +7,7 @@ export const metadata: Metadata = { title: 'Πολιτική cookies', alternate
 export default function CookiesPage() {
   return (
     <LegalShell href="/cookies" title="Cookies" updated="Σεπτέμβριος 2026">
-      <p>Ο ιστότοπός μας χρησιμοποιεί <strong>μόνο τα απολύτως απαραίτητα</strong> cookies και τοπική αποθήκευση για να λειτουργεί το ηλεκτρονικό κατάστημα. Δεν χρησιμοποιούμε cookies διαφήμισης ή παρακολούθησης, ούτε εργαλεία στατιστικών τρίτων.</p>
+      <p>Ο ιστότοπός μας χρησιμοποιεί <strong>μόνο τα απολύτως απαραίτητα</strong> cookies και τοπική αποθήκευση για να λειτουργεί το ηλεκτρονικό κατάστημα. Δεν χρησιμοποιούμε cookies διαφήμισης ή παρακολούθησης, ούτε εργαλεία στατιστικών τρίτων. Τα στατιστικά επισκεψιμότητας που κρατάμε είναι συγκεντρωτικά και <strong>δεν αποθηκεύουν τίποτα στη συσκευή σας</strong> — λεπτομέρειες στην <Link href="/privacy">Πολιτική απορρήτου</Link>.</p>
 
       <h2>Τι αποθηκεύεται στη συσκευή σας</h2>
       <table>

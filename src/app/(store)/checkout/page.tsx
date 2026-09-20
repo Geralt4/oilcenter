@@ -17,7 +17,7 @@ export default async function CheckoutPage() {
     return (
       <div className="container-page py-6 sm:py-8">
         <Breadcrumbs items={[{ name: 'Καλάθι', href: '/cart' }, { name: 'Ολοκλήρωση παραγγελίας', href: '/checkout' }]} />
-        <OrdersClosedNotice phone={settings.shop.phone} className="mt-6" />
+        <OrdersClosedNotice phone={settings.shop.phone} signup={settings.storefront.launchSignup} className="mt-6" />
       </div>
     );
   }

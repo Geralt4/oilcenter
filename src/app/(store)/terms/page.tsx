@@ -7,9 +7,15 @@ import { getSettings } from '@/lib/settings.server';
 export const metadata: Metadata = { title: 'Όροι χρήσης', alternates: { canonical: '/terms' } };
 
 export default async function TermsPage() {
-  const { shop } = await getSettings();
+  const { shop, storefront } = await getSettings();
   return (
     <LegalShell href="/terms" title="Όροι χρήσης" updated="Σεπτέμβριος 2026">
+      {!storefront.ordersEnabled && (
+        <p>
+          <strong>Οι online παραγγελίες δεν έχουν ανοίξει ακόμη.</strong> Προς το παρόν ο ιστότοπος λειτουργεί ως κατάλογος: παρουσιάζει τα προϊόντα και τις τιμές του καταστήματος, και οι αγορές γίνονται στο κατάστημα ή τηλεφωνικά στο <span className="tabular">{shop.phone}</span>. Όσα ακολουθούν για την παραγγελία, την πληρωμή, την αποστολή και τις επιστροφές (ενότητες 4 και 5) θα ισχύουν από τη στιγμή που θα ανοίξουν οι online παραγγελίες.
+        </p>
+      )}
+
       <h2>1. Ποιοι είμαστε</h2>
       <p>
         Το ηλεκτρονικό κατάστημα oilcenter.gr ανήκει στην ατομική επιχείρηση <strong>{shop.legalName}</strong> — εμπορία λιπαντικών αυτοκινήτων, με έδρα {fullAddress(shop)}

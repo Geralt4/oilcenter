@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { ChevronLeft, ChevronRight, SearchX } from 'lucide-react';
 import { FilterSidebar, MobileFilters, SortSelect } from '@/components/store/filter-panel';
 import { ProductGrid } from '@/components/store/product-card';
+import { TrackSearch } from '@/components/store/tracker';
 import { buttonClass } from '@/components/ui/button';
 import { SORT_LABELS, listProducts, type ListingFilters } from '@/lib/catalog';
 import { activeFilterCount, listingHref, parseListingParams, type RawSearchParams } from '@/lib/listing-params';
@@ -79,6 +80,8 @@ export async function ProductListing({ pathname, searchParams, scope, title, eye
 
   return (
     <div className="container-page py-6 sm:py-8">
+      {/* a search with no results is the most useful statistic of all: it names a product people want and cannot find */}
+      {filters.q && (filters.page ?? 1) === 1 && active === 0 && <TrackSearch query={filters.q} results={listing.total} />}
       <Breadcrumbs items={crumbs} />
 
       <header className="mt-5 max-w-3xl">

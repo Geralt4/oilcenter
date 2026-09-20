@@ -1,10 +1,21 @@
 import Link from 'next/link';
 import { MapPin, Phone } from 'lucide-react';
+import { LaunchSignupForm } from '@/components/store/launch-signup-form';
 import { buttonClass } from '@/components/ui/button';
 import { cn, telHref } from '@/lib/utils';
 
 /** Shown instead of the checkout button / form while the owner keeps online ordering closed (Admin → Ρυθμίσεις). */
-export function OrdersClosedNotice({ phone, compact, onNavigate, className }: { phone: string; compact?: boolean; onNavigate?: () => void; className?: string }) {
+type Props = {
+  phone: string;
+  /** the small version inside the cart; the full one (with the sign-up) is the /checkout page */
+  compact?: boolean;
+  /** offer "tell me when online orders open" (Admin → Ρυθμίσεις) */
+  signup?: boolean;
+  onNavigate?: () => void;
+  className?: string;
+};
+
+export function OrdersClosedNotice({ phone, compact, signup, onNavigate, className }: Props) {
   return (
     <div className={cn('rounded-2xl border border-petrol-100 bg-petrol-50 text-petrol-700', compact ? 'p-4' : 'p-6 sm:p-8', className)}>
       <p className={cn('font-semibold text-ink-950', compact ? 'text-[0.9375rem]' : 'display text-2xl sm:text-3xl')}>Οι online παραγγελίες ανοίγουν σύντομα</p>
@@ -21,6 +32,7 @@ export function OrdersClosedNotice({ phone, compact, onNavigate, className }: { 
           Πού θα μας βρείτε
         </Link>
       </div>
+      {signup && !compact && <LaunchSignupForm />}
     </div>
   );
 }

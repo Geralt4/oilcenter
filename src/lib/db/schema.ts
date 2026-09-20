@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /*
  * Conventions
@@ -333,6 +333,48 @@ export const contactMessages = sqliteTable('contact_messages', {
   isRead: integer('is_read', { mode: 'boolean' }).notNull().default(false),
   createdAt: createdAt(),
 });
+
+/** People who asked to be told when online ordering opens (shown while it is closed). */
+export const launchSignups = sqliteTable(
+  'launch_signups',
+  {
+    id: id(),
+    email: text('email').notNull(),
+    createdAt: createdAt(),
+    notifiedAt: integer('notified_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [uniqueIndex('launch_signups_email_uq').on(t.email)],
+);
+
+// ─── Statistics ──────────────────────────────────────────────────────────────
+/**
+ * Cookieless, aggregate site statistics: one counter per (day, kind, key) — "on 2026-10-03 the product page
+ * motul-7100 was viewed 14 times". Nothing here describes an individual visitor.
+ */
+export const statCounters = sqliteTable(
+  'stat_counters',
+  {
+    /** YYYY-MM-DD in Europe/Athens */
+    day: text('day').notNull(),
+    kind: text('kind').notNull(),
+    key: text('key').notNull().default(''),
+    count: integer('count').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.kind, t.key] }), index('stat_counters_kind_idx').on(t.kind, t.day)],
+);
+
+/**
+ * Salted hashes of today's visitors (IP + browser), kept only so that one person counts once per day.
+ * The salt changes daily and yesterday's rows are deleted, so a hash can never be tied back to anyone.
+ */
+export const statVisitors = sqliteTable(
+  'stat_visitors',
+  {
+    day: text('day').notNull(),
+    hash: text('hash').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.hash] })],
+);
 
 // ─── Relations ───────────────────────────────────────────────────────────────
 export const brandsRelations = relations(brands, ({ many }) => ({ products: many(products) }));

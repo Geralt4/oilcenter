@@ -15,6 +15,13 @@
       "when": 1789894069263,
       "tag": "0001_price_changes",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789912411648,
+      "tag": "0002_stats_and_signups",
+      "breakpoints": true
     }
   ]
 }

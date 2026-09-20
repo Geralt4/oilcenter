@@ -51,6 +51,8 @@ export type ShopSettings = {
     demoMode: boolean;
     /** false = the public can browse and fill a cart but not check out (pre-launch). A logged-in admin can still place test orders. */
     ordersEnabled: boolean;
+    /** while ordering is closed, offer "tell me when online orders open" (collects e-mail addresses) */
+    launchSignup: boolean;
     announcement: string;
     lowStockThreshold: number;
   };
@@ -116,6 +118,7 @@ export const DEFAULT_SETTINGS: ShopSettings = {
   storefront: {
     demoMode: true,
     ordersEnabled: false,
+    launchSignup: true,
     announcement: 'Δωρεάν μεταφορικά για αγορές άνω των 60 € · Παραλαβή από το κατάστημα χωρίς χρέωση',
     lowStockThreshold: 3,
   },

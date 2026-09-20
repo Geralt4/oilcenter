@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { track } from '@/lib/track';
 
 /*
  * The cart lives in the browser (localStorage) as {variantId, quantity} pairs.
@@ -59,7 +60,8 @@ export const useCart = create<CartState>()(
       isOpen: false,
       lastAdded: null,
 
-      add: (variantId, snapshot, quantity = 1) =>
+      add: (variantId, snapshot, quantity = 1) => {
+        track({ t: 'cart', slug: snapshot.slug });
         set((state) => {
           const existing = state.lines.find((l) => l.variantId === variantId);
           const lines = existing
@@ -68,7 +70,8 @@ export const useCart = create<CartState>()(
               )
             : [...state.lines, { variantId, snapshot, quantity: clampQty(quantity, snapshot.maxQuantity) }];
           return { lines, isOpen: true, lastAdded: variantId };
-        }),
+        });
+      },
 
       setQuantity: (variantId, quantity) =>
         set((state) => ({

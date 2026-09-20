@@ -5,6 +5,7 @@ import { CookieNotice } from '@/components/store/cookie-notice';
 import { Footer } from '@/components/store/footer';
 import { Header } from '@/components/store/header';
 import { StoreProvider, type PublicStoreConfig } from '@/components/store/store-context';
+import { Tracker } from '@/components/store/tracker';
 import { getAdmin, getCustomer } from '@/lib/auth/session';
 import { getBrands, getCategoryTree } from '@/lib/catalog';
 import { cardProvider } from '@/lib/payments';
@@ -51,6 +52,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
       <BottomBar phoneHref={telHref(settings.shop.phone)} directionsHref={mapsDirectionsUrl(settings.shop)} />
       <CartDrawer />
       <CookieNotice />
+      <Tracker />
     </StoreProvider>
   );
 }
