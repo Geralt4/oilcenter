@@ -32,12 +32,15 @@ Admin login = `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env.local`. Change the pas
 
 ## ⚠️ Before going live
 
-The shop ships in **demo mode**: a ribbon tells visitors that prices are indicative, and orders are flagged as test
-orders. The admin dashboard (`/admin`) shows a live checklist of what is still missing. In short:
+The shop ships in **demo mode** (hidden from Google, orders flagged as tests) with **online ordering closed**. The
+admin dashboard (`/admin`) shows a live checklist of what is still missing. The plan for going public in two steps —
+first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md). In short:
 
-1. **Prices are placeholders.** The old site never listed prices, so all 215 were generated from a rough market
-   heuristic and are stored with `price_verified = false`. Confirm them in *Τιμές* — on screen, or export the
-   CSV, fill it in Excel and import it back.
+1. **Some prices are still placeholders.** 157 of 215 are real (see "Prices from the shop's Skroutz listing"); the rest
+   were generated from a rough market heuristic and carry `price_verified = false`. **An unconfirmed price is never
+   shown**: the storefront says «Καλέστε για τιμή», offers a call button instead of add-to-cart, and the amount is
+   zeroed on the server so it cannot leak. Confirm prices in *Τιμές* — on screen, or export the CSV, fill it in Excel
+   and import it back.
 1b. **Instagram and Skroutz links are empty.** Paste them in *Ρυθμίσεις → Instagram, Facebook & Skroutz* (an Instagram
    `@handle` is accepted too). Filled-in links appear in the header strip, the mobile menu, the footer, next to the map
    (home / about / contact) and in the `sameAs` structured data; empty ones are simply not rendered.
@@ -66,8 +69,27 @@ orders. The admin dashboard (`/admin`) shows a live checklist of what is still m
     off by default). Visitors can browse, see prices and fill a cart, but the cart and `/checkout` show "οι online
     παραγγελίες ανοίγουν σύντομα — καλέστε μας" and the `placeOrder` action refuses them server-side. A logged-in admin
     still gets the full checkout, and whatever they place is flagged as a test order — that is how to test before launch.
-11. Turn **demo mode off last** (*Ρυθμίσεις → Λειτουργία καταστήματος*). Product structured data (prices) is only
-    exposed to search engines once demo mode is off.
+11. **Demo mode** (*Ρυθμίσεις → Λειτουργία καταστήματος*) keeps the site out of Google (`noindex` + robots.txt) and
+    flags orders as tests. It can be switched off while ordering stays closed — that is the public *catalogue* of the
+    test run. Product structured data carries offers only when demo mode is off **and** ordering is open.
+
+## Pre-launch tools
+
+- **Site password** — while the `SITE_PASSWORD` variable is set, `src/proxy.ts` asks for HTTP Basic credentials
+  (`SITE_USER`, default `oilcenter`) before showing anything: storefront, admin, images. `/api/health` and
+  `/api/payments/*` stay open. Unset the variable on launch day. On Railway the variable must also be listed in
+  `.railway/railway.ts`, or the next `railway config apply` deletes it and opens the gate.
+- **Statistics** (*Admin → Στατιστικά*) — first-party and cookieless, so no consent banner: `src/lib/track.ts` sends
+  beacons to `/api/t`, `src/lib/stats.ts` turns them into daily counters (`stat_counters`). A visitor counts once per day
+  via a salted IP + user-agent hash that is deleted the next day. Robots, DNT / Global Privacy Control browsers and
+  logged-in admins are not counted. The page shows visitors per day, top products / categories / brands, searches
+  **with no results**, sources, devices, clicks on call / directions / Skroutz / social, cart adds and how many people
+  reached the closed checkout.
+- **"Notify me when online orders open"** — shown on the closed `/checkout` when *Ρυθμίσεις → «Ειδοποιήστε με…»* is on.
+  Addresses land in `launch_signups`; the statistics page lists them, deletes one on request and exports a CSV.
+- **Backups** — `src/instrumentation.ts` writes a gzipped `VACUUM INTO` snapshot to `DATA_DIR/backups` once a day (14
+  kept); *Ρυθμίσεις → Αντίγραφα ασφαλείας* downloads a fresh one. They sit on the same disk as the database: an
+  off-site copy is still missing, and product photos uploaded through the admin are not part of the snapshot.
 
 ## Card payments
 

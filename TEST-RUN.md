@@ -11,14 +11,14 @@ All the questions of section 5 are in Greek, with room for each answer, in [`que
 
 ## 1. Before launch
 
-### Site behaviour — [dev]
-- [ ] **Test-run mode**: no "δοκιμαστική λειτουργία" ribbon, visible to Google, ordering still closed (today "demo mode" ties all three together)
-- [ ] **Unconfirmed prices are hidden**: «Καλέστε για τιμή» and no add-to-cart until the price is confirmed in *Admin → Τιμές*
-- [ ] Products are not advertised to Google as buyable while ordering is closed (structured data without offers)
-- [ ] **Statistics page in the admin** — Greek, no cookies, so no consent banner: visits per day, where they come from, phone vs desktop, top products and categories, what people type in the search box (especially searches with **no results**), add-to-cart, how many reach the closed checkout, clicks on call / directions / Skroutz / Instagram
-- [ ] "Notify me when online orders open" sign-up on the closed checkout `→ C3`
-- [ ] Privacy and cookies pages updated for the statistics and the sign-up; terms reworded for a catalogue without online sales
-- [ ] Password on the whole site until launch day, so Ilias can keep reviewing while it is not public
+### Site behaviour — [dev] — built and tested locally on 20/9/2026, not deployed (the site is offline)
+- [x] **Test-run mode**: demo mode can now be switched off while ordering stays closed — no "δοκιμαστική λειτουργία" ribbon, visible to Google, top strip says online orders have not opened yet
+- [x] **Unconfirmed prices are hidden**: «Καλέστε για τιμή» and no add-to-cart until the price is confirmed in *Admin → Τιμές*
+- [x] Products are not advertised to Google as buyable while ordering is closed (structured data without offers)
+- [x] **Statistics page in the admin** — Greek, no cookies, so no consent banner: visits per day, where they come from, phone vs desktop, top products and categories, what people type in the search box (especially searches with **no results**), add-to-cart, how many reach the closed checkout, clicks on call / directions / Skroutz / Instagram
+- [x] "Notify me when online orders open" sign-up on the closed checkout — on by default, switch in *Ρυθμίσεις* `→ C3`
+- [x] Privacy and cookies pages updated for the statistics and the sign-up; terms carry a catalogue-mode note (still to be read by the lawyer)
+- [x] Password on the whole site until launch day: set `SITE_PASSWORD` on the host `→ needs a password chosen by you`
 
 ### Content — [Ilias] answers, [dev] applies
 - [ ] Business identity in the footer: ΑΦΜ, Αρ. ΓΕΜΗ, legal name `→ B1–B4`
@@ -29,11 +29,12 @@ All the questions of section 5 are in Greek, with room for each answer, in [`que
 - [ ] Instagram link `→ L1`
 
 ### Safety net — [dev]
-- [ ] Automatic nightly database backup, kept 14 days, plus a copy outside Railway `→ D4`
-- [ ] "Download backup" button in the admin
-- [ ] Uptime check on `/api/health` with an e-mail alert `→ C1`
-- [ ] E-mail sending (SMTP), so contact-form messages and sign-ups actually arrive `→ C1, C2`
-- [ ] Move `railway.json` to Railway's new config format (their deadline: 1/12/2026)
+- [x] Automatic nightly database backup, kept 14 days (runs inside the live server; first one 30 s after it starts)
+- [x] "Download backup" button in the admin (*Ρυθμίσεις → Αντίγραφα ασφαλείας*)
+- [ ] A copy of the backups **outside** Railway — needs a storage account `→ D4`. Until then: download one by hand now and then. Photos uploaded through the admin are not in the snapshot yet.
+- [ ] Uptime check on `/api/health` with an e-mail alert `→ C1` (an external service; nothing to build)
+- [ ] E-mail sending (SMTP), so contact-form messages and sign-ups actually arrive `→ C1, C2` (the code is there; it needs the account and DNS records)
+- [ ] Move `railway.json` to Railway's new config format (their deadline: 1/12/2026) — **prepared** in `.railway/railway.ts`, not applied: applying it starts a deployment, so it waits until the site may come back up. Steps in the README.
 
 ### Domain — [you] / [Ilias], then [dev]
 - [ ] Find out who controls `oilcenter.gr` and get DNS access `→ D1`
