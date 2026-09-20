@@ -7,7 +7,7 @@ ordering closed, keep it up for 6–8 weeks, measure traffic and demand, then de
 δέχεται online παραγγελίες»*). 157 of 215 prices are real (from Skroutz). The Railway preview is offline.
 
 Legend: **[dev]** our work · **[you]** · **[Ilias]** · `→ D1` = waits for that answer in section 5.
-The questions of section 5 are also in Greek, ready to forward: [`TEST-RUN-QUESTIONS-EL.md`](TEST-RUN-QUESTIONS-EL.md).
+All the questions of section 5 are in Greek, with room for each answer, in [`questions.md`](questions.md) — same codes.
 
 ## 1. Before launch
 
