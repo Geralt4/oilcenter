@@ -29,5 +29,6 @@ COPY --from=build /app/src ./src
 # No VOLUME instruction on purpose: several hosts (e.g. Railway) reject it. Mount the platform's
 # persistent volume at /app/data instead.
 EXPOSE 3000
-# Migrations are idempotent; the seed only fills an EMPTY catalogue and never touches orders.
-CMD ["sh", "-c", "npm run db:migrate && npm run db:seed && npm run start"]
+# Migrations are idempotent; the seed only fills an EMPTY catalogue and never touches orders; data patches
+# (scripts/patches.ts) run once per database.
+CMD ["sh", "-c", "npm run db:migrate && npm run db:seed && npm run db:patch && npm run start"]

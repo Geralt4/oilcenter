@@ -136,8 +136,11 @@ report — what to double-check, what is still a placeholder, and the 133 Skrout
 is [`SKROUTZ-PRICES.md`](SKROUTZ-PRICES.md).
 
 - `npm run db:seed` applies the file to a fresh database; `npm run prices:skroutz` applies it to an existing one
-  (`--dry` previews, `--force` also overwrites prices the owner already confirmed). On Railway:
-  `railway ssh --service web -- npm run prices:skroutz`.
+  (`--dry` previews, `--force` also overwrites prices the owner already confirmed).
+- The hosted database got it through **`scripts/patches.ts`** (`npm run db:patch`, part of the container start-up):
+  one-time data patches, each recorded in the `settings` table under `dataPatches` so it runs once per database. That
+  is the way to ship any future data fix to the hosted shop — `railway ssh` needs an SSH key registered with Railway,
+  which has not been set up.
 - Skroutz blocks non-browser clients, so the listing was read through a normal browser session; there is no scraper in
   the repo. The durable fix for "two places to update every three days" is the opposite direction — an XML product
   feed from this shop that Skroutz polls — which is not built yet.
