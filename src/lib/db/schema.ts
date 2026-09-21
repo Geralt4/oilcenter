@@ -331,13 +331,20 @@ export const coupons = sqliteTable(
   (t) => [uniqueIndex('coupons_code_uq').on(t.code)],
 );
 
+/** which form a message came from: the contact page, «Ποιο λάδι χρειάζεται το όχημά μου;», or the quote form for professionals */
+export type EnquiryKind = 'contact' | 'oil-finder' | 'quote';
+
 export const contactMessages = sqliteTable('contact_messages', {
   id: id(),
+  kind: text('kind').$type<EnquiryKind>().notNull().default('contact'),
   name: text('name').notNull(),
+  /** '' when the visitor left only a phone number (the vehicle form asks for the phone, the e-mail is optional) */
   email: text('email').notNull(),
   phone: text('phone'),
   subject: text('subject'),
   message: text('message').notNull(),
+  /** the form's structured answers in display order: [["Μάρκα", "Toyota"], ["Μοντέλο", "Yaris"], …] */
+  details: text('details', { mode: 'json' }).$type<Array<[string, string]>>(),
   isRead: integer('is_read', { mode: 'boolean' }).notNull().default(false),
   createdAt: createdAt(),
 });

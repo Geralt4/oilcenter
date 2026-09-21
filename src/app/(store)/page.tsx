@@ -150,6 +150,24 @@ export default async function HomePage() {
         </ul>
       </section>
 
+      {/* ── «Ποιο λάδι;» — the shop's answer to the big sites' vehicle selectors: a person who knows ── */}
+      <section className="container-page pt-8">
+        <div className="steel flex flex-col gap-5 rounded-3xl p-6 text-white sm:flex-row sm:items-center sm:justify-between sm:p-8">
+          <div className="flex items-start gap-4">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-oil-500 text-ink-950">
+              <Headset className="h-6 w-6" />
+            </span>
+            <div>
+              <h2 className="display text-2xl sm:text-3xl">Δεν ξέρετε ποιο λάδι θέλει το όχημά σας;</h2>
+              <p className="mt-1 max-w-xl text-ink-300">Πείτε μας μάρκα, μοντέλο και έτος. Σας καλούμε με το ιξώδες και την προδιαγραφή που ζητά ο κατασκευαστής.</p>
+            </div>
+          </div>
+          <Link href="/find-my-oil" className={buttonClass({ size: 'lg', className: 'shrink-0' })}>
+            Βρείτε το σωστό λάδι <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+      </section>
+
       {/* ── Featured ─────────────────────────────────────────────────────── */}
       {featured.length > 0 && (
         <section className="container-page pt-16">

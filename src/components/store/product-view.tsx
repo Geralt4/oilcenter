@@ -1,8 +1,9 @@
 'use client';
 
 import Image from 'next/image';
+import Link from 'next/link';
 import { useState } from 'react';
-import { Check, Heart, Phone, ShieldCheck, ShoppingCart, Store, Truck } from 'lucide-react';
+import { ArrowRight, Check, Heart, Phone, ShieldCheck, ShoppingCart, Store, Truck } from 'lucide-react';
 import { QuantityStepper } from '@/components/store/quantity-stepper';
 import { useStoreConfig } from '@/components/store/store-context';
 import { AVAILABILITY_HINTS, AVAILABILITY_LABELS, AVAILABILITY_TONE, type Availability } from '@/lib/availability';
@@ -234,15 +235,21 @@ export function ProductView({ product, images, variants, initialVariantId }: Pro
           </li>
         </ul>
 
-        <a href={telHref(config.phone)} className="mt-4 flex items-center gap-3 rounded-2xl bg-ink-900 p-4 text-white transition-colors hover:bg-ink-800">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-oil-500 text-ink-950">
-            <Phone className="h-5 w-5" />
-          </span>
-          <span className="min-w-0">
-            <span className="block font-semibold">Δεν είστε σίγουροι αν ταιριάζει στο όχημά σας;</span>
-            <span className="text-sm text-ink-300">Καλέστε μας στο <span className="tabular font-semibold text-oil-300">{config.phone}</span> και θα σας πούμε με σιγουριά.</span>
-          </span>
-        </a>
+        <div className="mt-4 rounded-2xl bg-ink-900 text-white">
+          <a href={telHref(config.phone)} className="flex items-center gap-3 rounded-t-2xl p-4 transition-colors hover:bg-ink-800">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-oil-500 text-ink-950">
+              <Phone className="h-5 w-5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block font-semibold">Δεν είστε σίγουροι αν ταιριάζει στο όχημά σας;</span>
+              <span className="text-sm text-ink-300">Καλέστε μας στο <span className="tabular font-semibold text-oil-300">{config.phone}</span> και θα σας πούμε με σιγουριά.</span>
+            </span>
+          </a>
+          <Link href={`/find-my-oil?product=${product.slug}`} className="flex items-center justify-between gap-3 rounded-b-2xl border-t border-white/10 px-4 py-3 text-sm font-semibold text-oil-300 transition-colors hover:bg-ink-800">
+            ή στείλτε μας τα στοιχεία του οχήματος και σας καλούμε εμείς
+            <ArrowRight className="h-4 w-4 shrink-0" />
+          </Link>
+        </div>
 
         <p className="tabular mt-4 text-xs text-ink-400">Κωδικός: {variant.sku}</p>
       </div>

@@ -126,9 +126,15 @@ export function orderStatusMail(order: OrderWithItems, settings: ShopSettings): 
   return { to: order.email, subject: `Παραγγελία ${order.number}: ${ORDER_STATUS_LABELS[order.status]}`, html: layout(shop, ORDER_STATUS_LABELS[order.status], body), replyTo: shop.email };
 }
 
-export function contactMail(input: { name: string; email: string; phone?: string | null; subject?: string | null; message: string }, settings: ShopSettings): Mail {
-  const body = `<p style="margin:0;font-size:15px;line-height:1.6;"><strong>${esc(input.name)}</strong> · <a href="mailto:${esc(input.email)}" style="color:#11141a;">${esc(input.email)}</a>${input.phone ? ` · ${esc(input.phone)}` : ''}</p><p style="margin:16px 0 0;padding:16px;background:#f5f6f8;border-radius:12px;font-size:15px;line-height:1.6;white-space:pre-wrap;">${esc(input.message)}</p>`;
-  return { to: process.env.ORDERS_NOTIFY_EMAIL || settings.shop.email, subject: `Μήνυμα από το site: ${input.subject || input.name}`, html: layout(settings.shop, 'Νέο μήνυμα επικοινωνίας', body), replyTo: input.email };
+/** `heading` and `details` come from the forms that ask structured questions (vehicle enquiry, quote request); the e-mail is optional there. */
+export function contactMail(input: { name: string; email: string; phone?: string | null; subject?: string | null; message: string; heading?: string; details?: Array<[string, string]> | null }, settings: ShopSettings): Mail {
+  const contact = [input.email && `<a href="mailto:${esc(input.email)}" style="color:#11141a;">${esc(input.email)}</a>`, input.phone && `<a href="tel:${esc(input.phone)}" style="color:#11141a;">${esc(input.phone)}</a>`].filter(Boolean).join(' · ');
+  const details = input.details?.length
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:16px 0 0;font-size:15px;line-height:1.5;">${input.details.map(([k, v]) => `<tr><td style="padding:3px 16px 3px 0;color:#5b6472;vertical-align:top;">${esc(k)}</td><td style="padding:3px 0;font-weight:600;">${esc(v)}</td></tr>`).join('')}</table>`
+    : '';
+  const message = input.message ? `<p style="margin:16px 0 0;padding:16px;background:#f5f6f8;border-radius:12px;font-size:15px;line-height:1.6;white-space:pre-wrap;">${esc(input.message)}</p>` : '';
+  const body = `<p style="margin:0;font-size:15px;line-height:1.6;"><strong>${esc(input.name)}</strong>${contact ? ` · ${contact}` : ''}</p>${details}${message}`;
+  return { to: process.env.ORDERS_NOTIFY_EMAIL || settings.shop.email, subject: `${input.heading ?? 'Μήνυμα από το site'}: ${input.subject || input.name}`, html: layout(settings.shop, input.heading ?? 'Νέο μήνυμα επικοινωνίας', body), replyTo: input.email || undefined };
 }
 
 export function passwordResetMail(to: string, token: string, settings: ShopSettings): Mail {

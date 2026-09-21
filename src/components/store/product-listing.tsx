@@ -123,7 +123,10 @@ export async function ProductListing({ pathname, searchParams, scope, title, eye
               <p className="mx-auto mt-2 max-w-md text-ink-600">
                 {active > 0 ? 'Δοκιμάστε να αφαιρέσετε κάποιο φίλτρο.' : 'Δοκιμάστε άλλη αναζήτηση — π.χ. ιξώδες (5W-30) ή μάρκα.'} Αν ψάχνετε κάτι συγκεκριμένο, καλέστε μας: πιθανότατα το έχουμε στο κατάστημα.
               </p>
-              <Link href={pathname} className={buttonClass({ variant: 'dark', className: 'mt-6' })}>Καθαρισμός φίλτρων</Link>
+              <div className="mt-6 flex flex-wrap justify-center gap-3">
+                <Link href={pathname} className={buttonClass({ variant: 'dark' })}>Καθαρισμός φίλτρων</Link>
+                <Link href="/find-my-oil" className={buttonClass({ variant: 'outline' })}>Ποιο λάδι θέλει το όχημά μου;</Link>
+              </div>
             </div>
           )}
         </div>

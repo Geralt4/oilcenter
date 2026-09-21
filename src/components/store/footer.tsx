@@ -66,6 +66,7 @@ export function Footer({ settings, tree }: { settings: ShopSettings; tree: Categ
         <nav aria-label="Εξυπηρέτηση">
           <h2 className="eyebrow text-white">Εξυπηρέτηση</h2>
           <ul className="mt-4 space-y-2.5 text-sm">
+            <li><Link href="/find-my-oil" className="hover:text-white">Ποιο λάδι θέλει το όχημά μου;</Link></li>
             <li><Link href="/order-status" className="hover:text-white">Η παραγγελία μου</Link></li>
             <li><Link href="/shipping-payments" className="hover:text-white">Αποστολές & πληρωμές</Link></li>
             <li><Link href="/returns" className="hover:text-white">Επιστροφές & υπαναχώρηση</Link></li>

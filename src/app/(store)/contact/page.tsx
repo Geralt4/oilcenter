@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { ContactForm } from '@/components/store/contact-form';
 import { Breadcrumbs } from '@/components/store/product-listing';
 import { StoreLocation } from '@/components/store/store-location';
@@ -26,6 +27,7 @@ export default async function ContactPage() {
         <div>
           <h2 className="display text-3xl">Γράψτε μας</h2>
           <p className="mt-3 text-ink-600">Απαντάμε συνήθως μέσα στην ίδια εργάσιμη ημέρα. Για χονδρικές αγορές και συνεργεία, αναφέρετε τις ποσότητες που σας ενδιαφέρουν.</p>
+          <p className="mt-3 text-ink-600">Ψάχνετε λάδι για συγκεκριμένο όχημα; Η <Link href="/find-my-oil" className="font-semibold text-petrol-500 underline underline-offset-2 hover:text-petrol-700">φόρμα οχήματος</Link> μάς δίνει ό,τι χρειαζόμαστε για να σας απαντήσουμε σωστά.</p>
           {settings.shop.fax && <p className="mt-4 text-sm text-ink-500">Fax: <span className="tabular">{settings.shop.fax}</span></p>}
         </div>
         <ContactForm />

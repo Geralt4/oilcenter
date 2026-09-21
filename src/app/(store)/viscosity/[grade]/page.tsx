@@ -81,7 +81,7 @@ export default async function ViscosityPage({ params, searchParams }: Props) {
               <Phone className="h-4 w-4" />
               {shop.phone}
             </a>
-            <Link href="/contact" className="flex h-11 items-center rounded-xl border border-ink-200 bg-white px-4 text-ink-900 hover:border-ink-400">Στείλτε μας τα στοιχεία του οχήματος</Link>
+            <Link href="/find-my-oil" className="flex h-11 items-center rounded-xl border border-ink-200 bg-white px-4 text-ink-900 hover:border-ink-400">Στείλτε μας τα στοιχεία του οχήματος</Link>
           </div>
         </section>
       }

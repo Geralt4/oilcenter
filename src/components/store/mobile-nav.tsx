@@ -104,6 +104,7 @@ export function MobileNav({ tree, brands, shop, customerName }: Props) {
               </ul>
 
               <ul className="mt-3 grid grid-cols-2 gap-2 border-t border-line pt-4 text-sm font-medium text-ink-700">
+                <li className="col-span-2"><Link href="/find-my-oil" className="block rounded-xl bg-oil-100 px-3 py-3 font-semibold text-ink-950">Ποιο λάδι θέλει το όχημά μου;</Link></li>
                 <li><Link href={customerName ? '/account' : '/login'} className="flex items-center gap-2 rounded-xl bg-ink-50 px-3 py-3"><User className="h-4 w-4" />{customerName ? 'Λογαριασμός' : 'Σύνδεση'}</Link></li>
                 <li><Link href="/wishlist" className="flex items-center gap-2 rounded-xl bg-ink-50 px-3 py-3"><Heart className="h-4 w-4" />Αγαπημένα</Link></li>
                 <li><Link href="/about" className="block rounded-xl bg-ink-50 px-3 py-3">Το κατάστημα</Link></li>
