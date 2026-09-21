@@ -5,7 +5,7 @@ import { ProductGrid } from '@/components/store/product-card';
 import { Breadcrumbs } from '@/components/store/product-listing';
 import { ProductView } from '@/components/store/product-view';
 import { effectiveAvailability } from '@/lib/availability';
-import { BASE_TYPE_LABELS, getCategoryTrailById, getProductBySlug, getRelatedProducts } from '@/lib/catalog';
+import { BASE_TYPE_LABELS, getCategoryTrailById, getProductBySlug, getRelatedProducts, viscositySlug } from '@/lib/catalog';
 import { productJsonLd } from '@/lib/seo';
 import { getSettings } from '@/lib/settings.server';
 import { formatWeight } from '@/lib/utils';
@@ -54,7 +54,7 @@ export default async function ProductPage({ params, searchParams }: Props) {
 
   const rows: Array<[string, React.ReactNode]> = [];
   if (product.brand) rows.push(['Μάρκα', <Link key="b" href={`/brand/${product.brand.slug}`} className="font-medium text-petrol-500 underline underline-offset-2 hover:text-petrol-700">{product.brand.name}</Link>]);
-  if (product.viscosity) rows.push(['Ιξώδες (SAE)', <span key="v" className="tabular font-semibold">{product.viscosity}</span>]);
+  if (product.viscosity) rows.push(['Ιξώδες (SAE)', <Link key="v" href={`/viscosity/${viscositySlug(product.viscosity)}`} className="tabular font-semibold text-petrol-500 underline underline-offset-2 hover:text-petrol-700">{product.viscosity}</Link>]);
   if (product.baseType) rows.push(['Τύπος', BASE_TYPE_LABELS[product.baseType]]);
   if (product.category) rows.push(['Κατηγορία', <Link key="c" href={`/category/${product.category.slug}`} className="font-medium text-petrol-500 underline underline-offset-2 hover:text-petrol-700">{product.category.name}</Link>]);
   rows.push(['Συσκευασίες', product.variants.map((v) => v.label).join(' · ')]);

@@ -2,7 +2,7 @@ import type { ListingFilters, SortKey } from '@/lib/catalog';
 
 /*
  * Listing state lives entirely in the URL so that filtered pages can be shared, bookmarked and crawled:
- *   ?brand=castrol,motul&visc=5W-30&pack=1000,5000&base=synthetic&stock=1&sale=1&min=10&max=60&sort=price-asc&page=2&q=…
+ *   ?brand=castrol,motul&cat=lipantika-epivatikon&visc=5W-30&pack=1000,5000&base=synthetic&stock=1&sale=1&min=10&max=60&sort=price-asc&page=2&q=…
  */
 export type RawSearchParams = Record<string, string | string[] | undefined>;
 
@@ -25,6 +25,7 @@ export function parseListingParams(sp: RawSearchParams): ListingFilters {
   return {
     q: first(sp.q).slice(0, 80) || undefined,
     brands: list(sp.brand),
+    categories: list(sp.cat),
     viscosities: list(sp.visc),
     packs: list(sp.pack).map(Number).filter((n) => Number.isInteger(n) && n > 0),
     baseTypes: list(sp.base),
@@ -40,6 +41,7 @@ export function parseListingParams(sp: RawSearchParams): ListingFilters {
 export function activeFilterCount(f: ListingFilters): number {
   return (
     (f.brands?.length ?? 0) +
+    (f.categories?.length ?? 0) +
     (f.viscosities?.length ?? 0) +
     (f.packs?.length ?? 0) +
     (f.baseTypes?.length ?? 0) +

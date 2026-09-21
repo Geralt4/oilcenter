@@ -5,7 +5,7 @@ import { CategoryIcon } from '@/components/category-icon';
 import { ProductGrid } from '@/components/store/product-card';
 import { StoreLocation } from '@/components/store/store-location';
 import { buttonClass } from '@/components/ui/button';
-import { getBrands, getCategoryTree, getFeaturedProducts, getPopularViscosities, listProducts } from '@/lib/catalog';
+import { getBrands, getCategoryTree, getFeaturedProducts, getPopularViscosities, listProducts, viscositySlug } from '@/lib/catalog';
 import { localBusinessJsonLd } from '@/lib/seo';
 import { getSettings } from '@/lib/settings.server';
 import { formatPrice, telHref } from '@/lib/utils';
@@ -67,7 +67,7 @@ export default async function HomePage() {
                   {viscosities.map((v) => (
                     <li key={v.viscosity}>
                       <Link
-                        href={`/category/lipantika-kinitira?visc=${encodeURIComponent(v.viscosity)}`}
+                        href={`/viscosity/${viscositySlug(v.viscosity)}`}
                         className="tabular flex h-11 items-center rounded-xl border border-white/15 bg-white/5 px-4 font-display text-lg font-bold tracking-wide text-white transition-colors hover:border-oil-400 hover:bg-oil-500 hover:text-ink-950"
                       >
                         {v.viscosity}

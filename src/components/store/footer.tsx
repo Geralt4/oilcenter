@@ -58,6 +58,7 @@ export function Footer({ settings, tree }: { settings: ShopSettings; tree: Categ
                 <Link href={`/category/${c.slug}`} className="hover:text-white">{c.name}</Link>
               </li>
             ))}
+            <li><Link href="/viscosity" className="hover:text-white">Ανά ιξώδες (SAE)</Link></li>
             <li><Link href="/brands" className="hover:text-white">Όλες οι μάρκες</Link></li>
           </ul>
         </nav>

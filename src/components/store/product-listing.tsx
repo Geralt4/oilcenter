@@ -63,18 +63,22 @@ function Pagination({ page, pageCount, pathname, searchParams }: { page: number;
 type Props = {
   pathname: string;
   searchParams: RawSearchParams;
-  /** fixed scope of the page (category / brand); merged over whatever the URL says */
-  scope?: Pick<ListingFilters, 'categorySlug' | 'brandSlug'>;
+  /** fixed scope of the page (category / brand / viscosity); merged over whatever the URL says */
+  scope?: Pick<ListingFilters, 'categorySlug' | 'brandSlug' | 'viscosity'>;
   title: string;
   eyebrow?: string;
   description?: string | null;
   crumbs: Crumb[];
   /** e.g. sub-category chips */
   children?: React.ReactNode;
+  /** shown under the products, e.g. the explainer of a viscosity page */
+  footer?: React.ReactNode;
 };
 
-export async function ProductListing({ pathname, searchParams, scope, title, eyebrow, description, crumbs, children }: Props) {
-  const filters = { ...parseListingParams(searchParams), ...scope };
+export async function ProductListing({ pathname, searchParams, scope, title, eyebrow, description, crumbs, children, footer }: Props) {
+  // a facet the page hides must not filter behind the visitor's back (?cat= on a category page, ?visc= on a viscosity page)
+  const hidden = { hideBrands: Boolean(scope?.brandSlug), hideViscosities: Boolean(scope?.viscosity), hideCategories: Boolean(scope?.categorySlug) };
+  const filters = { ...parseListingParams(searchParams), ...(hidden.hideCategories && { categories: [] }), ...(hidden.hideViscosities && { viscosities: [] }), ...scope };
   const listing = await listProducts(filters);
   const active = activeFilterCount(filters);
 
@@ -93,7 +97,7 @@ export async function ProductListing({ pathname, searchParams, scope, title, eye
       {children}
 
       <div className="mt-8 flex items-start gap-8">
-        <FilterSidebar facets={listing.facets} activeCount={active} hideBrands={Boolean(scope?.brandSlug)} />
+        <FilterSidebar facets={listing.facets} activeCount={active} {...hidden} />
 
         <div className="min-w-0 flex-1">
           <div className="mb-5 flex items-center justify-between gap-3">
@@ -102,7 +106,7 @@ export async function ProductListing({ pathname, searchParams, scope, title, eye
               {filters.q && <> για «{filters.q}»</>}
             </p>
             <div className="flex items-center gap-2">
-              <MobileFilters facets={listing.facets} total={listing.total} activeCount={active} hideBrands={Boolean(scope?.brandSlug)} />
+              <MobileFilters facets={listing.facets} total={listing.total} activeCount={active} {...hidden} />
               <SortSelect sortLabels={SORT_LABELS} />
             </div>
           </div>
@@ -124,6 +128,8 @@ export async function ProductListing({ pathname, searchParams, scope, title, eye
           )}
         </div>
       </div>
+
+      {footer}
     </div>
   );
 }
