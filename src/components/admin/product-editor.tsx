@@ -9,6 +9,7 @@ import { VariantsEditor, type VariantRow } from '@/components/admin/variants-edi
 import { BASE_TYPE_LABELS } from '@/lib/catalog';
 import { db } from '@/lib/db';
 import { brands, categories, type Product, type ProductImage, type Variant } from '@/lib/db/schema';
+import { GHS_PICTOGRAMS, GHS_PICTOGRAM_CODES, SIGNAL_WORDS, unknownCodes } from '@/lib/ghs';
 import { centsToInput } from '@/lib/utils';
 
 type Props = { product?: Product & { images: ProductImage[]; variants: Variant[] }; created?: boolean };
@@ -16,6 +17,8 @@ type Props = { product?: Product & { images: ProductImage[]; variants: Variant[]
 export async function ProductEditor({ product, created }: Props) {
   const [brandRows, categoryRows] = await Promise.all([db.select().from(brands).orderBy(asc(brands.name)), db.select().from(categories).orderBy(asc(categories.sort))]);
   const parents = new Map(categoryRows.map((c) => [c.id, c.name]));
+  const hazard = product?.hazard ?? null;
+  const missingWording = hazard ? unknownCodes(hazard) : [];
 
   const rows: VariantRow[] = (product?.variants ?? []).map((v) => ({
     id: v.id, label: v.label, sku: v.sku, price: centsToInput(v.priceCents), compareAt: centsToInput(v.compareAtCents), stock: v.stock, trackStock: v.trackStock, availability: v.availability,
@@ -76,6 +79,51 @@ export async function ProductEditor({ product, created }: Props) {
 
         <Card title="Προσθήκη φωτογραφιών" description="Τραβήξτε το προϊόν σε ανοιχτόχρωμο φόντο. Το σύστημα καθαρίζει το φόντο, κεντράρει και φέρνει όλες τις φωτογραφίες στο ίδιο μέγεθος.">
           <input type="file" name="images" accept="image/*" multiple className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-900 file:px-4 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-700" />
+        </Card>
+
+        <Card
+          title="Σήμανση κινδύνου & δελτίο δεδομένων ασφαλείας (SDS)"
+          description="Για χημικά, αντιψυκτικά, υγρά φρένων, πρόσθετα, σπρέι και δίχρονα: ό,τι γράφει η ετικέτα της συσκευασίας για τους κινδύνους πρέπει να το βλέπει ο πελάτης πριν αγοράσει. Αντιγράψτε το από τη συσκευασία που έχετε στο ράφι ή από το δελτίο δεδομένων ασφαλείας του κατασκευαστή (ενότητα 2.2). Τα περισσότερα λάδια κινητήρα δεν έχουν τέτοια σήμανση."
+        >
+          <div id="hazard" className="space-y-5">
+            {hazard && !hazard.confirmed && <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Τα στοιχεία έχουν καταχωρηθεί αλλά <strong>δεν εμφανίζονται στο κατάστημα</strong>: περιμένουν να τα ελέγξετε με τη συσκευασία και να σημειώσετε το κουτάκι στο τέλος.</p>}
+            {missingWording.length > 0 && <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Για τους κωδικούς <strong className="tabular">{missingWording.join(', ')}</strong> δεν υπάρχει αποθηκευμένη διατύπωση: γράψτε δίπλα στον κωδικό τη φράση όπως είναι στην ετικέτα (π.χ. «H302 Επιβλαβές σε περίπτωση κατάποσης.»).</p>}
+
+            <Check name="hazardNone" label="Η συσκευασία δεν φέρει σήμανση κινδύνου" defaultChecked={hazard?.none ?? false} hint="Κανένα εικονόγραμμα σε κόκκινο ρόμβο, καμία λέξη «Κίνδυνος» ή «Προσοχή». Αν το σημειώσετε, τα παρακάτω πεδία αγνοούνται." />
+
+            <fieldset>
+              <legend className="label">Εικονογράμματα (οι κόκκινοι ρόμβοι της ετικέτας)</legend>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {GHS_PICTOGRAM_CODES.map((code) => (
+                  <label key={code} className="flex cursor-pointer items-center gap-3 rounded-xl border border-line bg-white p-2.5 hover:border-ink-300">
+                    <input type="checkbox" name="hazardPictograms" value={code} defaultChecked={hazard?.pictograms?.includes(code) ?? false} className="h-[1.125rem] w-[1.125rem] shrink-0 cursor-pointer accent-ink-900" />
+                    {/* eslint-disable-next-line @next/next/no-img-element -- fixed-size static symbol, nothing for the image optimiser to do */}
+                    <img src={`/ghs/${code}.svg`} alt="" width={40} height={40} className="h-10 w-10 shrink-0" />
+                    <span className="min-w-0 text-sm"><span className="block font-semibold text-ink-900">{GHS_PICTOGRAMS[code].meaning}</span><span className="tabular text-xs text-ink-500">{code} · {GHS_PICTOGRAMS[code].symbol}</span></span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <Field label="Προειδοποιητική λέξη" className="max-w-xs">
+              <select name="hazardSignal" defaultValue={hazard?.signalWord ?? ''} className="field cursor-pointer"><option value="">—</option>{Object.entries(SIGNAL_WORDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+            </Field>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Δηλώσεις επικινδυνότητας (H, EUH)" hint="Μία ανά γραμμή, ΑΚΡΙΒΩΣ όπως στην ετικέτα. Μπορείτε να βάλετε μπροστά τον κωδικό: «H302 Επιβλαβές σε περίπτωση κατάποσης.»"><textarea name="hazardStatements" rows={6} defaultValue={(hazard?.statements ?? []).join('\n')} className="field resize-y" /></Field>
+              <Field label="Δηλώσεις προφύλαξης (P)" hint="Μία ανά γραμμή, όπως στην ετικέτα: «P102 Μακριά από παιδιά.»"><textarea name="hazardPrecautions" rows={6} defaultValue={(hazard?.precautions ?? []).join('\n')} className="field resize-y" /></Field>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Δελτίο δεδομένων ασφαλείας (SDS): σύνδεσμος" hint={hazard?.sdsUrl?.startsWith('/media/') ? 'Ανεβασμένο αρχείο. Σβήστε το πεδίο για να αφαιρεθεί.' : 'Η σελίδα ή το PDF του κατασκευαστή (https://…). Ή ανεβάστε το PDF δίπλα.'}><input name="sdsUrl" inputMode="url" autoCapitalize="none" spellCheck={false} defaultValue={hazard?.sdsUrl ?? ''} placeholder="https://…" className="field" /></Field>
+              <Field label="…ή ανεβάστε το PDF" hint="Το PDF που σας δίνει ο κατασκευαστής ή ο αντιπρόσωπος, έως 10 MB. Αντικαθιστά τον σύνδεσμο.">
+                <input type="file" name="sds" accept="application/pdf,.pdf" className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-900 file:px-4 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-700" />
+              </Field>
+            </div>
+            {hazard?.sdsUrl && <p className="text-sm"><a href={hazard.sdsUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-petrol-500 underline underline-offset-2">Άνοιγμα του τρέχοντος δελτίου</a></p>}
+
+            <Check name="hazardConfirmed" label="Το έλεγξα με τη συσκευασία — να εμφανίζεται στο κατάστημα" defaultChecked={hazard?.confirmed ?? false} hint="Μέχρι να το σημειώσετε, τίποτα από τα παραπάνω δεν φαίνεται στους πελάτες." />
+          </div>
         </Card>
 
         <Card title="Προβολή & SEO">

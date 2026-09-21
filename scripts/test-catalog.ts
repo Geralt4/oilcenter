@@ -93,6 +93,27 @@ async function main() {
   const badges = trustItems({ ...DEFAULT_SETTINGS.shop, foundedYear: 1992 }, { googleUrl: 'https://maps.app.goo.gl/x', googleRating: 4.8, googleCount: 132, skroutzRating: 0, skroutzCount: 57 });
   check('only what was entered is shown, each rating linked to its own platform', badges.map((b) => b.key).join() === 'google,since' && badges[0].href === 'https://maps.app.goo.gl/x' && badges[0].text.includes('132 κριτικές') && badges[1].text === 'Από το 1992', badges);
 
+  console.log('Hazard labelling');
+  const { buildHazard, hazardPriorityCategoryIds, needsHazardCheck, parseStatement, publicHazard, unknownCodes } = await import('../src/lib/ghs');
+  const form = { none: false, confirmed: false, signalWord: 'warning', pictograms: ['GHS07', 'GHS99', 'GHS08'], statements: 'H302 Επιβλαβές σε περίπτωση κατάποσης.\n\n  H373  \nEUH208 Περιέχει X. Μπορεί να προκαλέσει αλλεργική αντίδραση.', precautions: 'P102 Μακριά από παιδιά.\nP301+P312', sdsUrl: ' https://example.com/sds.pdf ' };
+  const built = buildHazard(form);
+  check('the form is stored as typed: known pictograms only, empty lines dropped', built?.pictograms?.join() === 'GHS07,GHS08' && built?.statements?.length === 3 && built?.precautions?.length === 2 && built?.sdsUrl === 'https://example.com/sds.pdf' && built?.signalWord === 'warning');
+  check('an empty card stores nothing', buildHazard({ ...form, signalWord: '', pictograms: [], statements: ' ', precautions: '', sdsUrl: '' }) === null);
+  check('unchecked data is never public', publicHazard(built) === null && publicHazard(null) === null);
+  check('checked data is public', publicHazard({ ...built!, confirmed: true })?.statements?.length === 3);
+  check('«no hazard labelling» publishes nothing but a data sheet link', publicHazard({ none: true, confirmed: true }) === null && publicHazard(buildHazard({ ...form, none: true, confirmed: true }))?.sdsUrl === 'https://example.com/sds.pdf' && publicHazard(buildHazard({ ...form, none: true, confirmed: true }))?.statements === undefined);
+  const s1 = parseStatement('H302 Επιβλαβές σε περίπτωση κατάποσης.');
+  const s2 = parseStatement('p301 + p312', { 'P301+P312': 'ΕΠΙΣΗΜΟ ΚΕΙΜΕΝΟ' });
+  const s3 = parseStatement('Περιέχει ισοθειαζολινόνη.');
+  check('a code with its wording keeps the wording as typed', s1.code === 'H302' && s1.text === 'Επιβλαβές σε περίπτωση κατάποσης.');
+  check('a bare code is completed from the table, combined codes included', s2.code === 'P301+P312' && s2.text === 'ΕΠΙΣΗΜΟ ΚΕΙΜΕΝΟ');
+  check('free text stays free text', s3.code === null && s3.text === 'Περιέχει ισοθειαζολινόνη.');
+  check('a bare code the table does not know is reported, not guessed', unknownCodes(built!, {}).join() === 'H373,P301+P312' && parseStatement('H373', {}).text === null);
+  const cats = [{ id: 1, slug: 'chimika-prostheta', parentId: null }, { id: 2, slug: 'prostheta-kafsimou', parentId: 1 }, { id: 3, slug: 'lipantika-kinitira', parentId: null }, { id: 4, slug: 'lipantika-2t', parentId: 3 }, { id: 5, slug: 'lipantika-epivatikon', parentId: 3 }];
+  const ids = hazardPriorityCategoryIds(cats);
+  check('the worklist covers chemicals with their sub-categories and 2-stroke oils, not car engine oils', [...ids].sort().join() === '1,2,4');
+  check('a product leaves the worklist once confirmed — with labelling or as «none»', needsHazardCheck({ isActive: true, categoryId: 2, hazard: null }, ids) && needsHazardCheck({ isActive: true, categoryId: 2, hazard: built }, ids) && !needsHazardCheck({ isActive: true, categoryId: 2, hazard: { none: true, confirmed: true } }, ids) && !needsHazardCheck({ isActive: true, categoryId: 5, hazard: null }, ids) && !needsHazardCheck({ isActive: false, categoryId: 2, hazard: null }, ids));
+
   console.log('URL');
   const parsed = parseListingParams({ cat: 'valvolines,atf-cvt-dct', visc: '5W-30' });
   check('?cat= is read as a list and counts as active filters', parsed.categories?.join('|') === 'valvolines|atf-cvt-dct' && activeFilterCount(parsed) === 3);

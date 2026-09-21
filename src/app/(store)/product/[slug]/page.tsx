@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ProductGrid } from '@/components/store/product-card';
+import { HazardInfo } from '@/components/store/hazard-info';
 import { Breadcrumbs } from '@/components/store/product-listing';
 import { ProductView } from '@/components/store/product-view';
 import { effectiveAvailability } from '@/lib/availability';
@@ -120,6 +121,8 @@ export default async function ProductPage({ params, searchParams }: Props) {
           )}
         </section>
       </div>
+
+      <HazardInfo hazard={product.hazard} />
 
       {related.length > 0 && (
         <section className="mt-16" aria-labelledby="related">

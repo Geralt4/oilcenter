@@ -7,6 +7,7 @@ import { buttonClass } from '@/components/ui/button';
 import { AVAILABILITY_SHORT, AVAILABILITY_TONE, effectiveAvailability } from '@/lib/availability';
 import { db } from '@/lib/db';
 import { brands, categories, productImages, products, variants } from '@/lib/db/schema';
+import { hazardPriorityCategoryIds, needsHazardCheck } from '@/lib/ghs';
 import { cn, formatPrice, normalizeText } from '@/lib/utils';
 
 export const metadata = { title: 'Προϊόντα' };
@@ -36,6 +37,9 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
   if (sp.filter === 'unverified') list = list.filter((p) => (byProduct.get(p.id) ?? []).some((v) => !v.priceVerified));
   // "not available" by hand or counted stock at 0 — the same thing to a customer
   if (sp.filter === 'soldout') list = list.filter((p) => (byProduct.get(p.id) ?? []).some((v) => effectiveAvailability(v) === 'unavailable'));
+  // chemicals, fluids and 2-stroke oils whose hazard labelling nobody has checked against the pack yet (lib/ghs.ts)
+  const hazardIds = hazardPriorityCategoryIds(categoryRows);
+  if (sp.filter === 'hazard') list = list.filter((p) => needsHazardCheck(p, hazardIds));
 
   const page = Math.max(1, Number(sp.page) || 1);
   const pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
@@ -51,6 +55,7 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
     { key: 'review', label: 'Προς έλεγχο' },
     { key: 'unverified', label: 'Ενδεικτική τιμή' },
     { key: 'soldout', label: 'Μη διαθέσιμα' },
+    { key: 'hazard', label: 'Χωρίς σήμανση κινδύνου' },
     { key: 'inactive', label: 'Ανενεργά' },
   ];
 

@@ -1,6 +1,7 @@
 import { relations } from 'drizzle-orm';
 import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { Availability } from '@/lib/availability';
+import type { HazardInfo } from '@/lib/ghs';
 
 /*
  * Conventions
@@ -79,6 +80,8 @@ export const products = sqliteTable(
     specs: text('specs', { mode: 'json' }).$type<string[]>().notNull().default([]),
     /** Free-form extra attributes shown in the spec table: { "Χρώμα": "Κόκκινο" } */
     attributes: text('attributes', { mode: 'json' }).$type<Record<string, string>>().notNull().default({}),
+    /** the pack's hazard labelling and safety data sheet (lib/ghs.ts). null = nobody has looked yet; shown only once confirmed */
+    hazard: text('hazard', { mode: 'json' }).$type<HazardInfo>(),
     /** lower-cased, accent-stripped haystack. SQLite LIKE is not case-insensitive for Greek. */
     searchText: text('search_text').notNull().default(''),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
