@@ -82,7 +82,7 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
 
 A review of two local competitors (lazaridis-lubricants.gr, todos.gr) produced seven additions. None copies their
 material; each is a common technique built from this shop's own data. Everything that needs the owner's input ships
-empty or switched off and **renders nothing until he fills it in**. `npm run test:catalog` (54 checks) covers the logic.
+empty or switched off and **renders nothing until he fills it in**. `npm run test:catalog` (58 checks) covers the logic.
 
 - **Viscosity pages** — `/viscosity` and `/viscosity/5w-30`. Filtered listings are `noindex` with `/products` as their
   canonical, so nothing could rank for «λάδια 5W-30»; each SAE grade now has an indexable page whose title, intro and
