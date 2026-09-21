@@ -74,6 +74,50 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
     flags orders as tests. It can be switched off while ordering stays closed — that is the public *catalogue* of the
     test run. Product structured data carries offers only when demo mode is off **and** ordering is open.
 
+12. **Hazard labelling of chemicals.** 52 products (antifreeze & fluids, additives, sprays, 2-stroke oils) have no
+    hazard data yet — see "Borrowed from the competition" → hazard labelling. The dashboard lists it; the legal question
+    behind it is F1 in [`questions.md`](questions.md).
+
+## Borrowed from the competition (September 2026)
+
+A review of two local competitors (lazaridis-lubricants.gr, todos.gr) produced seven additions. None copies their
+material; each is a common technique built from this shop's own data. Everything that needs the owner's input ships
+empty or switched off and **renders nothing until he fills it in**. `npm run test:catalog` (54 checks) covers the logic.
+
+- **Viscosity pages** — `/viscosity` and `/viscosity/5w-30`. Filtered listings are `noindex` with `/products` as their
+  canonical, so nothing could rank for «λάδια 5W-30»; each SAE grade now has an indexable page whose title, intro and
+  "from" price come from the live catalogue (`getViscosities()` in `src/lib/catalog.ts`). Adding any filter turns it
+  `noindex`. Grades with ≥ 2 products are in the sitemap; home chips, product pages and the footer link to them.
+- **Category facet** — `?cat=` on every listing that is not a category page (so `/brand/castrol` can be narrowed to
+  motorcycle oils). A facet the page hides (`?cat=` on a category page, `?visc=` on a viscosity page) is ignored.
+- **«Ποιο λάδι χρειάζεται το όχημά μου;»** — `/find-my-oil`. The big parts sites answer this with a licensed vehicle
+  database; this shop answers with a person. The form (vehicle, make, model, year, fuel, engine, km, phone) lands in
+  *Admin → Μηνύματα* and in the shop's e-mail; `?product=<slug>` carries the product being asked about. All forms now
+  go through `src/lib/enquiries.ts`; `contact_messages.kind` (`contact` / `oil-finder` / `quote`) filters the inbox.
+- **Product codes** — every size's SKU, manufacturer code and barcode are searchable (added to the in-memory index at
+  load time, because *Admin → Skroutz* edits codes without rebuilding `search_text`), shown per size on the product
+  page, named in search suggestions, and — for single-size products — sent as `mpn` / `gtin` in the JSON-LD. The
+  catalogue has no codes yet (question N5).
+- **Hazard labelling + safety data sheets** — `products.hazard` (`src/lib/ghs.ts`): pictograms, signal word, hazard and
+  precautionary statements as printed on the pack, an SDS link or uploaded PDF (`DATA_DIR/uploads/sds`, served by
+  `/media`, not part of the DB backup — same as photos). Edited in the product form; **public only once «Το έλεγξα με
+  τη συσκευασία» is ticked**. Source must be the pack or the manufacturer's SDS (section 2.2), never our AI-upscaled
+  photos. Worklist: *Προϊόντα → «Χωρίς σήμανση κινδύνου»*. Still missing: the nine official GHS symbols in
+  `public/ghs/GHS01…09.svg` (until then the symbol's name shows as alt text) and the official Greek statement texts in
+  `GHS_STATEMENTS_EL` (until then a bare code like `H302` must be typed with its wording — the form warns otherwise).
+- **Real social proof** — *Ρυθμίσεις → «Κριτικές & ιστορία»*: Google link / rating / count, Skroutz rating / count,
+  founding year, typed in exactly as the platforms show them. `<TrustBadges>` renders what is filled (home hero, footer,
+  contact, about), each rating linking to the platform. Deliberately **no `aggregateRating`** in the JSON-LD.
+- **«Για συνεργεία & επαγγελματίες»** — `/professionals`, behind *Ρυθμίσεις → Λειτουργία καταστήματος* (off = 404, no
+  links, the action refuses). A quote form with Greek VAT-number check; the copy promises a quote, not terms.
+- **Filter by approval** — `?spec=vw-504-00,mb-229.51`. `src/lib/approvals.ts` turns the specification lines ("as
+  printed on the pack") into keys: it merges spellings of the same approval, splits lines naming several, **never
+  infers compatibility and never guesses** — an unknown line stays a plain chip. Approvals *narrow* (an oil carrying
+  all ticked ones). 45 lubricants have no specification lines yet: *Προϊόντα → «Χωρίς προδιαγραφές»*.
+
+Considered and rejected: a make/model vehicle selector (licensed TecDoc data), on-site product reviews (empty review
+blocks look worse than none), newsletter pop-ups, splash loaders, one product page per pack size.
+
 ## Pre-launch tools
 
 - **Site password** — while the `SITE_PASSWORD` variable is set, `src/proxy.ts` asks for HTTP Basic credentials
