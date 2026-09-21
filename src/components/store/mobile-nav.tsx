@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Heart, Menu, Navigation, Phone, User, X } from 'lucide-react';
 import { CategoryIcon } from '@/components/category-icon';
 import { Logo } from '@/components/logo';
@@ -20,16 +21,28 @@ export function MobileNav({ tree, brands, shop, customerName }: Props) {
   const open = openedAt === pathname;
   const setOpen = (next: boolean) => setOpenedAt(next ? pathname : null);
   const [expanded, setExpanded] = useState<number | 'brands' | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
+    // The panel lives at the end of <body>, so tabbing out of the button would otherwise land on
+    // the header behind the overlay: move into the panel on open and hand focus back on close.
+    const previous = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpenedAt(null);
     document.addEventListener('keydown', onKey);
+    // The drawer is lg:hidden, so growing past that breakpoint (rotating a tablet, dragging a
+    // window wider) would hide it with the menu still open and the body still locked: close it.
+    const desktop = window.matchMedia('(min-width: 64rem)'); // Tailwind's lg
+    const onDesktop = () => desktop.matches && setOpenedAt(null);
+    desktop.addEventListener('change', onDesktop);
     const { overflow } = document.body.style;
     document.body.style.overflow = 'hidden';
     return () => {
       document.removeEventListener('keydown', onKey);
+      desktop.removeEventListener('change', onDesktop);
       document.body.style.overflow = overflow;
+      previous?.focus?.();
     };
   }, [open]);
 
@@ -39,10 +52,14 @@ export function MobileNav({ tree, brands, shop, customerName }: Props) {
         <Menu className="h-6 w-6" />
       </button>
 
-      {open && (
+      {/* Rendered into <body>: the header bar we sit in has backdrop-blur, and a backdrop-filter
+          makes that element the containing block for its fixed children — inset-0 would resolve to
+          the header strip rather than the viewport, trapping the drawer inside it. Only ever called
+          after a click, so there is no document access during server rendering. */}
+      {open && createPortal(
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Μενού πλοήγησης">
           <button type="button" aria-label="Κλείσιμο μενού" onClick={() => setOpen(false)} className="animate-fade-in absolute inset-0 h-full w-full cursor-default bg-ink-950/55 backdrop-blur-[2px]" />
-          <div className="animate-slide-in-left absolute inset-y-0 left-0 flex w-[88%] max-w-sm flex-col bg-white shadow-lift">
+          <div ref={panelRef} tabIndex={-1} className="animate-slide-in-left absolute inset-y-0 left-0 flex w-[88%] max-w-sm flex-col bg-white shadow-lift outline-none">
             <div className="flex h-16 shrink-0 items-center justify-between border-b border-line px-4">
               <Logo />
               <button type="button" onClick={() => setOpen(false)} aria-label="Κλείσιμο" className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl text-ink-600 hover:bg-ink-100">
@@ -125,7 +142,8 @@ export function MobileNav({ tree, brands, shop, customerName }: Props) {
               </a>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
