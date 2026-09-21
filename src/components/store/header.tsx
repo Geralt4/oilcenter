@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import Link from 'next/link';
 import { ChevronDown, Heart, MapPin, Navigation, Phone, User } from 'lucide-react';
 import { CategoryIcon } from '@/components/category-icon';
@@ -102,46 +103,57 @@ export function Header({ settings, tree, brands, customerName }: Props) {
           <SearchBox />
         </div>
 
-        {/* Desktop category bar with hover / keyboard-accessible dropdowns (no JS needed) */}
-        <nav className="hidden border-t border-line lg:block" aria-label="Κατηγορίες">
-          <ul className="container-page flex h-12 items-center gap-0.5 text-sm font-medium whitespace-nowrap xl:gap-1 xl:text-[0.9375rem]">
+        {/* Desktop category bar with hover / keyboard-accessible dropdowns (no JS needed).
+            Below xl the categories cannot share one line, so the row wraps instead of running
+            off-screen — that overflow is what gave the whole page a horizontal scrollbar. The
+            spacer splits them into two even lines at a fixed point rather than letting the break
+            fall where it may, which keeps every item near the left edge of its own line, where its
+            20rem panel has room; «Μάρκες» is pushed to the end of its line so that its wider,
+            right-aligned panel lands inside the page as well. overflow-x-clip is the backstop
+            should the catalogue outgrow this again: it clips sideways only, so the panels still
+            hang below the bar. */}
+        <nav className="hidden overflow-x-clip border-t border-line lg:block" aria-label="Κατηγορίες">
+          <ul className="container-page flex flex-wrap items-center gap-x-0.5 gap-y-1 py-1.5 text-sm font-medium whitespace-nowrap xl:text-[0.9375rem]">
             <li>
               <Link href="/products" className="flex h-9 items-center rounded-lg bg-ink-900 px-4 font-semibold text-white hover:bg-ink-700">
                 Όλα τα προϊόντα
               </Link>
             </li>
-            {tree.map((cat) => (
-              <li key={cat.id} className="group relative">
-                <Link
-                  href={`/category/${cat.slug}`}
-                  className="flex h-9 items-center gap-1 rounded-lg px-2.5 text-ink-700 xl:px-3 group-focus-within:bg-ink-100 group-hover:bg-ink-100 hover:text-ink-950"
-                >
-                  {cat.name}
-                  {cat.children.length > 0 && <ChevronDown className="h-3.5 w-3.5 text-ink-400 transition-transform group-hover:rotate-180" />}
-                </Link>
-                {cat.children.length > 0 && (
-                  <div className="invisible absolute top-full left-0 z-50 w-80 pt-2 opacity-0 transition-[opacity,visibility] duration-150 group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
-                    <ul className="rounded-2xl border border-line bg-white p-2 shadow-lift">
-                      {cat.children.map((child) => (
-                        <li key={child.id}>
-                          <Link href={`/category/${child.slug}`} className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-oil-50">
-                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink-100 text-ink-700">
-                              <CategoryIcon name={child.icon} className="h-[1.125rem] w-[1.125rem]" />
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate font-semibold text-ink-900">{child.name}</span>
-                              <span className="text-xs text-ink-500">{child.productCount} προϊόντα</span>
-                            </span>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </li>
+            {tree.map((cat, i) => (
+              <Fragment key={cat.id}>
+                {tree.length > 4 && i === Math.ceil(tree.length / 2) && <li aria-hidden="true" className="h-0 basis-full xl:hidden" />}
+                <li className="group relative">
+                  <Link
+                    href={`/category/${cat.slug}`}
+                    className="flex h-9 items-center gap-1 rounded-lg px-2.5 text-ink-700 group-focus-within:bg-ink-100 group-hover:bg-ink-100 hover:text-ink-950"
+                  >
+                    {cat.name}
+                    {cat.children.length > 0 && <ChevronDown className="h-3.5 w-3.5 text-ink-400 transition-transform group-hover:rotate-180" />}
+                  </Link>
+                  {cat.children.length > 0 && (
+                    <div className="invisible absolute top-full left-0 z-50 w-80 pt-2 opacity-0 transition-[opacity,visibility] duration-150 group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
+                      <ul className="rounded-2xl border border-line bg-white p-2 shadow-lift">
+                        {cat.children.map((child) => (
+                          <li key={child.id}>
+                            <Link href={`/category/${child.slug}`} className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-oil-50">
+                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink-100 text-ink-700">
+                                <CategoryIcon name={child.icon} className="h-[1.125rem] w-[1.125rem]" />
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate font-semibold text-ink-900">{child.name}</span>
+                                <span className="text-xs text-ink-500">{child.productCount} προϊόντα</span>
+                              </span>
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </li>
+              </Fragment>
             ))}
-            <li className="group relative">
-              <Link href="/brands" className="flex h-9 items-center gap-1 rounded-lg px-2.5 text-ink-700 xl:px-3 group-focus-within:bg-ink-100 group-hover:bg-ink-100 hover:text-ink-950">
+            <li className="group relative ml-auto">
+              <Link href="/brands" className="flex h-9 items-center gap-1 rounded-lg px-2.5 text-ink-700 group-focus-within:bg-ink-100 group-hover:bg-ink-100 hover:text-ink-950">
                 Μάρκες
                 <ChevronDown className="h-3.5 w-3.5 text-ink-400 transition-transform group-hover:rotate-180" />
               </Link>
