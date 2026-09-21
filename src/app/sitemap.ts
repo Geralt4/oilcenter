@@ -4,12 +4,13 @@ import { getBrands, getCategoryTree, getViscosities, type CategoryNode } from '@
 import { db } from '@/lib/db';
 import { products } from '@/lib/db/schema';
 import { siteUrl } from '@/lib/seo';
+import { getSettings } from '@/lib/settings.server';
 
 export const dynamic = 'force-dynamic';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = siteUrl();
-  const [tree, brands, viscosities, productRows] = await Promise.all([getCategoryTree(), getBrands(), getViscosities(), db.select({ slug: products.slug, updatedAt: products.updatedAt }).from(products).where(eq(products.isActive, true))]);
+  const [tree, brands, viscosities, settings, productRows] = await Promise.all([getCategoryTree(), getBrands(), getViscosities(), getSettings(), db.select({ slug: products.slug, updatedAt: products.updatedAt }).from(products).where(eq(products.isActive, true))]);
   const flat = (nodes: CategoryNode[]): CategoryNode[] => nodes.flatMap((n) => [n, ...flat(n.children)]);
 
   return [
@@ -17,6 +18,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/products`, changeFrequency: 'daily', priority: 0.9 },
     { url: `${base}/brands`, changeFrequency: 'monthly', priority: 0.5 },
     { url: `${base}/find-my-oil`, changeFrequency: 'yearly', priority: 0.7 },
+    ...(settings.storefront.b2bPage ? [{ url: `${base}/professionals`, changeFrequency: 'yearly' as const, priority: 0.6 }] : []),
     { url: `${base}/contact`, changeFrequency: 'yearly', priority: 0.7 },
     { url: `${base}/about`, changeFrequency: 'yearly', priority: 0.6 },
     ...['shipping-payments', 'returns', 'terms', 'privacy', 'cookies'].map((p) => ({ url: `${base}/${p}`, changeFrequency: 'yearly' as const, priority: 0.2 })),

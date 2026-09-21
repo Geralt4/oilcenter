@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { BadgePercent, Boxes, Handshake, Wrench } from 'lucide-react';
 import { Breadcrumbs } from '@/components/store/product-listing';
 import { StoreLocation } from '@/components/store/store-location';
+import { TrustBadges } from '@/components/store/trust-badges';
 import { buttonClass } from '@/components/ui/button';
 import { getBrands } from '@/lib/catalog';
 import { getSettings } from '@/lib/settings.server';
@@ -44,6 +45,7 @@ export default async function AboutPage() {
             <p>Στη {shop.street} στη Θεσσαλονίκη λειτουργεί η έδρα της επιχείρησης εμπορίας λιπαντικών αυτοκινήτων <strong>{shop.legalName}</strong>. Στο κατάστημά μας θα βρείτε τις δημοφιλέστερες μάρκες λιπαντικών στις χαμηλότερες τιμές της αγοράς, καθώς και μεγάλη γκάμα ανταλλακτικών. Διαθέτουμε ακόμη αντιψυκτικά, paraflu, γράσα και λάδια υδραυλικού.</p>
             <p>Ελάτε να μας γνωρίσετε, για να σας εξυπηρετήσουμε όπως μόνο εμείς ξέρουμε και μπορούμε!</p>
           </div>
+          <TrustBadges shop={shop} reviews={settings.reviews} className="mt-6" />
           <div className="mt-7 flex flex-wrap gap-3">
             <Link href="/products" className={buttonClass({ size: 'lg' })}>Δείτε τα προϊόντα</Link>
             <Link href="/contact" className={buttonClass({ variant: 'outline', size: 'lg' })}>Επικοινωνία</Link>

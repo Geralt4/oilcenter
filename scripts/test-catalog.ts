@@ -81,6 +81,18 @@ async function main() {
   check('the full listing search finds it too', (await listProducts({ q: '4006381333931', perPage: 10 })).total === 1);
   check('a code that does not exist finds nothing', (await find('ZQ-9999')).length === 0);
 
+  console.log('Forms and badges');
+  const { isValidAfm } = await import('../src/lib/quote');
+  const { looksLikePhone } = await import('../src/lib/enquiries');
+  const { trustItems } = await import('../src/components/store/trust-badges');
+  const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
+  check('a VAT number with the right check digit passes, with or without EL', isValidAfm('123456783') && isValidAfm('EL 123456783'));
+  check('one wrong digit, a short number and all zeros are refused', !isValidAfm('123456784') && !isValidAfm('12345678') && !isValidAfm('000000000') && !isValidAfm(''));
+  check('phones: 10 digits, +30 and spaces are fine; too short or with letters is not', looksLikePhone('2310 850778') && looksLikePhone('+30 697 744 0388') && !looksLikePhone('123') && !looksLikePhone('call me 2310850778'));
+  check('no rating and no founding year entered → no badge at all', trustItems(DEFAULT_SETTINGS.shop, DEFAULT_SETTINGS.reviews).length === 0);
+  const badges = trustItems({ ...DEFAULT_SETTINGS.shop, foundedYear: 1992 }, { googleUrl: 'https://maps.app.goo.gl/x', googleRating: 4.8, googleCount: 132, skroutzRating: 0, skroutzCount: 57 });
+  check('only what was entered is shown, each rating linked to its own platform', badges.map((b) => b.key).join() === 'google,since' && badges[0].href === 'https://maps.app.goo.gl/x' && badges[0].text.includes('132 κριτικές') && badges[1].text === 'Από το 1992', badges);
+
   console.log('URL');
   const parsed = parseListingParams({ cat: 'valvolines,atf-cvt-dct', visc: '5W-30' });
   check('?cat= is read as a list and counts as active filters', parsed.categories?.join('|') === 'valvolines|atf-cvt-dct' && activeFilterCount(parsed) === 3);

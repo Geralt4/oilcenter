@@ -52,6 +52,7 @@ export function Header({ settings, tree, brands, customerName }: Props) {
           </div>
           <div className="flex shrink-0 items-center gap-4">
             <SocialLinks shop={shop} tone="bar" className="hidden xl:flex" />
+            {storefront.b2bPage && <Link href="/professionals" className="hidden hover:text-white xl:inline">Για επαγγελματίες</Link>}
             <Link href="/about" className="hidden hover:text-white lg:inline">Το κατάστημα</Link>
             <Link href="/contact" className="hidden hover:text-white lg:inline">Επικοινωνία</Link>
             <a href={mapsDirectionsUrl(shop)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:text-white">

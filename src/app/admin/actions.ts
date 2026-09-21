@@ -498,11 +498,21 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
     lat: num('lat', current.shop.lat), lng: num('lng', current.shop.lng),
     facebookUrl: cleanUrl(str(fd, 'facebookUrl')), instagramUrl: instagramUrl(str(fd, 'instagramUrl')), skroutzUrl: cleanUrl(str(fd, 'skroutzUrl')),
     vatNumber: str(fd, 'vatNumber'), taxOffice: str(fd, 'taxOffice'), gemi: str(fd, 'gemi'), hours, hoursVerified: bool(fd, 'hoursVerified'),
+    foundedYear: ((y) => (y >= 1900 && y <= new Date().getFullYear() ? y : 0))(int(fd, 'foundedYear')),
   };
   if (!shop.phone || !shop.street || !shop.city) return { ok: false, message: 'Τηλέφωνο, οδός και πόλη είναι υποχρεωτικά.' };
 
+  // a rating is only worth showing if it is exactly what the platform shows: anything outside 1–5 is a typo, not a rating
+  const rating = (key: string) => ((n) => (n >= 1 && n <= 5 ? Math.round(n * 10) / 10 : 0))(num(key, 0));
+  const googleRating = rating('googleRating'), skroutzRating = rating('skroutzRating');
+
   await saveSettingsGroup('shop', shop);
-  await saveSettingsGroup('storefront', { demoMode: bool(fd, 'demoMode'), ordersEnabled: bool(fd, 'ordersEnabled'), launchSignup: bool(fd, 'launchSignup'), announcement: str(fd, 'announcement'), lowStockThreshold: int(fd, 'lowStockThreshold', 3) });
+  await saveSettingsGroup('storefront', { demoMode: bool(fd, 'demoMode'), ordersEnabled: bool(fd, 'ordersEnabled'), launchSignup: bool(fd, 'launchSignup'), announcement: str(fd, 'announcement'), lowStockThreshold: int(fd, 'lowStockThreshold', 3), b2bPage: bool(fd, 'b2bPage') });
+  await saveSettingsGroup('reviews', {
+    googleUrl: cleanUrl(str(fd, 'googleUrl')),
+    googleRating, googleCount: googleRating ? int(fd, 'googleCount') : 0,
+    skroutzRating, skroutzCount: skroutzRating ? int(fd, 'skroutzCount') : 0,
+  });
   await saveSettingsGroup('shipping', {
     courierEnabled: bool(fd, 'courierEnabled'), pickupEnabled: bool(fd, 'pickupEnabled'), carrierName: str(fd, 'carrierName') || 'Courier', deliveryEstimate: str(fd, 'deliveryEstimate'),
     baseCents: euro('baseCents', current.shipping.baseCents), baseWeightKg: num('baseWeightKg', current.shipping.baseWeightKg), perExtraKgCents: euro('perExtraKgCents', current.shipping.perExtraKgCents),

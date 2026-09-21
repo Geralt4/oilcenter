@@ -21,7 +21,7 @@ export default async function ContactPage() {
       <h1 className="display mt-5 text-4xl sm:text-5xl">Επικοινωνία</h1>
       <p className="mt-3 max-w-2xl text-ink-600">Ο πιο γρήγορος τρόπος είναι ένα τηλεφώνημα: πείτε μας το όχημά σας και σας λέμε αμέσως τι χρειάζεται. Αλλιώς, περάστε από το κατάστημα ή γράψτε μας.</p>
 
-      <StoreLocation shop={settings.shop} className="mt-8" />
+      <StoreLocation shop={settings.shop} reviews={settings.reviews} className="mt-8" />
 
       <section className="mt-10 grid gap-8 rounded-3xl border border-line bg-white p-6 shadow-tile sm:p-8 lg:grid-cols-[0.8fr_1.2fr]">
         <div>
