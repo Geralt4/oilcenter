@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
 import { SlidersHorizontal, X } from 'lucide-react';
+import { FACET_TITLES } from '@/lib/approvals';
 import type { FacetOption, Listing, SortKey } from '@/lib/catalog';
 import { cn } from '@/lib/utils';
 
@@ -46,13 +47,13 @@ function useListingNav() {
   const setParam = (key: string, value: string | null) => push((p) => (value ? p.set(key, value) : p.delete(key)));
   const clearAll = () =>
     push((p) => {
-      for (const k of ['brand', 'cat', 'visc', 'pack', 'base', 'stock', 'sale', 'min', 'max']) p.delete(k);
+      for (const k of ['brand', 'cat', 'visc', 'spec', 'pack', 'base', 'stock', 'sale', 'min', 'max']) p.delete(k);
     });
 
   return { pending, searchParams, selected, toggle, setParam, clearAll };
 }
 
-function FacetGroup({ title, options, selected, onToggle, columns = 1 }: { title: string; options: FacetOption[]; selected: Set<string>; onToggle: (value: string) => void; columns?: 1 | 2 }) {
+function FacetGroup({ title, options, selected, onToggle, columns = 1, note }: { title: string; options: FacetOption[]; selected: Set<string>; onToggle: (value: string) => void; columns?: 1 | 2; note?: string }) {
   const [expanded, setExpanded] = useState(false);
   if (options.length === 0) return null;
   const limit = columns === 2 ? 12 : 8;
@@ -79,6 +80,7 @@ function FacetGroup({ title, options, selected, onToggle, columns = 1 }: { title
           {expanded ? 'Λιγότερα' : `Όλα (${options.length})`}
         </button>
       )}
+      {note && <p className="mt-2 px-1.5 text-xs leading-relaxed text-ink-500">{note}</p>}
     </fieldset>
   );
 }
@@ -92,6 +94,10 @@ function Facets({ facets, hideBrands, hideViscosities, hideCategories }: Pick<Pr
       {!hideCategories && (facets.categories.length > 1 || nav.selected('cat').size > 0) && <FacetGroup title="Κατηγορία" options={facets.categories} selected={nav.selected('cat')} onToggle={(v) => nav.toggle('cat', v)} />}
       {!hideViscosities && <FacetGroup title="Ιξώδες (SAE)" options={facets.viscosities} selected={nav.selected('visc')} onToggle={(v) => nav.toggle('visc', v)} columns={2} />}
       {!hideBrands && <FacetGroup title="Μάρκα" options={facets.brands} selected={nav.selected('brand')} onToggle={(v) => nav.toggle('brand', v)} />}
+      {/* one URL key for the three groups: ticking more than one NARROWS the list (an oil that carries all of them) */}
+      {(['standard', 'oem', 'other'] as const).map((kind) => (
+        <FacetGroup key={kind} title={FACET_TITLES[kind]} options={facets.approvals[kind]} selected={nav.selected('spec')} onToggle={(v) => nav.toggle('spec', v)} note={kind === 'oem' ? 'Όπως αναγράφονται στη συσκευασία. Επιβεβαιώστε με το βιβλίο συντήρησης.' : undefined} />
+      ))}
       <FacetGroup title="Συσκευασία" options={facets.packs} selected={nav.selected('pack')} onToggle={(v) => nav.toggle('pack', v)} columns={2} />
       <FacetGroup title="Τύπος λιπαντικού" options={facets.baseTypes} selected={nav.selected('base')} onToggle={(v) => nav.toggle('base', v)} />
 

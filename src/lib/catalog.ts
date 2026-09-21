@@ -1,5 +1,6 @@
 import { cache } from 'react';
 import { and, asc, eq, inArray } from 'drizzle-orm';
+import { parseApprovals, type Approval, type ApprovalFacet } from '@/lib/approvals';
 import { bestAvailability, effectiveAvailability, type Availability } from '@/lib/availability';
 import { db } from '@/lib/db';
 import { brands, categories, productImages, products, variants, type BaseType, type Brand, type Category } from '@/lib/db/schema';
@@ -60,7 +61,8 @@ export type CatalogProduct = {
   onSale: boolean;
 };
 
-type IndexedProduct = CatalogProduct & { searchText: string };
+/** server-side extras of the index: never sent to the browser (see strip) */
+type IndexedProduct = CatalogProduct & { searchText: string; approvals: Approval[] };
 
 export type CategoryNode = Category & { children: CategoryNode[]; productCount: number };
 
@@ -134,6 +136,7 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
       // Codes are added here, not into products.search_text: they are edited in places that never rebuild that column
       // (Admin → Skroutz codes, CSV import). Both spellings, so «MN7501-1» and «MN75011» find the same can.
       searchText: [p.searchText, ...vs.flatMap(codesOf).flatMap((c) => [normalizeText(c), compact(c)])].join(' '),
+      approvals: parseApprovals(p.specs ?? []),
     });
   }
   return out;
@@ -162,7 +165,7 @@ function matchesTerm(searchText: string, term: string): boolean {
 }
 
 function strip(p: IndexedProduct): CatalogProduct {
-  const { searchText: _searchText, ...rest } = p;
+  const { searchText: _searchText, approvals: _approvals, ...rest } = p;
   return rest;
 }
 
@@ -268,6 +271,8 @@ export type ListingFilters = {
   /** slugs of the products' own categories (the «Κατηγορία» facet on pages that are not a category page) */
   categories?: string[];
   viscosities?: string[];
+  /** approval keys (lib/approvals.ts). Unlike the other facets these are ANDed: «VW 504 00» + «MB 229.51» = an oil that carries both */
+  approvals?: string[];
   packs?: number[];
   baseTypes?: string[];
   inStockOnly?: boolean;
@@ -291,6 +296,8 @@ export type Listing = {
     brands: FacetOption[];
     categories: FacetOption[];
     viscosities: FacetOption[];
+    /** what the labels print, by kind: industry standards, vehicle manufacturers, the rest (coolant types, DOT, NLGI) */
+    approvals: Record<ApprovalFacet, FacetOption[]>;
     packs: FacetOption[];
     baseTypes: FacetOption[];
     inStockCount: number;
@@ -335,6 +342,7 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
   const categoryLookup = await getCategoryLookup();
   const categoryOf = (p: IndexedProduct) => (p.categoryId !== null ? categoryLookup.get(p.categoryId) : undefined);
   const viscSet = new Set(filters.viscosities ?? []);
+  const approvalKeys = [...new Set(filters.approvals ?? [])];
   const packSet = new Set(filters.packs ?? []);
   const baseSet = new Set(filters.baseTypes ?? []);
   const min = filters.minPriceCents;
@@ -344,6 +352,8 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
     brand: (p: IndexedProduct) => !brandSet.size || (p.brand !== null && brandSet.has(p.brand.slug)),
     category: (p: IndexedProduct) => !categorySet.size || categorySet.has(categoryOf(p)?.slug ?? ''),
     viscosity: (p: IndexedProduct) => !viscSet.size || (p.viscosity !== null && viscSet.has(p.viscosity)),
+    // ALL of the ticked approvals, not any of them
+    approval: (p: IndexedProduct) => approvalKeys.every((k) => p.approvals.some((a) => a.key === k)),
     pack: (p: IndexedProduct) => !packSet.size || p.variants.some((v) => v.volumeMl !== null && packSet.has(v.volumeMl)),
     base: (p: IndexedProduct) => !baseSet.size || (p.baseType !== null && baseSet.has(p.baseType)),
     stock: (p: IndexedProduct) => !filters.inStockOnly || p.inStock,
@@ -370,6 +380,19 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
   const baseCounts = count(applyExcept('base'), (p) => (p.baseType ? [p.baseType] : []));
 
   const matched = applyExcept(null);
+
+  // Approvals narrow (AND), so an option's count is simply "how many of the current results carry it": ticking it
+  // leads to exactly that many. A ticked key that no product carries any more still shows, so it can be un-ticked.
+  const approvalInfo = new Map<string, Approval>();
+  const approvalCounts = new Map<string, number>();
+  for (const p of scope) for (const a of p.approvals) approvalInfo.set(a.key, a);
+  for (const p of matched) for (const a of p.approvals) approvalCounts.set(a.key, (approvalCounts.get(a.key) ?? 0) + 1);
+  for (const k of approvalKeys) if (approvalInfo.has(k) && !approvalCounts.has(k)) approvalCounts.set(k, 0);
+  const approvalFacet = (facet: ApprovalFacet): FacetOption[] =>
+    [...approvalCounts]
+      .flatMap(([key, n]) => (approvalInfo.get(key)?.facet === facet ? [{ value: key, label: approvalInfo.get(key)!.label, count: n, order: approvalInfo.get(key)!.order }] : []))
+      .sort((a, b) => a.order.localeCompare(b.order))
+      .map(({ order: _order, ...option }) => option);
 
   // 3. Sort
   const sort = filters.sort ?? 'featured';
@@ -407,6 +430,7 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
       // in the order of the shop's own menu, not alphabetical
       categories: [...categoryCounts].map(([value, n]) => ({ value, label: categoryBySlug.get(value)?.name ?? value, count: n })).sort((a, b) => (categoryBySlug.get(a.value)?.order ?? 0) - (categoryBySlug.get(b.value)?.order ?? 0)),
       viscosities: [...viscCounts].map(([value, n]) => ({ value, label: value, count: n })).sort((a, b) => compareViscosity(a.value, b.value)),
+      approvals: { standard: approvalFacet('standard'), oem: approvalFacet('oem'), other: approvalFacet('other') },
       packs: [...packCounts].map(([value, n]) => ({ value, label: packLabel(Number(value)), count: n })).sort((a, b) => Number(a.value) - Number(b.value)),
       baseTypes: [...baseCounts].map(([value, n]) => ({ value, label: BASE_TYPE_LABELS[value as BaseType] ?? value, count: n })),
       inStockCount: applyExcept('stock').filter((p) => p.inStock).length,

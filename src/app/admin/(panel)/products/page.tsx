@@ -40,6 +40,8 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
   // chemicals, fluids and 2-stroke oils whose hazard labelling nobody has checked against the pack yet (lib/ghs.ts)
   const hazardIds = hazardPriorityCategoryIds(categoryRows);
   if (sp.filter === 'hazard') list = list.filter((p) => needsHazardCheck(p, hazardIds));
+  // lubricants (they have a viscosity) with no specification lines: invisible to the «Έγκριση κατασκευαστή» filter
+  if (sp.filter === 'nospecs') list = list.filter((p) => p.isActive && p.viscosity && p.specs.length === 0);
 
   const page = Math.max(1, Number(sp.page) || 1);
   const pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
@@ -56,6 +58,7 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
     { key: 'unverified', label: 'Ενδεικτική τιμή' },
     { key: 'soldout', label: 'Μη διαθέσιμα' },
     { key: 'hazard', label: 'Χωρίς σήμανση κινδύνου' },
+    { key: 'nospecs', label: 'Χωρίς προδιαγραφές' },
     { key: 'inactive', label: 'Ανενεργά' },
   ];
 

@@ -5,6 +5,7 @@ import { ProductGrid } from '@/components/store/product-card';
 import { HazardInfo } from '@/components/store/hazard-info';
 import { Breadcrumbs } from '@/components/store/product-listing';
 import { ProductView } from '@/components/store/product-view';
+import { parseSpecLine } from '@/lib/approvals';
 import { effectiveAvailability } from '@/lib/availability';
 import { BASE_TYPE_LABELS, getCategoryTrailById, getProductBySlug, getRelatedProducts, viscositySlug, type ProductDetail } from '@/lib/catalog';
 import { productJsonLd } from '@/lib/seo';
@@ -112,9 +113,16 @@ export default async function ProductPage({ params, searchParams }: Props) {
             <>
               <h3 className="eyebrow mt-6 text-ink-500">Προδιαγραφές & εγκρίσεις</h3>
               <ul className="mt-3 flex flex-wrap gap-1.5">
-                {product.specs.map((s) => (
-                  <li key={s} className="tabular rounded-lg border border-line bg-white px-2.5 py-1.5 text-sm font-medium text-ink-800">{s}</li>
-                ))}
+                {product.specs.map((s) => {
+                  // a line the parser understands leads to everything else in the shop that carries the same approval(s)
+                  const keys = parseSpecLine(s).map((a) => a.key);
+                  const chip = 'tabular block rounded-lg border border-line bg-white px-2.5 py-1.5 text-sm font-medium text-ink-800';
+                  return (
+                    <li key={s}>
+                      {keys.length > 0 ? <Link href={`/products?spec=${keys.map(encodeURIComponent).join(',')}`} rel="nofollow" title="Όλα τα προϊόντα με αυτή την προδιαγραφή" className={`${chip} transition-colors hover:border-oil-400 hover:text-ink-950`}>{s}</Link> : <span className={chip}>{s}</span>}
+                    </li>
+                  );
+                })}
               </ul>
               <p className="mt-3 text-xs leading-relaxed text-ink-500">Όπως αναγράφονται στη συσκευασία του κατασκευαστή. Επιβεβαιώνετε πάντα την καταλληλότητα με το βιβλίο συντήρησης του οχήματός σας.</p>
             </>

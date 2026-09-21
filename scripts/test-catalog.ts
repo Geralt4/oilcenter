@@ -114,7 +114,41 @@ async function main() {
   check('the worklist covers chemicals with their sub-categories and 2-stroke oils, not car engine oils', [...ids].sort().join() === '1,2,4');
   check('a product leaves the worklist once confirmed — with labelling or as «none»', needsHazardCheck({ isActive: true, categoryId: 2, hazard: null }, ids) && needsHazardCheck({ isActive: true, categoryId: 2, hazard: built }, ids) && !needsHazardCheck({ isActive: true, categoryId: 2, hazard: { none: true, confirmed: true } }, ids) && !needsHazardCheck({ isActive: true, categoryId: 5, hazard: null }, ids) && !needsHazardCheck({ isActive: false, categoryId: 2, hazard: null }, ids));
 
+  console.log('Approvals');
+  const { parseApprovals, parseSpecLine } = await import('../src/lib/approvals');
+  const keysOf = (line: string) => parseSpecLine(line).map((a) => a.key).join(' ');
+  const same = (a: string, b: string) => keysOf(a) !== '' && keysOf(a) === keysOf(b);
+  check('spellings of the same approval meet', same('BMW Longlife-04', 'BMW LL-04') && same('FIAT 955535-S2', 'Fiat 9.55535-S2') && same('RENAULT RN0700', 'Renault RN 0700') && same('JASO MA-2', 'JASO MA2') && same('MB-Approval 229.51', 'MB 229.51') && same('Porsche A40', 'PORSCHE A40') && same('GM dexos1 GEN3', 'dexos1 Gen 3'));
+  const distinct = ['MB 229.5', 'MB 229.51', 'MB 229.52', 'VW 502 00', 'VW 504 00', 'API SN', 'API SN PLUS', 'API SP', 'ACEA C2', 'ACEA C3', 'ACEA A3/B4', 'ACEA A5/B5', 'BMW LL-01', 'BMW LL-04', 'dexos1', 'dexos1 Gen 2', 'dexos2', 'G12+', 'G12++', 'G13'].map(keysOf);
+  check('approvals that differ stay apart (229.5 ≠ 229.51, SN ≠ SN PLUS, C2 ≠ C3, G12+ ≠ G12++)', new Set(distinct).size === distinct.length && distinct.every(Boolean), distinct);
+  check('a line that names several approvals yields each of them', keysOf('VW 502 00 / 505 00 / 505 01') === 'vw-502-00 vw-505-00 vw-505-01' && keysOf('ACEA C2, C3') === 'acea-c2 acea-c3' && keysOf('API CI-4/SL') === 'api-ci-4 api-sl' && keysOf('MB 228.3 & 229.1') === 'mb-228.3 mb-229.1' && keysOf('FIAT 955535-GSY/CR1') === 'fiat-9.55535-gsy fiat-9.55535-cr1' && keysOf('Renault RN 0700 / 0710') === 'renault-rn0700 renault-rn0710');
+  check('ACEA A3/B4 is one category, E7/B4/A3 is three', keysOf('ACEA A3/B4') === 'acea-a3-b4' && keysOf('ACEA E7/B4/A3') === 'acea-e7 acea-b4 acea-a3');
+  check('Ford shorthand is spelled out', keysOf('FORD WSS-M2C947-A / -B1 / 962-A1') === 'ford-wss-m2c947-a ford-wss-m2c947-b1 ford-wss-m2c962-a1' && same('FORD WSS M2C913-D', 'Ford WSS-M2C913-D'));
+  check('nothing is inferred and nothing is guessed', keysOf('API SP') === 'api-sp' && keysOf('Arvin Meritor Axles (LS)') === '' && keysOf('P-OAT') === '' && keysOf('Κατάλληλο για VW') === '');
+  check('keys are safe in a URL list (no comma, space or plus)', ['BMW LL-17 FE+', 'G12++', 'JAGUAR LAND ROVER STJLR.03.5006', 'OPEL-VAUXHALL OV 040 1547-G40 / D40'].flatMap((l) => parseSpecLine(l)).every((a) => /^[a-z0-9.-]+$/.test(a.key)));
+
+  const { readFileSync } = await import('node:fs');
+  const source = JSON.parse(readFileSync('catalog/catalog.json', 'utf8')) as { products: Array<{ specs?: string[] }> };
+  const lines = [...new Set(source.products.flatMap((p) => p.specs ?? []))];
+  const unmapped = lines.filter((l) => parseSpecLine(l).length === 0).sort();
+  // lines the parser is MEANT to leave alone: not approvals one would filter by, or too unclear to key
+  const leftAlone = ['AG13', 'Arvin Meritor Axles (LS)', 'DIN 51524 Teil 2 HLP', 'HVLP', 'P-OAT'];
+  check(`every other spec line of the catalogue is understood (${lines.length - unmapped.length} of ${lines.length})`, unmapped.join('|') === leftAlone.join('|'), unmapped);
+
+  const c3 = await listProducts({ approvals: ['acea-c3'], perPage: 500 });
+  const c3vw = await listProducts({ approvals: ['acea-c3', 'vw-504-00'], perPage: 500 });
+  const specsById = new Map((await db.select({ id: products.id, specs: products.specs }).from(products)).map((p) => [p.id, p.specs]));
+  const carries = (id: number, key: string) => parseApprovals(specsById.get(id) ?? []).some((a) => a.key === key);
+  check('?spec= lists exactly the products whose label prints it', c3.total > 0 && c3.products.every((p) => carries(p.id, 'acea-c3')) && [...shown.keys()].filter((id) => carries(id, 'acea-c3')).length === c3.total, c3.total);
+  check('two approvals narrow the list (both, not either)', c3vw.total > 0 && c3vw.total < c3.total && c3vw.products.every((p) => carries(p.id, 'acea-c3') && carries(p.id, 'vw-504-00')), { c3: c3.total, both: c3vw.total });
+  const vwOption = c3.facets.approvals.oem.find((o) => o.value === 'vw-504-00');
+  check('an option’s count is what ticking it leads to', vwOption?.count === c3vw.total, { option: vwOption?.count, listing: c3vw.total });
+  check('the three groups hold what they should', everything.facets.approvals.standard.some((o) => o.label === 'ACEA C3') && everything.facets.approvals.oem.some((o) => o.label === 'MB 229.51') && everything.facets.approvals.other.some((o) => o.label === 'G12+') && !everything.facets.approvals.oem.some((o) => o.label.startsWith('ACEA')));
+  check('standards come in the order ACEA, API, ILSAC, JASO', ((labels) => labels.findIndex((l) => l.startsWith('API')) > labels.findIndex((l) => l.startsWith('ACEA')) && labels.findIndex((l) => l.startsWith('JASO')) > labels.findIndex((l) => l.startsWith('API')))(everything.facets.approvals.standard.map((o) => o.label)));
+  check('approvals never travel to the browser with the product cards', everything.products.every((p) => !('approvals' in p) && !('searchText' in p)));
+
   console.log('URL');
+  check('?spec= is read as a list, lower-cased', parseListingParams({ spec: 'VW-504-00,mb-229.51' }).approvals?.join('|') === 'vw-504-00|mb-229.51');
   const parsed = parseListingParams({ cat: 'valvolines,atf-cvt-dct', visc: '5W-30' });
   check('?cat= is read as a list and counts as active filters', parsed.categories?.join('|') === 'valvolines|atf-cvt-dct' && activeFilterCount(parsed) === 3);
 }
