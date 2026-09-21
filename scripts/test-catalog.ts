@@ -19,7 +19,7 @@ async function main() {
   const { eq } = await import('drizzle-orm');
   const { db } = await import('../src/lib/db');
   const { products, variants } = await import('../src/lib/db/schema');
-  const { getViscosities, getViscosityBySlug, listProducts, viscosityLabel, viscositySlug } = await import('../src/lib/catalog');
+  const { getViscosities, getViscosityBySlug, listProducts, matchCode, suggestProducts, viscosityLabel, viscositySlug } = await import('../src/lib/catalog');
   const { activeFilterCount, parseListingParams } = await import('../src/lib/listing-params');
 
   // what the shop window holds, counted without the read model: active products with at least one active size
@@ -64,6 +64,22 @@ async function main() {
   const busiest = [...grades].sort((a, b) => b.count - a.count)[0];
   const onPage = await listProducts({ viscosity: busiest.grade, perPage: 500 });
   check('on a viscosity page the category counts add up to that page', onPage.facets.categories.reduce((n, c) => n + c.count, 0) === onPage.products.filter((p) => p.categoryId !== null).length);
+
+  console.log('Search by code');
+  // give one size a manufacturer code and a barcode the way the owner would (Admin → Skroutz never touches products.search_text)
+  const target = everything.products.find((p) => p.variants.length > 1) ?? everything.products[0];
+  const size = target.variants[target.variants.length - 1];
+  await db.update(variants).set({ mpn: 'ZQ-7501/4', barcode: '4006381333931' }).where(eq(variants.id, size.id));
+  const find = async (q: string) => (await suggestProducts(q, 10)).map((p) => p.id);
+  check('a manufacturer code finds its product', (await find('ZQ-7501/4')).includes(target.id));
+  check('…also typed without the dash and the slash', (await find('zq75014')).includes(target.id));
+  check('a barcode finds its product', (await find('4006381333931')).join() === String(target.id));
+  check('our own SKU finds its product', (await find(size.sku)).includes(target.id));
+  const hit = (await suggestProducts('ZQ-7501', 10)).find((p) => p.id === target.id);
+  check('the suggestion names the code and the size it belongs to', hit !== undefined && matchCode(hit, 'ZQ-7501')?.code === 'ZQ-7501/4' && matchCode(hit, 'ZQ-7501')?.label === size.label);
+  check('a name search is not reported as a code match', hit !== undefined && matchCode(hit, target.name) === null && matchCode(hit, 'zq') === null);
+  check('the full listing search finds it too', (await listProducts({ q: '4006381333931', perPage: 10 })).total === 1);
+  check('a code that does not exist finds nothing', (await find('ZQ-9999')).length === 0);
 
   console.log('URL');
   const parsed = parseListingParams({ cat: 'valvolines,atf-cvt-dct', visc: '5W-30' });

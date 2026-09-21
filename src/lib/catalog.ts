@@ -17,6 +17,9 @@ import { normalizeText } from '@/lib/utils';
 export type CatalogVariant = {
   id: number;
   sku: string;
+  /** the manufacturer's article number and the barcode of this pack, when the owner has entered them */
+  mpn: string | null;
+  barcode: string | null;
   label: string;
   volumeMl: number | null;
   /** false = the owner has not confirmed this price yet: the storefront says «Καλέστε για τιμή» and the size cannot be bought */
@@ -87,6 +90,8 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
     list.push({
       id: v.id,
       sku: v.sku,
+      mpn: v.mpn,
+      barcode: v.barcode,
       label: v.label,
       volumeMl: v.volumeMl,
       priced: v.priceVerified,
@@ -126,11 +131,27 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
       inStock: vs.some((v) => v.inStock),
       availability: bestAvailability(vs.map((v) => v.availability)),
       onSale: vs.some((v) => v.compareAtCents !== null),
-      searchText: p.searchText,
+      // Codes are added here, not into products.search_text: they are edited in places that never rebuild that column
+      // (Admin → Skroutz codes, CSV import). Both spellings, so «MN7501-1» and «MN75011» find the same can.
+      searchText: [p.searchText, ...vs.flatMap(codesOf).flatMap((c) => [normalizeText(c), compact(c)])].join(' '),
     });
   }
   return out;
 });
+
+const compact = (s: string) => normalizeText(s).replace(/ /g, '');
+const codesOf = (v: CatalogVariant) => [v.sku, v.mpn, v.barcode].filter((c): c is string => Boolean(c));
+
+/**
+ * The size whose manufacturer code or barcode the query spells out, if any — so a suggestion can show why it matched.
+ * Our own SKUs are left out: they are built from the product name, so «castrol edge» would "match" them.
+ */
+export function matchCode(p: CatalogProduct, q: string): { code: string; label: string } | null {
+  const needle = compact(q);
+  if (needle.length < 3) return null;
+  for (const v of p.variants) for (const code of [v.mpn, v.barcode]) if (code && compact(code).startsWith(needle)) return { code, label: v.label };
+  return null;
+}
 
 /**
  * Words match anywhere ("tronic" finds SuperTronic), but a term containing a digit must match from the

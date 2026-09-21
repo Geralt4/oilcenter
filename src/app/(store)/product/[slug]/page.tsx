@@ -5,7 +5,7 @@ import { ProductGrid } from '@/components/store/product-card';
 import { Breadcrumbs } from '@/components/store/product-listing';
 import { ProductView } from '@/components/store/product-view';
 import { effectiveAvailability } from '@/lib/availability';
-import { BASE_TYPE_LABELS, getCategoryTrailById, getProductBySlug, getRelatedProducts, viscositySlug } from '@/lib/catalog';
+import { BASE_TYPE_LABELS, getCategoryTrailById, getProductBySlug, getRelatedProducts, viscositySlug, type ProductDetail } from '@/lib/catalog';
 import { productJsonLd } from '@/lib/seo';
 import { getSettings } from '@/lib/settings.server';
 import { formatWeight } from '@/lib/utils';
@@ -59,6 +59,16 @@ export default async function ProductPage({ params, searchParams }: Props) {
   if (product.category) rows.push(['Κατηγορία', <Link key="c" href={`/category/${product.category.slug}`} className="font-medium text-petrol-500 underline underline-offset-2 hover:text-petrol-700">{product.category.name}</Link>]);
   rows.push(['Συσκευασίες', product.variants.map((v) => v.label).join(' · ')]);
   for (const [k, v] of Object.entries(product.attributes ?? {})) rows.push([k, v]);
+  // professionals search and order by these; shown per size once the owner has entered them (Admin → Skroutz)
+  const perSize = (pick: (v: ProductDetail['variants'][number]) => string | null) => {
+    const found = product.variants.flatMap((v) => (pick(v) ? [{ label: v.label, code: pick(v)! }] : []));
+    if (found.length === 0) return null;
+    return <span className="tabular">{product.variants.length === 1 ? found[0].code : found.map((f) => `${f.label}: ${f.code}`).join(' · ')}</span>;
+  };
+  const mpns = perSize((v) => v.mpn);
+  const eans = perSize((v) => v.barcode);
+  if (mpns) rows.push(['Κωδικός κατασκευαστή', mpns]);
+  if (eans) rows.push(['Barcode (EAN)', eans]);
   rows.push(['Βάρος αποστολής', product.variants.map((v) => `${v.label}: ${formatWeight(v.weightGrams)}`).join(' · ')]);
   if (product.brand?.country) rows.push(['Χώρα προέλευσης μάρκας', product.brand.country]);
 
