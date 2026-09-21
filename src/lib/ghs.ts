@@ -17,6 +17,13 @@
  *     have to name a substance (EUH208 «Περιέχει …»).
  */
 
+import { GHS_STATEMENTS_EL } from '@/lib/ghs-statements-el';
+
+/**
+ * The symbols themselves are public/ghs/GHS01…09.svg: the UNECE artwork as vectorised on Wikimedia Commons
+ * (GHS-pictogram-explos / flamme / rondflam / bottle / acid / skull / exclam / silhouette / pollu .svg), which is in
+ * the public domain ("ineligible for copyright"). They are official signs: never redraw or restyle them.
+ */
 export const GHS_PICTOGRAMS = {
   GHS01: { symbol: 'Εκρηγνυόμενη βόμβα', meaning: 'Εκρηκτικό' },
   GHS02: { symbol: 'Φλόγα', meaning: 'Εύφλεκτο' },
@@ -52,11 +59,15 @@ export type HazardInfo = {
 };
 
 /**
- * Official Greek wording by code, from Annex III (H, EUH) and Annex IV (P) of Regulation (EC) 1272/2008.
- * Filled ONLY from the regulation's Greek text on EUR-Lex — never from memory or a translation: a code that is not
- * here is shown as typed and flagged in the admin form, which is the safe failure.
+ * Official Greek wording by code: lib/ghs-statements-el.ts, generated from the regulation's consolidated Greek text —
+ * never from memory or a translation. A code that is not there, or whose official wording is a template the label
+ * has to complete («Περιέχει <όνομα της ευαισθητοποιητικής ουσίας>…», «Διάθεση του περιεχομένου/περιέκτη σε …»),
+ * is shown as typed and flagged in the admin form, which is the safe failure.
  */
-export const GHS_STATEMENTS_EL: Record<string, string> = {};
+export { GHS_STATEMENTS_EL };
+
+/** the label completes these itself: they can never stand in for what the pack actually says */
+const isTemplate = (wording: string) => /[<>…]|\.\.\./.test(wording);
 
 const CODE = /^((?:EUH|H|P)\d{3}[A-Za-z]{0,2}(?:\s*\+\s*(?:EUH|H|P)\d{3}[A-Za-z]{0,2})*)(?:\s*[:.–—-]\s*|\s+|$)(.*)$/i;
 
@@ -73,7 +84,8 @@ export function parseStatement(line: string, table: Record<string, string> = GHS
   if (!m) return { code: null, text: raw };
   const code = m[1].replace(/\s+/g, '').replace(/(^|\+)(euh|h|p)/gi, (_, plus: string, letters: string) => plus + letters.toUpperCase());
   const typed = m[2].trim();
-  return { code, text: typed || table[code.toUpperCase()] || null };
+  const official = table[code.toUpperCase()];
+  return { code, text: typed || (official && !isTemplate(official) ? official : null) };
 }
 
 /** Codes typed without wording that the table cannot complete: the admin form warns about them. */

@@ -87,7 +87,7 @@ export async function ProductEditor({ product, created }: Props) {
         >
           <div id="hazard" className="space-y-5">
             {hazard && !hazard.confirmed && <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Τα στοιχεία έχουν καταχωρηθεί αλλά <strong>δεν εμφανίζονται στο κατάστημα</strong>: περιμένουν να τα ελέγξετε με τη συσκευασία και να σημειώσετε το κουτάκι στο τέλος.</p>}
-            {missingWording.length > 0 && <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Για τους κωδικούς <strong className="tabular">{missingWording.join(', ')}</strong> δεν υπάρχει αποθηκευμένη διατύπωση: γράψτε δίπλα στον κωδικό τη φράση όπως είναι στην ετικέτα (π.χ. «H302 Επιβλαβές σε περίπτωση κατάποσης.»).</p>}
+            {missingWording.length > 0 && <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Οι κωδικοί <strong className="tabular">{missingWording.join(', ')}</strong> δεν συμπληρώνονται αυτόματα — είτε δεν υπάρχουν στον κανονισμό, είτε η φράση τους έχει κενό που το συμπληρώνει η ετικέτα (π.χ. ποιο όργανο βλάπτεται, ποια ουσία περιέχει, πού απορρίπτεται). Γράψτε δίπλα στον κωδικό τη φράση όπως είναι στην ετικέτα, αλλιώς ο πελάτης θα βλέπει μόνο τον κωδικό.</p>}
 
             <Check name="hazardNone" label="Η συσκευασία δεν φέρει σήμανση κινδύνου" defaultChecked={hazard?.none ?? false} hint="Κανένα εικονόγραμμα σε κόκκινο ρόμβο, καμία λέξη «Κίνδυνος» ή «Προσοχή». Αν το σημειώσετε, τα παρακάτω πεδία αγνοούνται." />
 
@@ -110,8 +110,8 @@ export async function ProductEditor({ product, created }: Props) {
             </Field>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Δηλώσεις επικινδυνότητας (H, EUH)" hint="Μία ανά γραμμή, ΑΚΡΙΒΩΣ όπως στην ετικέτα. Μπορείτε να βάλετε μπροστά τον κωδικό: «H302 Επιβλαβές σε περίπτωση κατάποσης.»"><textarea name="hazardStatements" rows={6} defaultValue={(hazard?.statements ?? []).join('\n')} className="field resize-y" /></Field>
-              <Field label="Δηλώσεις προφύλαξης (P)" hint="Μία ανά γραμμή, όπως στην ετικέτα: «P102 Μακριά από παιδιά.»"><textarea name="hazardPrecautions" rows={6} defaultValue={(hazard?.precautions ?? []).join('\n')} className="field resize-y" /></Field>
+              <Field label="Δηλώσεις επικινδυνότητας (H, EUH)" hint="Μία ανά γραμμή. Αρκεί ο κωδικός (π.χ. H302): το site γράφει μόνο του την επίσημη ελληνική φράση του κανονισμού. Αν η ετικέτα λέει κάτι πιο συγκεκριμένο, γράψτε το δίπλα στον κωδικό ΑΚΡΙΒΩΣ όπως είναι: «H373 Μπορεί να προκαλέσει βλάβες στα νεφρά…»"><textarea name="hazardStatements" rows={6} defaultValue={(hazard?.statements ?? []).join('\n')} className="field resize-y" /></Field>
+              <Field label="Δηλώσεις προφύλαξης (P)" hint="Μία ανά γραμμή. Αρκεί ο κωδικός (π.χ. P102 ή P301+P312)· όπου η ετικέτα συμπληρώνει κάτι (P501 «Διάθεση … σε …»), γράψτε τη φράση της."><textarea name="hazardPrecautions" rows={6} defaultValue={(hazard?.precautions ?? []).join('\n')} className="field resize-y" /></Field>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">

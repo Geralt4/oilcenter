@@ -102,9 +102,12 @@ empty or switched off and **renders nothing until he fills it in**. `npm run tes
   precautionary statements as printed on the pack, an SDS link or uploaded PDF (`DATA_DIR/uploads/sds`, served by
   `/media`, not part of the DB backup — same as photos). Edited in the product form; **public only once «Το έλεγξα με
   τη συσκευασία» is ticked**. Source must be the pack or the manufacturer's SDS (section 2.2), never our AI-upscaled
-  photos. Worklist: *Προϊόντα → «Χωρίς σήμανση κινδύνου»*. Still missing: the nine official GHS symbols in
-  `public/ghs/GHS01…09.svg` (until then the symbol's name shows as alt text) and the official Greek statement texts in
-  `GHS_STATEMENTS_EL` (until then a bare code like `H302` must be typed with its wording — the form warns otherwise).
+  photos. Worklist: *Προϊόντα → «Χωρίς σήμανση κινδύνου»*. The nine symbols in `public/ghs/` are the public-domain
+  UNECE artwork (via Wikimedia Commons) — official signs, never restyle them. `src/lib/ghs-statements-el.ts` is
+  **generated** from the regulation's consolidated Greek text (EU Publications Office, version of 01.07.2026; 245
+  statements, identical in the 01.12.2023 text): typing a bare code (`H302`, `P301+P330+P331`) prints the official
+  wording. 35 statements are templates the label completes (`H373` organs, `EUH208` substance, `P501` where to dispose)
+  — those are never auto-filled; the form asks for the pack's own wording. No product has hazard data yet.
 - **Real social proof** — *Ρυθμίσεις → «Κριτικές & ιστορία»*: Google link / rating / count, Skroutz rating / count,
   founding year, typed in exactly as the platforms show them. `<TrustBadges>` renders what is filled (home hero, footer,
   contact, about), each rating linking to the platform. Deliberately **no `aggregateRating`** in the JSON-LD.

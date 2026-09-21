@@ -109,6 +109,12 @@ async function main() {
   check('a bare code is completed from the table, combined codes included', s2.code === 'P301+P312' && s2.text === 'ΕΠΙΣΗΜΟ ΚΕΙΜΕΝΟ');
   check('free text stays free text', s3.code === null && s3.text === 'Περιέχει ισοθειαζολινόνη.');
   check('a bare code the table does not know is reported, not guessed', unknownCodes(built!, {}).join() === 'H373,P301+P312' && parseStatement('H373', {}).text === null);
+  const { GHS_STATEMENTS_EL } = await import('../src/lib/ghs-statements-el');
+  const official = Object.entries(GHS_STATEMENTS_EL);
+  check('the official table is complete and well-formed (245 statements of the regulation)', official.length === 245 && official.every(([k, v]) => /^(EUH|H|P)\d{3}[A-Z]{0,2}(\+(EUH|H|P)\d{3}[A-Z]{0,2})*$/.test(k) && v.length > 5 && !/[►◄▼]/.test(v)), official.length);
+  check('a bare code is completed with the regulation’s own words', parseStatement('H302').text === 'Επιβλαβές σε περίπτωση κατάποσης.' && parseStatement('p102').text === 'Μακριά από παιδιά.' && parseStatement('H361d').text === 'Ύποπτο για πρόκληση βλάβης στο έμβρυο.' && parseStatement('H361d').code === 'H361d' && parseStatement('EUH210').text === 'Δελτίο δεδομένων ασφαλείας παρέχεται εφόσον ζητηθεί.');
+  check('a statement the label has to complete is never filled in for it', parseStatement('H373').text === null && parseStatement('EUH208').text === null && parseStatement('P501').text === null && parseStatement('P501 Διάθεση του περιεχομένου σε εγκεκριμένο χώρο απόρριψης.').text === 'Διάθεση του περιεχομένου σε εγκεκριμένο χώρο απόρριψης.');
+  check('with the real table only the templates are still reported (H373 names organs, P301+P312 ends in «/…»)', unknownCodes(built!).join() === 'H373,P301+P312' && unknownCodes({ statements: ['H302', 'H412'], precautions: ['P102', 'P273'] }).length === 0);
   const cats = [{ id: 1, slug: 'chimika-prostheta', parentId: null }, { id: 2, slug: 'prostheta-kafsimou', parentId: 1 }, { id: 3, slug: 'lipantika-kinitira', parentId: null }, { id: 4, slug: 'lipantika-2t', parentId: 3 }, { id: 5, slug: 'lipantika-epivatikon', parentId: 3 }];
   const ids = hazardPriorityCategoryIds(cats);
   check('the worklist covers chemicals with their sub-categories and 2-stroke oils, not car engine oils', [...ids].sort().join() === '1,2,4');
