@@ -11,6 +11,14 @@ import { cn } from '@/lib/utils';
 
 export type Crumb = { name: string; href: string };
 
+/**
+ * The same cards as everywhere else, but the filters take a fixed 384 px out of the row from 1024 up, so from there
+ * the image is (33vw − 143 px) over three columns, and a flat 215 px once the fourth column arrives at 1280. Rounded
+ * up a little; below 1024 the filters are a drawer and the grid has the row to itself, so those two entries match
+ * ProductGrid's own default.
+ */
+const LISTING_IMAGE_SIZES = '(min-width: 1280px) 220px, (min-width: 1024px) calc(33vw - 130px), (min-width: 640px) 33vw, 50vw';
+
 export function Breadcrumbs({ items }: { items: Crumb[] }) {
   const all = [{ name: 'Αρχική', href: '/' }, ...items];
   return (
@@ -113,7 +121,7 @@ export async function ProductListing({ pathname, searchParams, scope, title, eye
 
           {listing.products.length > 0 ? (
             <>
-              <ProductGrid products={listing.products} priorityCount={4} />
+              <ProductGrid products={listing.products} priorityCount={4} sizes={LISTING_IMAGE_SIZES} />
               <Pagination page={listing.page} pageCount={listing.pageCount} pathname={pathname} searchParams={searchParams} />
             </>
           ) : (
