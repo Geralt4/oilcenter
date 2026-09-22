@@ -2,6 +2,7 @@ import './env';
 import { eq } from 'drizzle-orm';
 import { db } from '../src/lib/db';
 import { settings } from '../src/lib/db/schema';
+import { applyHazardLabels, applyManufacturerSpecs } from './manufacturer-data';
 import { applySkroutzPrices } from './skroutz-prices';
 
 /*
@@ -14,6 +15,10 @@ import { applySkroutzPrices } from './skroutz-prices';
 const PATCHES: Array<{ id: string; run: () => Promise<string> }> = [
   // Real prices from the shop's Skroutz listing. Never overwrites a price the owner has already confirmed.
   { id: '2026-09-20-skroutz-prices', run: () => applySkroutzPrices({ verbose: false }) },
+  // Specifications from the manufacturers' data sheets, only where the product had none.
+  { id: '2026-09-22-manufacturer-specs', run: () => applyManufacturerSpecs({ verbose: false }) },
+  // Hazard labelling copied from the manufacturers' safety data sheets — unconfirmed, so nothing shows until checked.
+  { id: '2026-09-22-hazard-labels', run: () => applyHazardLabels({ verbose: false }) },
 ];
 
 const KEY = 'dataPatches';

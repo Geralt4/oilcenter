@@ -4,8 +4,9 @@ import { ArrowRight, BadgePercent, Headset, Phone, ShieldCheck, Store, Truck } f
 import { CategoryIcon } from '@/components/category-icon';
 import { ProductGrid } from '@/components/store/product-card';
 import { StoreLocation } from '@/components/store/store-location';
+import { TrustBadges } from '@/components/store/trust-badges';
 import { buttonClass } from '@/components/ui/button';
-import { getBrands, getCategoryTree, getFeaturedProducts, getPopularViscosities, listProducts } from '@/lib/catalog';
+import { getBrands, getCategoryTree, getFeaturedProducts, getPopularViscosities, listProducts, viscositySlug } from '@/lib/catalog';
 import { localBusinessJsonLd } from '@/lib/seo';
 import { getSettings } from '@/lib/settings.server';
 import { formatPrice, telHref } from '@/lib/utils';
@@ -22,8 +23,8 @@ export default async function HomePage() {
   const { shop, shipping } = settings;
   const totalProducts = tree.reduce((n, c) => n + c.productCount, 0);
 
-  const usps = [
-    { icon: BadgePercent, title: 'Τιμές χονδρικής', text: 'Ακόμα και για αγορές λιανικής.' },
+  const usps: Array<{ icon: typeof Truck; title: string; text: string; href?: string; more?: string }> = [
+    { icon: BadgePercent, title: 'Τιμές χονδρικής', text: 'Ακόμα και για αγορές λιανικής.', ...(settings.storefront.b2bPage && { href: '/professionals', more: 'Για συνεργεία →' }) },
     { icon: Truck, title: 'Αποστολή σε όλη την Ελλάδα', text: shipping.freeOverCents > 0 ? `Δωρεάν για αγορές άνω των ${formatPrice(shipping.freeOverCents)}.` : `Παράδοση σε ${shipping.deliveryEstimate}.` },
     { icon: Store, title: 'Παραλαβή από το κατάστημα', text: `${shop.street}, ${shop.city} — χωρίς χρέωση.` },
     { icon: Headset, title: 'Δεν είστε σίγουροι;', text: 'Πάρτε μας τηλέφωνο: βρίσκουμε το σωστό λάδι για το όχημά σας.' },
@@ -60,6 +61,8 @@ export default async function HomePage() {
               </a>
             </div>
 
+            <TrustBadges shop={shop} reviews={settings.reviews} tone="dark" className="mt-6" />
+
             {viscosities.length > 0 && (
               <div className="mt-10">
                 <p className="eyebrow text-ink-300">Ξέρετε το ιξώδες; Διαλέξτε το:</p>
@@ -67,7 +70,7 @@ export default async function HomePage() {
                   {viscosities.map((v) => (
                     <li key={v.viscosity}>
                       <Link
-                        href={`/category/lipantika-kinitira?visc=${encodeURIComponent(v.viscosity)}`}
+                        href={`/viscosity/${viscositySlug(v.viscosity)}`}
                         className="tabular flex h-11 items-center rounded-xl border border-white/15 bg-white/5 px-4 font-display text-lg font-bold tracking-wide text-white transition-colors hover:border-oil-400 hover:bg-oil-500 hover:text-ink-950"
                       >
                         {v.viscosity}
@@ -98,14 +101,17 @@ export default async function HomePage() {
       {/* ── USPs ─────────────────────────────────────────────────────────── */}
       <section aria-label="Γιατί Oil Center" className="border-b border-line bg-white">
         <ul className="container-page grid gap-x-8 gap-y-5 py-7 sm:grid-cols-2 lg:grid-cols-4">
-          {usps.map(({ icon: Icon, title, text }) => (
+          {usps.map(({ icon: Icon, title, text, href, more }) => (
             <li key={title} className="flex items-start gap-3.5">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-oil-100 text-oil-800">
                 <Icon className="h-5 w-5" />
               </span>
               <div>
                 <p className="font-semibold text-ink-900">{title}</p>
-                <p className="text-sm text-ink-500">{text}</p>
+                <p className="text-sm text-ink-500">
+                  {text}
+                  {href && <> <Link href={href} className="font-semibold text-petrol-500 hover:text-petrol-700">{more}</Link></>}
+                </p>
               </div>
             </li>
           ))}
@@ -148,6 +154,24 @@ export default async function HomePage() {
             </li>
           ))}
         </ul>
+      </section>
+
+      {/* ── «Ποιο λάδι;» — the shop's answer to the big sites' vehicle selectors: a person who knows ── */}
+      <section className="container-page pt-8">
+        <div className="steel flex flex-col gap-5 rounded-3xl p-6 text-white sm:flex-row sm:items-center sm:justify-between sm:p-8">
+          <div className="flex items-start gap-4">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-oil-500 text-ink-950">
+              <Headset className="h-6 w-6" />
+            </span>
+            <div>
+              <h2 className="display text-2xl sm:text-3xl">Δεν ξέρετε ποιο λάδι θέλει το όχημά σας;</h2>
+              <p className="mt-1 max-w-xl text-ink-300">Πείτε μας μάρκα, μοντέλο και έτος. Σας καλούμε με το ιξώδες και την προδιαγραφή που ζητά ο κατασκευαστής.</p>
+            </div>
+          </div>
+          <Link href="/find-my-oil" className={buttonClass({ size: 'lg', className: 'shrink-0' })}>
+            Βρείτε το σωστό λάδι <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
       </section>
 
       {/* ── Featured ─────────────────────────────────────────────────────── */}

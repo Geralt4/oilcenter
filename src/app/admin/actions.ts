@@ -12,6 +12,7 @@ import { createSession, destroySession, requireAdmin } from '@/lib/auth/session'
 import { db } from '@/lib/db';
 import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, variants, type BaseType, type OrderStatus } from '@/lib/db/schema';
 import { orderStatusMail, sendMail } from '@/lib/email';
+import { buildHazard } from '@/lib/ghs';
 import { isValidGtin, normalizeGtin } from '@/lib/gtin';
 import { normalizeProductPhoto } from '@/lib/images';
 import { addOrderEvent, cancelOrder, getOrderByNumber, ORDER_STATUS_LABELS } from '@/lib/orders';
@@ -148,6 +149,18 @@ async function storeUploads(files: File[], slug: string): Promise<string[]> {
   return urls;
 }
 
+/** A safety data sheet. Stored only if it really is a PDF (by signature, not by what the browser claims) and of a sane size. */
+async function storeSds(file: File, slug: string): Promise<string | { error: string }> {
+  if (file.size > 10 * 1024 * 1024) return { error: 'Το δελτίο δεδομένων ασφαλείας ξεπερνά τα 10 MB.' };
+  const bytes = Buffer.from(await file.arrayBuffer());
+  if (bytes.subarray(0, 5).toString('latin1') !== '%PDF-') return { error: 'Το δελτίο δεδομένων ασφαλείας πρέπει να είναι αρχείο PDF.' };
+  const dir = path.resolve(process.env.DATA_DIR || './data', 'uploads', 'sds');
+  await mkdir(dir, { recursive: true });
+  const name = `${slug.slice(0, 60)}-sds-${randomToken(5).toLowerCase()}.pdf`;
+  await writeFile(path.join(dir, name), bytes);
+  return `/media/sds/${name}`;
+}
+
 export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   await requireAdmin();
   const id = int(fd, 'id') || null;
@@ -187,12 +200,27 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     searchText: normalizeText([brand?.name ?? '', name, viscosity ?? '', viscosity?.replace('-', '') ?? '', specs.join(' '), category?.name ?? '', str(fd, 'keywords'), priced.map((v) => v.label).join(' ')].join(' ')),
   };
 
+  // Hazard labelling & safety data sheet (lib/ghs.ts). A newly uploaded PDF replaces whatever link was there.
+  const sdsFile = fd.get('sds');
+  const sdsUpload = sdsFile instanceof File && sdsFile.size > 0 ? await storeSds(sdsFile, slug) : null;
+  if (sdsUpload && typeof sdsUpload !== 'string') return { ok: false, message: sdsUpload.error };
+  const sdsLink = str(fd, 'sdsUrl');
+  if (sdsLink && !sdsLink.startsWith('/media/sds/') && !/^https:\/\/[^\s]+$/i.test(sdsLink)) {
+    if (sdsUpload) await removeUpload(sdsUpload);
+    return { ok: false, message: 'Ο σύνδεσμος του δελτίου δεδομένων ασφαλείας πρέπει να ξεκινά με https://' };
+  }
+  const hazard = buildHazard({
+    none: bool(fd, 'hazardNone'), confirmed: bool(fd, 'hazardConfirmed'), signalWord: str(fd, 'hazardSignal'), pictograms: fd.getAll('hazardPictograms').map(String),
+    statements: String(fd.get('hazardStatements') ?? ''), precautions: String(fd.get('hazardPrecautions') ?? ''), sdsUrl: sdsUpload ?? sdsLink,
+  });
+  const [previous] = id ? await db.select({ hazard: products.hazard }).from(products).where(eq(products.id, id)) : [];
+
   const uploads = await storeUploads(fd.getAll('images').filter((f): f is File => f instanceof File), slug);
 
   const productId = await db.transaction(async (tx) => {
     let pid = id;
-    if (pid) await tx.update(products).set(values).where(eq(products.id, pid));
-    else pid = (await tx.insert(products).values(values).returning({ id: products.id }))[0].id;
+    if (pid) await tx.update(products).set({ ...values, hazard }).where(eq(products.id, pid));
+    else pid = (await tx.insert(products).values({ ...values, hazard }).returning({ id: products.id }))[0].id;
 
     const keep = priced.flatMap((v) => (v.id ? [v.id] : []));
     const before = new Map((await tx.select({ id: variants.id, priceCents: variants.priceCents }).from(variants).where(eq(variants.productId, pid))).map((v) => [v.id, v.priceCents]));
@@ -220,7 +248,12 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     throw err;
   });
 
-  if (productId === null) return { ok: false, message: 'Κάποιος κωδικός (SKU) χρησιμοποιείται ήδη από άλλο προϊόν.' };
+  if (productId === null) {
+    if (sdsUpload) await removeUpload(sdsUpload);
+    return { ok: false, message: 'Κάποιος κωδικός (SKU) χρησιμοποιείται ήδη από άλλο προϊόν.' };
+  }
+  // the data sheet that was replaced or removed is no longer linked from anywhere
+  if (previous?.hazard?.sdsUrl && previous.hazard.sdsUrl !== hazard?.sdsUrl) await removeUpload(previous.hazard.sdsUrl);
   revalidatePath('/admin/products');
   if (!id) redirect(`/admin/products/${productId}?created=1`);
   return { ok: true, message: 'Το προϊόν αποθηκεύτηκε.' };
@@ -230,12 +263,13 @@ export async function deleteProduct(fd: FormData): Promise<void> {
   await requireAdmin();
   const id = int(fd, 'id');
   const images = await db.select().from(productImages).where(eq(productImages.productId, id));
+  const [row] = await db.select({ hazard: products.hazard }).from(products).where(eq(products.id, id));
   await db.transaction(async (tx) => {
     await tx.delete(variants).where(eq(variants.productId, id));
     await tx.delete(productImages).where(eq(productImages.productId, id));
     await tx.delete(products).where(eq(products.id, id));
   });
-  await Promise.all(images.map((i) => removeUpload(i.url)));
+  await Promise.all([...images.map((i) => i.url), ...(row?.hazard?.sdsUrl ? [row.hazard.sdsUrl] : [])].map(removeUpload));
   redirect('/admin/products?deleted=1');
 }
 
@@ -498,11 +532,21 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
     lat: num('lat', current.shop.lat), lng: num('lng', current.shop.lng),
     facebookUrl: cleanUrl(str(fd, 'facebookUrl')), instagramUrl: instagramUrl(str(fd, 'instagramUrl')), skroutzUrl: cleanUrl(str(fd, 'skroutzUrl')),
     vatNumber: str(fd, 'vatNumber'), taxOffice: str(fd, 'taxOffice'), gemi: str(fd, 'gemi'), hours, hoursVerified: bool(fd, 'hoursVerified'),
+    foundedYear: ((y) => (y >= 1900 && y <= new Date().getFullYear() ? y : 0))(int(fd, 'foundedYear')),
   };
   if (!shop.phone || !shop.street || !shop.city) return { ok: false, message: 'Τηλέφωνο, οδός και πόλη είναι υποχρεωτικά.' };
 
+  // a rating is only worth showing if it is exactly what the platform shows: anything outside 1–5 is a typo, not a rating
+  const rating = (key: string) => ((n) => (n >= 1 && n <= 5 ? Math.round(n * 10) / 10 : 0))(num(key, 0));
+  const googleRating = rating('googleRating'), skroutzRating = rating('skroutzRating');
+
   await saveSettingsGroup('shop', shop);
-  await saveSettingsGroup('storefront', { demoMode: bool(fd, 'demoMode'), ordersEnabled: bool(fd, 'ordersEnabled'), launchSignup: bool(fd, 'launchSignup'), announcement: str(fd, 'announcement'), lowStockThreshold: int(fd, 'lowStockThreshold', 3) });
+  await saveSettingsGroup('storefront', { demoMode: bool(fd, 'demoMode'), ordersEnabled: bool(fd, 'ordersEnabled'), launchSignup: bool(fd, 'launchSignup'), announcement: str(fd, 'announcement'), lowStockThreshold: int(fd, 'lowStockThreshold', 3), b2bPage: bool(fd, 'b2bPage') });
+  await saveSettingsGroup('reviews', {
+    googleUrl: cleanUrl(str(fd, 'googleUrl')),
+    googleRating, googleCount: googleRating ? int(fd, 'googleCount') : 0,
+    skroutzRating, skroutzCount: skroutzRating ? int(fd, 'skroutzCount') : 0,
+  });
   await saveSettingsGroup('shipping', {
     courierEnabled: bool(fd, 'courierEnabled'), pickupEnabled: bool(fd, 'pickupEnabled'), carrierName: str(fd, 'carrierName') || 'Courier', deliveryEstimate: str(fd, 'deliveryEstimate'),
     baseCents: euro('baseCents', current.shipping.baseCents), baseWeightKg: num('baseWeightKg', current.shipping.baseWeightKg), perExtraKgCents: euro('perExtraKgCents', current.shipping.perExtraKgCents),

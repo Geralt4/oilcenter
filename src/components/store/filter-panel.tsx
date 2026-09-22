@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
 import { SlidersHorizontal, X } from 'lucide-react';
+import { FACET_TITLES } from '@/lib/approvals';
 import type { FacetOption, Listing, SortKey } from '@/lib/catalog';
 import { cn } from '@/lib/utils';
 
@@ -12,7 +13,13 @@ type Props = {
   activeCount: number;
   /** hide the brand facet on a brand page, where it is the page's own scope */
   hideBrands?: boolean;
+  /** same for a /viscosity/… page */
+  hideViscosities?: boolean;
+  /** a category page narrows with its own sub-category chips instead */
+  hideCategories?: boolean;
 };
+
+type Hidden = Pick<Props, 'hideBrands' | 'hideViscosities' | 'hideCategories'>;
 
 function useListingNav() {
   const router = useRouter();
@@ -40,13 +47,13 @@ function useListingNav() {
   const setParam = (key: string, value: string | null) => push((p) => (value ? p.set(key, value) : p.delete(key)));
   const clearAll = () =>
     push((p) => {
-      for (const k of ['brand', 'visc', 'pack', 'base', 'stock', 'sale', 'min', 'max']) p.delete(k);
+      for (const k of ['brand', 'cat', 'visc', 'spec', 'pack', 'base', 'stock', 'sale', 'min', 'max']) p.delete(k);
     });
 
   return { pending, searchParams, selected, toggle, setParam, clearAll };
 }
 
-function FacetGroup({ title, options, selected, onToggle, columns = 1 }: { title: string; options: FacetOption[]; selected: Set<string>; onToggle: (value: string) => void; columns?: 1 | 2 }) {
+function FacetGroup({ title, options, selected, onToggle, columns = 1, note }: { title: string; options: FacetOption[]; selected: Set<string>; onToggle: (value: string) => void; columns?: 1 | 2; note?: string }) {
   const [expanded, setExpanded] = useState(false);
   if (options.length === 0) return null;
   const limit = columns === 2 ? 12 : 8;
@@ -73,17 +80,24 @@ function FacetGroup({ title, options, selected, onToggle, columns = 1 }: { title
           {expanded ? 'Λιγότερα' : `Όλα (${options.length})`}
         </button>
       )}
+      {note && <p className="mt-2 px-1.5 text-xs leading-relaxed text-ink-500">{note}</p>}
     </fieldset>
   );
 }
 
-function Facets({ facets, hideBrands }: Pick<Props, 'facets' | 'hideBrands'>) {
+function Facets({ facets, hideBrands, hideViscosities, hideCategories }: Pick<Props, 'facets'> & Hidden) {
   const nav = useListingNav();
 
   return (
     <div className={cn('transition-opacity', nav.pending && 'opacity-60')} aria-busy={nav.pending}>
-      <FacetGroup title="Ιξώδες (SAE)" options={facets.viscosities} selected={nav.selected('visc')} onToggle={(v) => nav.toggle('visc', v)} columns={2} />
+      {/* one category to choose from is no choice */}
+      {!hideCategories && (facets.categories.length > 1 || nav.selected('cat').size > 0) && <FacetGroup title="Κατηγορία" options={facets.categories} selected={nav.selected('cat')} onToggle={(v) => nav.toggle('cat', v)} />}
+      {!hideViscosities && <FacetGroup title="Ιξώδες (SAE)" options={facets.viscosities} selected={nav.selected('visc')} onToggle={(v) => nav.toggle('visc', v)} columns={2} />}
       {!hideBrands && <FacetGroup title="Μάρκα" options={facets.brands} selected={nav.selected('brand')} onToggle={(v) => nav.toggle('brand', v)} />}
+      {/* one URL key for the three groups: ticking more than one NARROWS the list (an oil that carries all of them) */}
+      {(['standard', 'oem', 'other'] as const).map((kind) => (
+        <FacetGroup key={kind} title={FACET_TITLES[kind]} options={facets.approvals[kind]} selected={nav.selected('spec')} onToggle={(v) => nav.toggle('spec', v)} note={kind === 'oem' ? 'Όπως αναγράφονται στη συσκευασία. Επιβεβαιώστε με το βιβλίο συντήρησης.' : undefined} />
+      ))}
       <FacetGroup title="Συσκευασία" options={facets.packs} selected={nav.selected('pack')} onToggle={(v) => nav.toggle('pack', v)} columns={2} />
       <FacetGroup title="Τύπος λιπαντικού" options={facets.baseTypes} selected={nav.selected('base')} onToggle={(v) => nav.toggle('base', v)} />
 
@@ -170,7 +184,7 @@ function ClearFilters({ activeCount }: { activeCount: number }) {
 }
 
 /** Desktop: sticky sidebar. Filter state lives in the URL, so this and <MobileFilters> never disagree. */
-export function FilterSidebar({ facets, activeCount, hideBrands }: Omit<Props, 'total'>) {
+export function FilterSidebar({ facets, activeCount, ...hidden }: Omit<Props, 'total'>) {
   return (
     <aside className="hidden w-72 shrink-0 lg:block" aria-label="Φίλτρα">
       <div className="sticky top-44 max-h-[calc(100dvh-12rem)] overflow-y-auto rounded-2xl border border-line bg-white p-5 shadow-tile">
@@ -178,14 +192,14 @@ export function FilterSidebar({ facets, activeCount, hideBrands }: Omit<Props, '
           <h2 className="display text-xl">Φίλτρα</h2>
           <ClearFilters activeCount={activeCount} />
         </div>
-        <Facets facets={facets} hideBrands={hideBrands} />
+        <Facets facets={facets} {...hidden} />
       </div>
     </aside>
   );
 }
 
 /** Phones / tablets: a toolbar button that opens a bottom sheet. */
-export function MobileFilters({ facets, total, activeCount, hideBrands }: Props) {
+export function MobileFilters({ facets, total, activeCount, ...hidden }: Props) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -219,7 +233,7 @@ export function MobileFilters({ facets, total, activeCount, hideBrands }: Props)
               </div>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
-              <Facets facets={facets} hideBrands={hideBrands} />
+              <Facets facets={facets} {...hidden} />
             </div>
             <div className="safe-bottom shrink-0 border-t border-line p-4">
               <button type="button" onClick={() => setOpen(false)} className="h-12 w-full cursor-pointer rounded-xl bg-oil-500 font-semibold text-ink-950">

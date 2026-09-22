@@ -61,6 +61,11 @@ export function productJsonLd(product: ProductDetail, settings: ShopSettings) {
     description: product.shortDescription ?? undefined,
     image: product.images.map((i) => `${siteUrl()}${i.url}`),
     sku: product.variants[0]?.sku,
+    // one Product can carry one barcode: only for products sold in a single size (several sizes would need a ProductGroup)
+    ...(product.variants.length === 1 && {
+      mpn: product.variants[0].mpn ?? undefined,
+      gtin: product.variants[0].barcode ?? undefined,
+    }),
     brand: product.brand ? { '@type': 'Brand', name: product.brand.name } : undefined,
     category: product.category?.name,
     url,

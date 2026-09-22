@@ -1,11 +1,8 @@
 'use server';
 
 import { z } from 'zod';
-import { db } from '@/lib/db';
-import { contactMessages } from '@/lib/db/schema';
-import { contactMail, sendMail } from '@/lib/email';
+import { saveEnquiry } from '@/lib/enquiries';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
-import { getSettings } from '@/lib/settings.server';
 
 const Schema = z.object({
   name: z.string().trim().min(2, 'Συμπληρώστε το όνομά σας').max(120),
@@ -32,7 +29,6 @@ export async function sendContactMessage(_prev: ContactState, formData: FormData
   }
 
   const { website: _w, ...data } = parsed.data;
-  await db.insert(contactMessages).values({ name: data.name, email: data.email, phone: data.phone || null, subject: data.subject || null, message: data.message });
-  await sendMail(contactMail(data, await getSettings()));
+  await saveEnquiry({ kind: 'contact', ...data });
   return { ok: true, message: 'Ευχαριστούμε! Λάβαμε το μήνυμά σας και θα επικοινωνήσουμε σύντομα μαζί σας.' };
 }

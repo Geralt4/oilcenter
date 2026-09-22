@@ -74,6 +74,82 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
     flags orders as tests. It can be switched off while ordering stays closed — that is the public *catalogue* of the
     test run. Product structured data carries offers only when demo mode is off **and** ordering is open.
 
+12. **Hazard labelling of chemicals.** 52 products (antifreeze & fluids, additives, sprays, 2-stroke oils) have no
+    hazard data yet — see "Borrowed from the competition" → hazard labelling. The dashboard lists it; the legal question
+    behind it is F1 in [`questions.md`](questions.md).
+
+## Borrowed from the competition (September 2026)
+
+A review of two local competitors (lazaridis-lubricants.gr, todos.gr) produced seven additions. None copies their
+material; each is a common technique built from this shop's own data. Everything that needs the owner's input ships
+empty or switched off and **renders nothing until he fills it in**. `npm run test:catalog` (73 checks) covers the logic.
+
+- **Viscosity pages** — `/viscosity` and `/viscosity/5w-30`. Filtered listings are `noindex` with `/products` as their
+  canonical, so nothing could rank for «λάδια 5W-30»; each SAE grade now has an indexable page whose title, intro and
+  "from" price come from the live catalogue (`getViscosities()` in `src/lib/catalog.ts`). Adding any filter turns it
+  `noindex`. Grades with ≥ 2 products are in the sitemap; home chips, product pages and the footer link to them.
+- **Category facet** — `?cat=` on every listing that is not a category page (so `/brand/castrol` can be narrowed to
+  motorcycle oils). A facet the page hides (`?cat=` on a category page, `?visc=` on a viscosity page) is ignored.
+- **«Ποιο λάδι χρειάζεται το όχημά μου;»** — `/find-my-oil`. The big parts sites answer this with a licensed vehicle
+  database; this shop answers with a person. The form (vehicle, make, model, year, fuel, engine, km, phone) lands in
+  *Admin → Μηνύματα* and in the shop's e-mail; `?product=<slug>` carries the product being asked about. All forms now
+  go through `src/lib/enquiries.ts`; `contact_messages.kind` (`contact` / `oil-finder` / `quote`) filters the inbox.
+- **Product codes** — every size's SKU, manufacturer code and barcode are searchable (added to the in-memory index at
+  load time, because *Admin → Skroutz* edits codes without rebuilding `search_text`), shown per size on the product
+  page, named in search suggestions, and — for single-size products — sent as `mpn` / `gtin` in the JSON-LD. The
+  catalogue has no codes yet (question N5).
+- **Hazard labelling + safety data sheets** — `products.hazard` (`src/lib/ghs.ts`): pictograms, signal word, hazard and
+  precautionary statements as printed on the pack, an SDS link or uploaded PDF (`DATA_DIR/uploads/sds`, served by
+  `/media`, not part of the DB backup — same as photos). Edited in the product form; **public only once «Το έλεγξα με
+  τη συσκευασία» is ticked**. Source must be the pack or the manufacturer's SDS (section 2.2), never our AI-upscaled
+  photos. Worklist: *Προϊόντα → «Χωρίς σήμανση κινδύνου»*. The nine symbols in `public/ghs/` are the public-domain
+  UNECE artwork (via Wikimedia Commons) — official signs, never restyle them. `src/lib/ghs-statements-el.ts` is
+  **generated** from the regulation's consolidated Greek text (EU Publications Office, version of 01.07.2026; 245
+  statements, identical in the 01.12.2023 text): typing a bare code (`H302`, `P301+P330+P331`) prints the official
+  wording. 35 statements are templates the label completes (`H373` organs, `EUH208` substance, `P501` where to dispose)
+  — those are never auto-filled; the form asks for the pack's own wording. No product has hazard data yet.
+- **Real social proof** — *Ρυθμίσεις → «Κριτικές & ιστορία»*: Google link / rating / count, Skroutz rating / count,
+  founding year, typed in exactly as the platforms show them. `<TrustBadges>` renders what is filled (home hero, footer,
+  contact, about), each rating linking to the platform. Deliberately **no `aggregateRating`** in the JSON-LD.
+- **«Για συνεργεία & επαγγελματίες»** — `/professionals`, behind *Ρυθμίσεις → Λειτουργία καταστήματος* (off = 404, no
+  links, the action refuses). A quote form with Greek VAT-number check; the copy promises a quote, not terms.
+- **Filter by approval** — `?spec=vw-504-00,mb-229.51`. `src/lib/approvals.ts` turns the specification lines ("as
+  printed on the pack") into keys: it merges spellings of the same approval, splits lines naming several, **never
+  infers compatibility and never guesses** — an unknown line stays a plain chip. Approvals *narrow* (an oil carrying
+  all ticked ones). 45 lubricants have no specification lines yet: *Προϊόντα → «Χωρίς προδιαγραφές»*.
+
+Considered and rejected: a make/model vehicle selector (licensed TecDoc data), on-site product reviews (empty review
+blocks look worse than none), newsletter pop-ups, splash loaders, one product page per pack size.
+
+### Pre-filled from the manufacturers' documents (22.09.2026)
+
+Two data files, applied by `scripts/manufacturer-data.ts` at seed time and as data patches (`2026-09-22-*` in
+`scripts/patches.ts`), so a fresh database and the hosted one end up the same. Both **only fill gaps**: a product that
+already has specs keeps them, a hazard card that exists is never touched, and every entry names the document it came
+from. `npm run test:catalog` checks the files against the catalogue and the regulation's table.
+
+- `catalog/manufacturer-specs.json` — specification lines for 29 of the 45 lubricants that had none, copied from the
+  current product data sheets: Castrol (portal `msdspds.castrol.com`), Motul (Greek product pages + TDS), Valvoline
+  (PI sheets), Mobil 1 ESP 5W-30. "Warranted suitable" / "recommended for" lines were left out; "meets" lines are in.
+  Each product's internal note records the source. Still empty (no reachable manufacturer document): Castrol POWER1
+  15W-50 / 20W-50 / ULTIMATE 10W-50 (not in Castrol's portal for Greece), Mobil Super 3000 ×3 and Mobil 1 FS ×2
+  (mobil.com blocks automated reading), Toyota ×3, Petronas Tutela ×4, Selenia 20K.
+- `catalog/hazard-labels.json` — label elements (SDS section 2.2) for 14 of the 53 chemicals, **all `confirmed:
+  false`**: Liqui Moly ×11 (Greek SDS via the public `pim.liqui-moly.com/sheets/<article>` endpoint, which lists the
+  current sheet per language; the Greek-market article, language line EL-EN-IT, was chosen), Mannol ×3 (Greek SDS
+  linked from mannol.de). Bare codes rely on the official wording; template statements carry the sheet's sentence
+  (`EUH208 Περιέχει …`, `P501 …`); pictograms are the sheet's, or derived from the hazard classes as CLP Annex I
+  prescribes. Discrepancies found on the way sit in the entry's `note` and in the product's internal note (Liqui Moly
+  Radiator Stop Leak is a 150 ml product, not 250 ml; Mannol coolants: only the first six P statements copied). Not
+  done: Mannol ×13 (their `sct-b2b.com` host refuses automated access; the Greek sheets on `b2b.sct.lt` could only be
+  read in part), PRO-TEC ×10 (SDS behind the dealer login), MAG 1 ×7 (US-format sheets in a portal — the Greek
+  importer's CLP label is the right source), Motul 2T ×2 (SDS behind a personal-data form), Castrol POWER1 ULTIMATE 2T,
+  AISIN, Valeo, Avista, SilverSpin, Liqui Moly coolant. Question F1 in `questions.md` asks the distributors for these.
+
+To redo or extend: put the sheet's section 2.2 into an entry (codes only where the official wording is complete), run
+`npm run test:catalog`, then `npm run db:patch` locally — the hosted database picks it up at the next deploy only if
+the patch id is new, so add a new `2026-…` patch entry rather than editing the applied one.
+
 ## Pre-launch tools
 
 - **Site password** — while the `SITE_PASSWORD` variable is set, `src/proxy.ts` asks for HTTP Basic credentials

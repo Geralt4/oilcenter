@@ -1,0 +1,348 @@
+{
+  "notice": "Specifications and approvals copied from the manufacturers' current product data sheets on 2026-09-22, for catalogue products that had none. Each entry names the document it came from. Applied by scripts/manufacturer-data.ts only where products.specs is still empty; the owner should still compare with the pack (question F5 in questions.md).",
+  "retrieved": "2026-09-22",
+  "entries": [
+    {
+      "slug": "castrol-edge-0w-20-ll-iv",
+      "specs": [
+        "ACEA C5",
+        "ACEA C6",
+        "API SQ",
+        "ILSAC GF-7",
+        "BMW Longlife-17 FE+",
+        "JAGUAR LAND ROVER STJLR.03.5006",
+        "MB-Approval 229.71 / 229.72",
+        "Porsche C20",
+        "Volvo VCC C6SP",
+        "VW 508 00 / 509 00",
+        "Chrysler MS-6395",
+        "Ford WSS-M2C956-A1 / WSS-M2C972-A1"
+      ],
+      "source": "Castrol PDS 26.03.2026 (Product Performance Claims; Chrysler and Ford lines are 'Meets')",
+      "url": "https://msdspds.castrol.com/bpglis/FusionPDS.nsf/Files/1B27FCDA4C49514580258DC60052A426/$File/wepp-dslqrq.pdf"
+    },
+    {
+      "slug": "castrol-edge-5w-30-ll",
+      "specs": [
+        "ACEA C3",
+        "API SQ",
+        "BMW Longlife-04",
+        "MB-Approval 229.51",
+        "OPEL OV 040 1547 - D30 / G30",
+        "Porsche C30",
+        "Renault RN0700 / RN0710",
+        "VW 504 00 / 507 00",
+        "MB 229.31 / 229.52"
+      ],
+      "source": "Castrol PDS 21.11.2025 (Performance; MB 229.31/229.52 is 'Meets'; VW 505 00/505 01 listed as 'warranted suitable' — not included)",
+      "url": "https://msdspds.castrol.com/bpglis/FusionPDS.nsf/Files/8FB016EA4B51BC3E80258D490046C57D/$File/wepp-dnmh55.pdf"
+    },
+    {
+      "slug": "castrol-edge-5w-30-m",
+      "specs": [
+        "ACEA C2",
+        "ACEA C3",
+        "API SQ",
+        "BMW Longlife-04",
+        "MB-Approval 229.51 / 229.52",
+        "Fiat 9.55535-S3"
+      ],
+      "source": "Castrol PDS 04.02.2026 (Performance; Fiat is 'Meets'; MB 229.31 'warranted suitable' — not included)",
+      "url": "https://msdspds.castrol.com/bpglis/FusionPDS.nsf/Files/F2C2B86443E15D7880258D9400340F67/$File/wepp-dqyd5d.pdf"
+    },
+    {
+      "slug": "castrol-edge-5w-40",
+      "specs": [
+        "ACEA C3",
+        "API SN/CF",
+        "Fiat 9.55535-S2",
+        "Ford WSS-M2C917-A",
+        "GM dexos2",
+        "MB-Approval 226.5 / 229.31 / 229.51",
+        "Renault RN 0700 / RN 0710",
+        "VW 505 00 / 505 01"
+      ],
+      "source": "Castrol Ελλάδα PDS 29.07.2020 (Προδιαγραφές Απόδοσης Προϊόντος) — old document; check the current pack",
+      "url": "https://msdspds.castrol.com/bpglis/FusionPDS.nsf/Files/2BAB373A459818A8802585B40038A9BA/$File/WEPP-BRZH83.pdf"
+    },
+    {
+      "slug": "castrol-magnatec-10w-40-a-b",
+      "specs": [
+        "ACEA A3/B4",
+        "API SP",
+        "Fiat 9.55535-D2",
+        "MB-Approval 229.3",
+        "VW 501 01 / 505 00"
+      ],
+      "source": "Castrol Ελλάδα PDS 30.01.2023 (Magnatec 10W-40 A/B)",
+      "url": "https://msdspds.castrol.com/bpglis/FusionPDS.nsf/Files/ED15BE46B36DEAAE8025894700360CD8/$File/WEPP-CNKN6K.pdf"
+    },
+    {
+      "slug": "castrol-magnatec-5w-20-e-ford",
+      "specs": [
+        "ACEA C5",
+        "API SN",
+        "ILSAC GF-5",
+        "Ford WSS-M2C948-B"
+      ],
+      "source": "Castrol PDS 17.02.2026 (Product Performance Claims)",
+      "url": "https://msdspds.castrol.com/bpglis/FusionPDS.nsf/Files/B13542C16BBF820F80258DA1005A4EF3/$File/wepp-dreme6.pdf"
+    },
+    {
+      "slug": "castrol-power1-10w-40-4t",
+      "specs": [
+        "API SN",
+        "JASO MA2"
+      ],
+      "source": "Castrol Ελλάδα PDS 17.05.2020 (Castrol POWER1 4T 10W-40 — Προδιαγραφές Απόδοσης Προϊόντος)",
+      "url": "https://msdspds.castrol.com/bpglis/FusionPDS.nsf/Files/6B9BE27A78A9A2F48025856B0031B969/$File/WEPP-BPR35M.pdf"
+    },
+    {
+      "slug": "castrol-transmax-limited-slip-75w-140-ll",
+      "specs": [
+        "API GL-5",
+        "MB-Approval 235.61",
+        "ZF TE-ML 05C, 16G, 18, 21C",
+        "BMW LS Rear Axles"
+      ],
+      "source": "Castrol Ελλάδα PDS 06.02.2023 (Transmax Limited Slip LL 75W-140 — API GL-5; Approved: MB-Approval 235.61, ZF TE-ML 05C/16G/18/21C, BMW LS Rear Axles)",
+      "url": "https://msdspds.castrol.com/bpglis/FusionPDS.nsf/Files/6B065838C0DEC4098025894E0040E622/$File/bpxe-azce2u.pdf"
+    },
+    {
+      "slug": "castrol-transmax-limited-slip-z-85w-90",
+      "specs": [
+        "API GL-5",
+        "ZF TE-ML 05C, 12C, 16E, 21C"
+      ],
+      "source": "Castrol Ελλάδα PDS 28.07.2020 (Transmax Limited Slip Z 85W-90)",
+      "url": "https://msdspds.castrol.com/bpglis/FusionPDS.nsf/Files/82E85BD0F835617B802585B300528AC5/$File/bpxe-b5l8kj.pdf"
+    },
+    {
+      "slug": "castrol-transmax-manual-75w-90",
+      "specs": [
+        "API GL-3/GL-4"
+      ],
+      "source": "Castrol PDS 31.10.2022 (Transmax Manual 75W-90 — Product Performance Claims)",
+      "url": "https://msdspds.castrol.com/bpglis/FusionPDS.nsf/Files/7BECB9A9CC0424D5802585A600196BB4/$File/wepp-brn6xq.pdf"
+    },
+    {
+      "slug": "castrol-transmax-universal-ll-75w-90",
+      "specs": [
+        "API GL-4/GL-5/MT-1",
+        "SAE J2360",
+        "MAN 341 Z2",
+        "MAN 342 S1",
+        "MB-Approval 235.8",
+        "Scania STO 1:0",
+        "ZF TE-ML 02B, 05A, 12L, 12N, 16F, 17B, 19C, 21A",
+        "Eaton Europe"
+      ],
+      "source": "Castrol Ελλάδα PDS 30.07.2020 (Transmax Universal LL 75W-90)",
+      "url": "https://msdspds.castrol.com/bpglis/FusionPDS.nsf/Files/5C0BBB31902181AA802585B5002EE01F/$File/bpxe-b4f3b2.pdf"
+    },
+    {
+      "slug": "mobil-1-esp-5w-30",
+      "specs": [
+        "ACEA C2",
+        "ACEA C3",
+        "API SN",
+        "API SN PLUS",
+        "API SP",
+        "API SQ",
+        "BMW Longlife-04",
+        "MB-Approval 229.51",
+        "MB-Approval 229.52",
+        "Porsche C30",
+        "VW 504 00 / 507 00",
+        "FIAT 9.55535-S3",
+        "OV 040 1547 - D30 / G30"
+      ],
+      "source": "mobil.com product page (EN, read 22.09.2026): approvals BMW LL-04, MB 229.51/229.52, Porsche C30, VW 504 00/507 00; recommended for ACEA C2, Fiat 9.55535-S3, OV 040 1547 D30/G30; meets API SN/SN PLUS/SP/SQ, ACEA C3",
+      "url": "https://www.mobil.com/en/lubricants/for-personal-vehicles/our-products/products/mobil-1-esp-5w-30"
+    },
+    {
+      "slug": "motul-5100-4t-10w-30",
+      "specs": [
+        "API SP",
+        "JASO MA2"
+      ],
+      "source": "Motul Ελλάδα product page (Πρότυπα: API SP, JASO MA2 (2023)) + TDS 23.03.2026",
+      "url": "https://www.motul.com/el-GR/products/15100"
+    },
+    {
+      "slug": "motul-5100-4t-15w-50",
+      "specs": [
+        "API SP",
+        "JASO MA2"
+      ],
+      "source": "Motul Ελλάδα product page + TDS 23.03.2026",
+      "url": "https://www.motul.com/el-GR/products/15400"
+    },
+    {
+      "slug": "motul-7100-4t-10w-40",
+      "specs": [
+        "API SP",
+        "JASO MA2"
+      ],
+      "source": "Motul Ελλάδα product page (Πρότυπα: API SP, JASO MA2 (2023)) + TDS 11.09.2025",
+      "url": "https://www.motul.com/el-GR/products/16500"
+    },
+    {
+      "slug": "motul-gear-300-ls-75w-90",
+      "specs": [
+        "API GL-4",
+        "API GL-5"
+      ],
+      "source": "Motul Ελλάδα product page + TDS 25.06.2026 (API GL-4 / GL-5)",
+      "url": "https://www.motul.com/el-GR/products/34210"
+    },
+    {
+      "slug": "motul-motylgear-75w-85",
+      "specs": [
+        "API GL-4",
+        "API GL-5"
+      ],
+      "source": "Motul Ελλάδα product page + TDS 11.09.2025",
+      "url": "https://www.motul.com/el-GR/products/44901"
+    },
+    {
+      "slug": "motul-motylgear-75w-90",
+      "specs": [
+        "API GL-4",
+        "API GL-5",
+        "MIL-L-2105D"
+      ],
+      "source": "Motul Ελλάδα product page (API GL-5, API GL-4, MIL-L 2105 D) + TDS 11.09.2025",
+      "url": "https://www.motul.com/el-GR/products/45000"
+    },
+    {
+      "slug": "valvoline-all-climate-20w-50",
+      "specs": [
+        "ACEA A3/B3",
+        "API SL/CF",
+        "MB 229.1"
+      ],
+      "source": "Valvoline PI sheet (EU, EN) 08.01.2026 — Performance levels; 'recommended for VW 505 00 / 501 01' not included",
+      "url": "https://sharena21.springcm.com/Public/Document/18452/0899688c-d9db-e811-9c1b-ac162d889bd1/b48dba77-adf4-e811-9c1b-ac162d889bd1"
+    },
+    {
+      "slug": "valvoline-all-climate-extra-15w-40",
+      "specs": [
+        "ACEA A3/B3",
+        "API SL/CF",
+        "MB 229.1"
+      ],
+      "source": "Valvoline PI sheet 'All-Climate 15W-40' (EU, EN) 13.11.2025 — Performance levels; the sheet no longer carries the 'Extra' name",
+      "url": "https://sharena21.springcm.com/Public/Document/18452/ed98688c-d9db-e811-9c1b-ac162d889bd1/080bb565-adf4-e811-9c1b-ac162d889bd1"
+    },
+    {
+      "slug": "valvoline-durablend-4t-15w-50",
+      "specs": [
+        "API SL",
+        "JASO MA",
+        "JASO MA2"
+      ],
+      "source": "Valvoline PI sheet (EU, EN, 2016 edition) — Performance levels",
+      "url": "https://sharena21.springcm.com/Public/Document/18452/2dacdabe-d2db-e811-9c1b-ac162d889bd1/69b89201-b4f4-e811-9c1b-ac162d889bd1"
+    },
+    {
+      "slug": "valvoline-gear-oil-75w-80",
+      "specs": [
+        "API GL-4",
+        "API GL-3",
+        "BMW MTF LT-2",
+        "Fiat 9.55550-MZ1",
+        "Fiat 9.55550-MZ6",
+        "Fiat 9.55550-MZ7",
+        "Honda MTF / MTF-II / MTF-III / MTF 94",
+        "Nissan MT-XZ",
+        "Nissan MT-XZ TL (JR Type)",
+        "PSA B71 2330",
+        "Volvo 97308, 97309",
+        "VW G 50 / G 009 317 / G 052 512",
+        "Elf TRANSELF NFJ / NFP / TRJ / NFX / TRT / TRZ / TRP / TRX"
+      ],
+      "source": "Valvoline PI sheet (EU, EN, 2024) — Performance levels",
+      "url": "https://sharena21.springcm.com/Public/Document/18452/8a2eb071-d3db-e811-9c1b-ac162d889bd1/4e498d64-b7f4-e811-9c1b-ac162d889bd1"
+    },
+    {
+      "slug": "valvoline-gear-oil-75w-80-rpc",
+      "specs": [
+        "API GL-5"
+      ],
+      "source": "Valvoline PI sheet (EU, EN, 2016 edition) — Performance levels: API GL-5; Peugeot / Citroën / Renault named without a spec number ('check owner's manual')",
+      "url": "https://sharena21.springcm.com/Public/Document/18452/842eb071-d3db-e811-9c1b-ac162d889bd1/9820b382-b7f4-e811-9c1b-ac162d889bd1"
+    },
+    {
+      "slug": "valvoline-gear-oil-75w-90",
+      "specs": [
+        "API GL-4",
+        "API GL-3",
+        "BMW MTF LT-4",
+        "Ford WSS-M2C200-C",
+        "GM 1940182 / 1940764 / 1940768",
+        "VW G 50"
+      ],
+      "source": "Valvoline PI sheet (EU, EN) 19.03.2026 — Performance levels",
+      "url": "https://sharena21.springcm.com/Public/Document/18452/8e2eb071-d3db-e811-9c1b-ac162d889bd1/3582c276-b7f4-e811-9c1b-ac162d889bd1"
+    },
+    {
+      "slug": "valvoline-light-and-heavy-duty-axle-oil-80w-90",
+      "specs": [
+        "API GL-5",
+        "ZF TE-ML 07A, 08"
+      ],
+      "source": "Valvoline PI sheet (EU, EN) 30.03.2026 — Performance levels",
+      "url": "https://sharena21.springcm.com/Public/Document/18452/e3eeec9c-d3db-e811-9c1b-ac162d889bd1/81898a22-c2f4-e811-9c1b-ac162d889bd1"
+    },
+    {
+      "slug": "valvoline-synpower-4t-10w-30",
+      "specs": [
+        "API SM",
+        "API SN",
+        "JASO MA",
+        "JASO MA2"
+      ],
+      "source": "Valvoline PI sheet (EU, EN) 30.03.2026 — Performance levels",
+      "url": "https://sharena21.springcm.com/Public/Document/18452/2dcaff27-d3db-e811-9c1b-ac162d889bd1/883f464e-abf4-e811-9c1b-ac162d889bd1"
+    },
+    {
+      "slug": "valvoline-synpower-4t-10w-50",
+      "specs": [
+        "API SN",
+        "JASO MA",
+        "JASO MA2"
+      ],
+      "source": "Valvoline PI sheet (EU, EN) 21.07.2026 — Performance levels",
+      "url": "https://sharena21.springcm.com/Public/Document/18452/58e3202e-d3db-e811-9c1b-ac162d889bd1/011ed366-abf4-e811-9c1b-ac162d889bd1"
+    },
+    {
+      "slug": "valvoline-synpower-4t-5w-40",
+      "specs": [
+        "API SN",
+        "JASO MA",
+        "JASO MA2"
+      ],
+      "source": "Valvoline PI sheet (EU, EN) 21.07.2026 — Performance levels (also lists JASO T 903 / T 904 test methods)",
+      "url": "https://sharena21.springcm.com/Public/Document/18452/13caff27-d3db-e811-9c1b-ac162d889bd1/bd7dde6c-abf4-e811-9c1b-ac162d889bd1"
+    },
+    {
+      "slug": "valvoline-synpower-mst-c3-5w-40",
+      "specs": [
+        "ACEA C3",
+        "API SM",
+        "API SN/CF",
+        "BMW LL-04",
+        "Ford WSS-M2C917-A",
+        "GM dexos2",
+        "MB 226.5",
+        "MB 229.31",
+        "Porsche A40",
+        "VW 505 00 / 505 01",
+        "Fiat 9.55535-S2"
+      ],
+      "source": "Valvoline PI sheet (EU, EN, 2019 edition) — Performance levels (BMW LL-04 '<2019'; Fiat 'recommended for use where … is required')",
+      "url": "https://sharena21.springcm.com/Public/Document/18452/6e214640-d3db-e811-9c1b-ac162d889bd1/552bd843-26ea-ef11-a40a-9440c99f96b1"
+    }
+  ]
+}

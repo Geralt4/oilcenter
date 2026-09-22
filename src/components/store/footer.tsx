@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Banknote, Clock, CreditCard, Landmark, Mail, MapPin, Navigation, Phone, Store, Truck } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { SocialLinks, socialProfiles } from '@/components/store/social-links';
+import { TrustBadges } from '@/components/store/trust-badges';
 import type { CategoryNode } from '@/lib/catalog';
 import { fullAddress, groupedHours, mapsDirectionsUrl, mapsPlaceUrl, type ShopSettings } from '@/lib/settings';
 import { telHref } from '@/lib/utils';
@@ -58,6 +59,7 @@ export function Footer({ settings, tree }: { settings: ShopSettings; tree: Categ
                 <Link href={`/category/${c.slug}`} className="hover:text-white">{c.name}</Link>
               </li>
             ))}
+            <li><Link href="/viscosity" className="hover:text-white">Ανά ιξώδες (SAE)</Link></li>
             <li><Link href="/brands" className="hover:text-white">Όλες οι μάρκες</Link></li>
           </ul>
         </nav>
@@ -65,6 +67,8 @@ export function Footer({ settings, tree }: { settings: ShopSettings; tree: Categ
         <nav aria-label="Εξυπηρέτηση">
           <h2 className="eyebrow text-white">Εξυπηρέτηση</h2>
           <ul className="mt-4 space-y-2.5 text-sm">
+            <li><Link href="/find-my-oil" className="hover:text-white">Ποιο λάδι θέλει το όχημά μου;</Link></li>
+            {settings.storefront.b2bPage && <li><Link href="/professionals" className="hover:text-white">Για συνεργεία & επαγγελματίες</Link></li>}
             <li><Link href="/order-status" className="hover:text-white">Η παραγγελία μου</Link></li>
             <li><Link href="/shipping-payments" className="hover:text-white">Αποστολές & πληρωμές</Link></li>
             <li><Link href="/returns" className="hover:text-white">Επιστροφές & υπαναχώρηση</Link></li>
@@ -93,6 +97,7 @@ export function Footer({ settings, tree }: { settings: ShopSettings; tree: Categ
               <SocialLinks shop={shop} tone="dark" className="mt-4" />
             </>
           )}
+          <TrustBadges shop={shop} reviews={settings.reviews} tone="dark" className="mt-6" />
         </div>
       </div>
 

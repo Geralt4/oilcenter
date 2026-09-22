@@ -1,5 +1,6 @@
 import { cache } from 'react';
 import { and, asc, eq, inArray } from 'drizzle-orm';
+import { parseApprovals, type Approval, type ApprovalFacet } from '@/lib/approvals';
 import { bestAvailability, effectiveAvailability, type Availability } from '@/lib/availability';
 import { db } from '@/lib/db';
 import { brands, categories, productImages, products, variants, type BaseType, type Brand, type Category } from '@/lib/db/schema';
@@ -17,6 +18,9 @@ import { normalizeText } from '@/lib/utils';
 export type CatalogVariant = {
   id: number;
   sku: string;
+  /** the manufacturer's article number and the barcode of this pack, when the owner has entered them */
+  mpn: string | null;
+  barcode: string | null;
   label: string;
   volumeMl: number | null;
   /** false = the owner has not confirmed this price yet: the storefront says «Καλέστε για τιμή» and the size cannot be bought */
@@ -57,7 +61,8 @@ export type CatalogProduct = {
   onSale: boolean;
 };
 
-type IndexedProduct = CatalogProduct & { searchText: string };
+/** server-side extras of the index: never sent to the browser (see strip) */
+type IndexedProduct = CatalogProduct & { searchText: string; approvals: Approval[] };
 
 export type CategoryNode = Category & { children: CategoryNode[]; productCount: number };
 
@@ -87,6 +92,8 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
     list.push({
       id: v.id,
       sku: v.sku,
+      mpn: v.mpn,
+      barcode: v.barcode,
       label: v.label,
       volumeMl: v.volumeMl,
       priced: v.priceVerified,
@@ -126,11 +133,28 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
       inStock: vs.some((v) => v.inStock),
       availability: bestAvailability(vs.map((v) => v.availability)),
       onSale: vs.some((v) => v.compareAtCents !== null),
-      searchText: p.searchText,
+      // Codes are added here, not into products.search_text: they are edited in places that never rebuild that column
+      // (Admin → Skroutz codes, CSV import). Both spellings, so «MN7501-1» and «MN75011» find the same can.
+      searchText: [p.searchText, ...vs.flatMap(codesOf).flatMap((c) => [normalizeText(c), compact(c)])].join(' '),
+      approvals: parseApprovals(p.specs ?? []),
     });
   }
   return out;
 });
+
+const compact = (s: string) => normalizeText(s).replace(/ /g, '');
+const codesOf = (v: CatalogVariant) => [v.sku, v.mpn, v.barcode].filter((c): c is string => Boolean(c));
+
+/**
+ * The size whose manufacturer code or barcode the query spells out, if any — so a suggestion can show why it matched.
+ * Our own SKUs are left out: they are built from the product name, so «castrol edge» would "match" them.
+ */
+export function matchCode(p: CatalogProduct, q: string): { code: string; label: string } | null {
+  const needle = compact(q);
+  if (needle.length < 3) return null;
+  for (const v of p.variants) for (const code of [v.mpn, v.barcode]) if (code && compact(code).startsWith(needle)) return { code, label: v.label };
+  return null;
+}
 
 /**
  * Words match anywhere ("tronic" finds SuperTronic), but a term containing a digit must match from the
@@ -141,7 +165,7 @@ function matchesTerm(searchText: string, term: string): boolean {
 }
 
 function strip(p: IndexedProduct): CatalogProduct {
-  const { searchText: _searchText, ...rest } = p;
+  const { searchText: _searchText, approvals: _approvals, ...rest } = p;
   return rest;
 }
 
@@ -200,6 +224,19 @@ function descendantIds(node: CategoryNode): number[] {
   return [node.id, ...node.children.flatMap(descendantIds)];
 }
 
+/** category id → its slug / name, its top-level ancestor and its place in the tree (for ordering facets) */
+const getCategoryLookup = cache(async () => {
+  const byId = new Map<number, { slug: string; name: string; rootSlug: string; order: number }>();
+  const walk = (nodes: CategoryNode[], rootSlug: string | null) => {
+    for (const n of nodes) {
+      byId.set(n.id, { slug: n.slug, name: n.name, rootSlug: rootSlug ?? n.slug, order: byId.size });
+      walk(n.children, rootSlug ?? n.slug);
+    }
+  };
+  walk(await getCategoryTree(), null);
+  return byId;
+});
+
 export type BrandWithCount = Brand & { productCount: number };
 
 export const getBrands = cache(async (): Promise<BrandWithCount[]> => {
@@ -228,8 +265,14 @@ export type ListingFilters = {
   q?: string;
   categorySlug?: string;
   brandSlug?: string;
+  /** fixed SAE grade of a /viscosity/… page, e.g. "5W-30" */
+  viscosity?: string;
   brands?: string[];
+  /** slugs of the products' own categories (the «Κατηγορία» facet on pages that are not a category page) */
+  categories?: string[];
   viscosities?: string[];
+  /** approval keys (lib/approvals.ts). Unlike the other facets these are ANDed: «VW 504 00» + «MB 229.51» = an oil that carries both */
+  approvals?: string[];
   packs?: number[];
   baseTypes?: string[];
   inStockOnly?: boolean;
@@ -251,7 +294,10 @@ export type Listing = {
   perPage: number;
   facets: {
     brands: FacetOption[];
+    categories: FacetOption[];
     viscosities: FacetOption[];
+    /** what the labels print, by kind: industry standards, vehicle manufacturers, the rest (coolant types, DOT, NLGI) */
+    approvals: Record<ApprovalFacet, FacetOption[]>;
     packs: FacetOption[];
     baseTypes: FacetOption[];
     inStockCount: number;
@@ -285,13 +331,18 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
     scope = scope.filter((p) => p.categoryId !== null && ids.has(p.categoryId));
   }
   if (filters.brandSlug) scope = scope.filter((p) => p.brand?.slug === filters.brandSlug);
+  if (filters.viscosity) scope = scope.filter((p) => p.viscosity === filters.viscosity);
   const terms = filters.q ? normalizeText(filters.q).split(' ').filter(Boolean) : [];
   if (terms.length) scope = scope.filter((p) => terms.every((t) => matchesTerm(p.searchText, t)));
 
   // 2. Facet predicates. Each facet's counts are computed with every OTHER facet applied,
   //    so ticking "Castrol" never makes "Motul" read as 0.
   const brandSet = new Set(filters.brands ?? []);
+  const categorySet = new Set(filters.categories ?? []);
+  const categoryLookup = await getCategoryLookup();
+  const categoryOf = (p: IndexedProduct) => (p.categoryId !== null ? categoryLookup.get(p.categoryId) : undefined);
   const viscSet = new Set(filters.viscosities ?? []);
+  const approvalKeys = [...new Set(filters.approvals ?? [])];
   const packSet = new Set(filters.packs ?? []);
   const baseSet = new Set(filters.baseTypes ?? []);
   const min = filters.minPriceCents;
@@ -299,7 +350,10 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
 
   const tests = {
     brand: (p: IndexedProduct) => !brandSet.size || (p.brand !== null && brandSet.has(p.brand.slug)),
+    category: (p: IndexedProduct) => !categorySet.size || categorySet.has(categoryOf(p)?.slug ?? ''),
     viscosity: (p: IndexedProduct) => !viscSet.size || (p.viscosity !== null && viscSet.has(p.viscosity)),
+    // ALL of the ticked approvals, not any of them
+    approval: (p: IndexedProduct) => approvalKeys.every((k) => p.approvals.some((a) => a.key === k)),
     pack: (p: IndexedProduct) => !packSet.size || p.variants.some((v) => v.volumeMl !== null && packSet.has(v.volumeMl)),
     base: (p: IndexedProduct) => !baseSet.size || (p.baseType !== null && baseSet.has(p.baseType)),
     stock: (p: IndexedProduct) => !filters.inStockOnly || p.inStock,
@@ -319,11 +373,26 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
 
   const brandNames = new Map(scope.filter((p) => p.brand).map((p) => [p.brand!.slug, p.brand!.name]));
   const brandCounts = count(applyExcept('brand'), (p) => (p.brand ? [p.brand.slug] : []));
+  const categoryCounts = count(applyExcept('category'), (p) => (categoryOf(p) ? [categoryOf(p)!.slug] : []));
+  const categoryBySlug = new Map([...categoryLookup.values()].map((c) => [c.slug, c]));
   const viscCounts = count(applyExcept('viscosity'), (p) => (p.viscosity ? [p.viscosity] : []));
   const packCounts = count(applyExcept('pack'), (p) => p.variants.flatMap((v) => (v.volumeMl ? [String(v.volumeMl)] : [])));
   const baseCounts = count(applyExcept('base'), (p) => (p.baseType ? [p.baseType] : []));
 
   const matched = applyExcept(null);
+
+  // Approvals narrow (AND), so an option's count is simply "how many of the current results carry it": ticking it
+  // leads to exactly that many. A ticked key that no product carries any more still shows, so it can be un-ticked.
+  const approvalInfo = new Map<string, Approval>();
+  const approvalCounts = new Map<string, number>();
+  for (const p of scope) for (const a of p.approvals) approvalInfo.set(a.key, a);
+  for (const p of matched) for (const a of p.approvals) approvalCounts.set(a.key, (approvalCounts.get(a.key) ?? 0) + 1);
+  for (const k of approvalKeys) if (approvalInfo.has(k) && !approvalCounts.has(k)) approvalCounts.set(k, 0);
+  const approvalFacet = (facet: ApprovalFacet): FacetOption[] =>
+    [...approvalCounts]
+      .flatMap(([key, n]) => (approvalInfo.get(key)?.facet === facet ? [{ value: key, label: approvalInfo.get(key)!.label, count: n, order: approvalInfo.get(key)!.order }] : []))
+      .sort((a, b) => a.order.localeCompare(b.order))
+      .map(({ order: _order, ...option }) => option);
 
   // 3. Sort
   const sort = filters.sort ?? 'featured';
@@ -358,7 +427,10 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
     perPage,
     facets: {
       brands: [...brandCounts].map(([value, n]) => ({ value, label: brandNames.get(value) ?? value, count: n })).sort((a, b) => a.label.localeCompare(b.label)),
+      // in the order of the shop's own menu, not alphabetical
+      categories: [...categoryCounts].map(([value, n]) => ({ value, label: categoryBySlug.get(value)?.name ?? value, count: n })).sort((a, b) => (categoryBySlug.get(a.value)?.order ?? 0) - (categoryBySlug.get(b.value)?.order ?? 0)),
       viscosities: [...viscCounts].map(([value, n]) => ({ value, label: value, count: n })).sort((a, b) => compareViscosity(a.value, b.value)),
+      approvals: { standard: approvalFacet('standard'), oem: approvalFacet('oem'), other: approvalFacet('other') },
       packs: [...packCounts].map(([value, n]) => ({ value, label: packLabel(Number(value)), count: n })).sort((a, b) => Number(a.value) - Number(b.value)),
       baseTypes: [...baseCounts].map(([value, n]) => ({ value, label: BASE_TYPE_LABELS[value as BaseType] ?? value, count: n })),
       inStockCount: applyExcept('stock').filter((p) => p.inStock).length,
@@ -397,6 +469,55 @@ export async function getPopularViscosities(limit = 8): Promise<Array<{ viscosit
     .sort((a, b) => b.count - a.count)
     .slice(0, limit)
     .sort((a, b) => compareViscosity(a.viscosity, b.viscosity));
+}
+
+// ─── Viscosity pages (/viscosity/5w-30) ──────────────────────────────────────
+export type ViscosityInfo = {
+  /** as stored on the products: "5W-30" */
+  grade: string;
+  /** URL form: "5w-30" */
+  slug: string;
+  count: number;
+  /** brand names, the best stocked first */
+  brands: string[];
+  /** lowest confirmed price among them, or null when none has one yet */
+  minPriceCents: number | null;
+  /** what most products of this grade are: decides whether the page says «Λάδια κινητήρα» or «Βαλβολίνες» */
+  kind: 'engine' | 'gear';
+};
+
+const GEAR_ROOT_SLUG = 'valvolines-kivotia';
+
+export const viscositySlug = (grade: string) => grade.toLowerCase();
+
+/** "5W-30" stays as it is; a bare number ("90", "140") reads better as "SAE 90" */
+export const viscosityLabel = (grade: string) => (/w/i.test(grade) ? grade : `SAE ${grade}`);
+
+export const getViscosities = cache(async (): Promise<ViscosityInfo[]> => {
+  const [index, lookup] = await Promise.all([loadIndex(), getCategoryLookup()]);
+  const byGrade = new Map<string, IndexedProduct[]>();
+  for (const p of index) if (p.viscosity) byGrade.set(p.viscosity, [...(byGrade.get(p.viscosity) ?? []), p]);
+
+  return [...byGrade]
+    .map(([grade, items]) => {
+      const brandCounts = new Map<string, number>();
+      for (const p of items) if (p.brand) brandCounts.set(p.brand.name, (brandCounts.get(p.brand.name) ?? 0) + 1);
+      const gear = items.filter((p) => (p.categoryId !== null ? lookup.get(p.categoryId)?.rootSlug : undefined) === GEAR_ROOT_SLUG).length;
+      const prices = items.filter((p) => p.hasPrice).map((p) => p.minPriceCents);
+      return {
+        grade,
+        slug: viscositySlug(grade),
+        count: items.length,
+        brands: [...brandCounts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([name]) => name),
+        minPriceCents: prices.length ? Math.min(...prices) : null,
+        kind: gear * 2 > items.length ? ('gear' as const) : ('engine' as const),
+      };
+    })
+    .sort((a, b) => compareViscosity(a.grade, b.grade));
+});
+
+export async function getViscosityBySlug(slug: string): Promise<ViscosityInfo | null> {
+  return (await getViscosities()).find((v) => v.slug === slug.toLowerCase()) ?? null;
 }
 
 export async function suggestProducts(q: string, limit = 6): Promise<CatalogProduct[]> {

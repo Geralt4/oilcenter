@@ -15,6 +15,8 @@ type Suggestion = {
   /** null = «Καλέστε για τιμή» */
   minPriceCents: number | null;
   multiplePrices: boolean;
+  /** the manufacturer code / barcode the query matched, and the size it belongs to */
+  code: { code: string; label: string } | null;
 };
 
 export function SearchBox({ autoFocus = false, onNavigate }: { autoFocus?: boolean; onNavigate?: () => void }) {
@@ -149,6 +151,7 @@ export function SearchBox({ autoFocus = false, onNavigate }: { autoFocus?: boole
                       <span className="min-w-0 flex-1">
                         {item.brandName && <span className="eyebrow block text-[0.6875rem] text-ink-400">{item.brandName}</span>}
                         <span className="block truncate text-sm font-semibold text-ink-900">{item.name}</span>
+                        {item.code && <span className="tabular block truncate text-xs text-ink-500">Κωδ. {item.code.code} · {item.code.label}</span>}
                       </span>
                       {item.minPriceCents === null ? (
                         <span className="shrink-0 text-xs font-semibold text-petrol-500">Καλέστε για τιμή</span>

@@ -13,7 +13,7 @@ export const metadata = { title: 'Ρυθμίσεις' };
 
 export default async function AdminSettingsPage() {
   const [s, backups] = await Promise.all([getSettings(), listBackups()]);
-  const { shop, storefront, shipping, payments, tax } = s;
+  const { shop, storefront, reviews, shipping, payments, tax } = s;
   const provider = cardProvider();
   const accounts = [...payments.bankAccounts, { bank: '', iban: '', holder: '' }, { bank: '', iban: '', holder: '' }, { bank: '', iban: '', holder: '' }, { bank: '', iban: '', holder: '' }].slice(0, 4);
 
@@ -27,6 +27,7 @@ export default async function AdminSettingsPage() {
             <Check name="ordersEnabled" label="Το κατάστημα δέχεται online παραγγελίες" defaultChecked={storefront.ordersEnabled} hint="Όσο είναι κλειστό, οι επισκέπτες βλέπουν προϊόντα και τιμές και γεμίζουν το καλάθι, αλλά αντί για ταμείο βλέπουν «οι online παραγγελίες ανοίγουν σύντομα — καλέστε μας». Κανείς δεν μπορεί να καταχωρήσει παραγγελία, εκτός από εσάς: όσο είστε συνδεδεμένος εδώ, το ταμείο δουλεύει για δοκιμές και οι παραγγελίες σας σημειώνονται ως δοκιμαστικές." />
             <Check name="launchSignup" label="«Ειδοποιήστε με όταν ανοίξουν οι παραγγελίες»" defaultChecked={storefront.launchSignup} hint="Όσο οι online παραγγελίες είναι κλειστές, ο επισκέπτης που φτάνει στο ταμείο μπορεί να αφήσει το e-mail του. Τα e-mail φαίνονται στα Στατιστικά και χρησιμοποιούνται μόνο για αυτή τη μία ειδοποίηση." />
             <Check name="demoMode" label="Δοκιμαστική λειτουργία" defaultChecked={storefront.demoMode} hint="Όσο είναι ενεργή, το site μένει κρυφό από το Google και οι παραγγελίες σημειώνονται ως δοκιμαστικές. Απενεργοποιήστε την όταν το site είναι έτοιμο να το δει ο κόσμος (ωράριο, στοιχεία επιχείρησης). Μπορεί να κλείσει και με τις online παραγγελίες ακόμη κλειστές: τότε το site λειτουργεί ως κατάλογος με τιμές, τηλέφωνο και χάρτη. Όσες τιμές δεν έχετε επιβεβαιώσει δεν εμφανίζονται ποτέ — ο επισκέπτης βλέπει «Καλέστε για τιμή»." />
+            <Check name="b2bPage" label="Σελίδα «Για συνεργεία & επαγγελματίες»" defaultChecked={storefront.b2bPage} hint="Μια σελίδα με φόρμα αιτήματος προσφοράς για συνεργεία, στόλους και μεταπωλητές, με συνδέσμους στην κεφαλίδα και στο υποσέλιδο. Τα αιτήματα έρχονται στα Μηνύματα. Ανοίξτε την μόνο αν θέλετε τέτοια αιτήματα — η σελίδα δεν υπόσχεται εκπτώσεις ή πίστωση, μόνο ότι θα απαντήσετε με προσφορά." />
             <Field label="Μήνυμα ανακοίνωσης" hint="Προαιρετικό."><input name="announcement" defaultValue={storefront.announcement} className="field" /></Field>
             <Field label="Ένδειξη «τελευταία τεμάχια» κάτω από" className="max-w-xs"><input name="lowStockThreshold" inputMode="numeric" defaultValue={storefront.lowStockThreshold} className="field tabular" /></Field>
           </div>
@@ -55,6 +56,18 @@ export default async function AdminSettingsPage() {
             <Field label="Instagram" hint="Σύνδεσμος προφίλ ή απλώς @όνομα."><input name="instagramUrl" inputMode="url" autoCapitalize="none" spellCheck={false} placeholder="https://www.instagram.com/…" defaultValue={shop.instagramUrl} className="field" /></Field>
             <Field label="Skroutz" hint="Η σελίδα του καταστήματος στο skroutz.gr."><input name="skroutzUrl" inputMode="url" autoCapitalize="none" spellCheck={false} placeholder="https://www.skroutz.gr/shop/…" defaultValue={shop.skroutzUrl} className="field" /></Field>
             <Field label="Facebook"><input name="facebookUrl" inputMode="url" autoCapitalize="none" spellCheck={false} placeholder="https://www.facebook.com/…" defaultValue={shop.facebookUrl} className="field" /></Field>
+          </div>
+        </Card>
+
+        <Card title="Κριτικές & ιστορία" description="Ό,τι συμπληρώσετε εμφανίζεται στην αρχική σελίδα, στο υποσέλιδο, δίπλα στον χάρτη και στη σελίδα «Το κατάστημα»· τα κενά απλώς δεν εμφανίζονται. Γράψτε τους αριθμούς ακριβώς όπως τους δείχνει σήμερα το Google και το Skroutz, και ανανεώνετέ τους κάθε λίγους μήνες: ένας αριθμός που δεν συμφωνεί με αυτόν που θα δει ο πελάτης πατώντας τον σύνδεσμο κάνει ζημιά, όχι καλό.">
+          <div id="reviews" className="grid gap-4 md:grid-cols-3">
+            <Field label="Έτος ίδρυσης" hint="π.χ. 1992. Εμφανίζεται ως «Από το 1992»."><input name="foundedYear" inputMode="numeric" maxLength={4} defaultValue={shop.foundedYear || ''} className="field tabular" /></Field>
+            <Field label="Σύνδεσμος κριτικών Google" hint="Από το Google Maps: Κοινοποίηση → Αντιγραφή συνδέσμου." className="md:col-span-2"><input name="googleUrl" inputMode="url" autoCapitalize="none" spellCheck={false} placeholder="https://maps.app.goo.gl/…" defaultValue={reviews.googleUrl} className="field" /></Field>
+            <Field label="Βαθμολογία Google" hint="π.χ. 4,8"><input name="googleRating" inputMode="decimal" defaultValue={reviews.googleRating ? String(reviews.googleRating).replace('.', ',') : ''} className="field tabular" /></Field>
+            <Field label="Πλήθος κριτικών Google"><input name="googleCount" inputMode="numeric" defaultValue={reviews.googleCount || ''} className="field tabular" /></Field>
+            <div className="hidden md:block" />
+            <Field label="Βαθμολογία Skroutz" hint="π.χ. 4,9. Ο σύνδεσμος είναι αυτός του Skroutz παραπάνω."><input name="skroutzRating" inputMode="decimal" defaultValue={reviews.skroutzRating ? String(reviews.skroutzRating).replace('.', ',') : ''} className="field tabular" /></Field>
+            <Field label="Πλήθος κριτικών Skroutz"><input name="skroutzCount" inputMode="numeric" defaultValue={reviews.skroutzCount || ''} className="field tabular" /></Field>
           </div>
         </Card>
 

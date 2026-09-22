@@ -2,10 +2,12 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ProductGrid } from '@/components/store/product-card';
+import { HazardInfo } from '@/components/store/hazard-info';
 import { Breadcrumbs } from '@/components/store/product-listing';
 import { ProductView } from '@/components/store/product-view';
+import { parseSpecLine } from '@/lib/approvals';
 import { effectiveAvailability } from '@/lib/availability';
-import { BASE_TYPE_LABELS, getCategoryTrailById, getProductBySlug, getRelatedProducts } from '@/lib/catalog';
+import { BASE_TYPE_LABELS, getCategoryTrailById, getProductBySlug, getRelatedProducts, viscositySlug, type ProductDetail } from '@/lib/catalog';
 import { productJsonLd } from '@/lib/seo';
 import { getSettings } from '@/lib/settings.server';
 import { formatWeight } from '@/lib/utils';
@@ -54,11 +56,21 @@ export default async function ProductPage({ params, searchParams }: Props) {
 
   const rows: Array<[string, React.ReactNode]> = [];
   if (product.brand) rows.push(['Μάρκα', <Link key="b" href={`/brand/${product.brand.slug}`} className="font-medium text-petrol-500 underline underline-offset-2 hover:text-petrol-700">{product.brand.name}</Link>]);
-  if (product.viscosity) rows.push(['Ιξώδες (SAE)', <span key="v" className="tabular font-semibold">{product.viscosity}</span>]);
+  if (product.viscosity) rows.push(['Ιξώδες (SAE)', <Link key="v" href={`/viscosity/${viscositySlug(product.viscosity)}`} className="tabular font-semibold text-petrol-500 underline underline-offset-2 hover:text-petrol-700">{product.viscosity}</Link>]);
   if (product.baseType) rows.push(['Τύπος', BASE_TYPE_LABELS[product.baseType]]);
   if (product.category) rows.push(['Κατηγορία', <Link key="c" href={`/category/${product.category.slug}`} className="font-medium text-petrol-500 underline underline-offset-2 hover:text-petrol-700">{product.category.name}</Link>]);
   rows.push(['Συσκευασίες', product.variants.map((v) => v.label).join(' · ')]);
   for (const [k, v] of Object.entries(product.attributes ?? {})) rows.push([k, v]);
+  // professionals search and order by these; shown per size once the owner has entered them (Admin → Skroutz)
+  const perSize = (pick: (v: ProductDetail['variants'][number]) => string | null) => {
+    const found = product.variants.flatMap((v) => (pick(v) ? [{ label: v.label, code: pick(v)! }] : []));
+    if (found.length === 0) return null;
+    return <span className="tabular">{product.variants.length === 1 ? found[0].code : found.map((f) => `${f.label}: ${f.code}`).join(' · ')}</span>;
+  };
+  const mpns = perSize((v) => v.mpn);
+  const eans = perSize((v) => v.barcode);
+  if (mpns) rows.push(['Κωδικός κατασκευαστή', mpns]);
+  if (eans) rows.push(['Barcode (EAN)', eans]);
   rows.push(['Βάρος αποστολής', product.variants.map((v) => `${v.label}: ${formatWeight(v.weightGrams)}`).join(' · ')]);
   if (product.brand?.country) rows.push(['Χώρα προέλευσης μάρκας', product.brand.country]);
 
@@ -101,15 +113,24 @@ export default async function ProductPage({ params, searchParams }: Props) {
             <>
               <h3 className="eyebrow mt-6 text-ink-500">Προδιαγραφές & εγκρίσεις</h3>
               <ul className="mt-3 flex flex-wrap gap-1.5">
-                {product.specs.map((s) => (
-                  <li key={s} className="tabular rounded-lg border border-line bg-white px-2.5 py-1.5 text-sm font-medium text-ink-800">{s}</li>
-                ))}
+                {product.specs.map((s) => {
+                  // a line the parser understands leads to everything else in the shop that carries the same approval(s)
+                  const keys = parseSpecLine(s).map((a) => a.key);
+                  const chip = 'tabular block rounded-lg border border-line bg-white px-2.5 py-1.5 text-sm font-medium text-ink-800';
+                  return (
+                    <li key={s}>
+                      {keys.length > 0 ? <Link href={`/products?spec=${keys.map(encodeURIComponent).join(',')}`} rel="nofollow" title="Όλα τα προϊόντα με αυτή την προδιαγραφή" className={`${chip} transition-colors hover:border-oil-400 hover:text-ink-950`}>{s}</Link> : <span className={chip}>{s}</span>}
+                    </li>
+                  );
+                })}
               </ul>
               <p className="mt-3 text-xs leading-relaxed text-ink-500">Όπως αναγράφονται στη συσκευασία του κατασκευαστή. Επιβεβαιώνετε πάντα την καταλληλότητα με το βιβλίο συντήρησης του οχήματός σας.</p>
             </>
           )}
         </section>
       </div>
+
+      <HazardInfo hazard={product.hazard} />
 
       {related.length > 0 && (
         <section className="mt-16" aria-labelledby="related">

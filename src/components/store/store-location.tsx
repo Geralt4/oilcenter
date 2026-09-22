@@ -1,11 +1,12 @@
 import { Clock, Mail, MapPin, Navigation, Phone } from 'lucide-react';
 import { SocialLinks, socialProfiles } from '@/components/store/social-links';
+import { TrustBadges } from '@/components/store/trust-badges';
 import { buttonClass } from '@/components/ui/button';
 import { DAY_NAMES, formatDayHours, fullAddress, mapsDirectionsUrl, mapsEmbedUrl, mapsPlaceUrl, openStatus, type ShopSettings } from '@/lib/settings';
 import { cn, telHref } from '@/lib/utils';
 
 /** Map + address + phones + opening hours. The single source of "how do I reach the shop". */
-export function StoreLocation({ shop, className }: { shop: ShopSettings['shop']; className?: string }) {
+export function StoreLocation({ shop, reviews, className }: { shop: ShopSettings['shop']; reviews?: ShopSettings['reviews']; className?: string }) {
   const status = openStatus(shop.hours);
   const todayIso = ((new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Athens' })).getDay() + 6) % 7) + 1;
 
@@ -83,6 +84,8 @@ export function StoreLocation({ shop, className }: { shop: ShopSettings['shop'];
             <SocialLinks shop={shop} className="mt-3" />
           </div>
         )}
+
+        {reviews && <TrustBadges shop={shop} reviews={reviews} />}
       </div>
     </div>
   );

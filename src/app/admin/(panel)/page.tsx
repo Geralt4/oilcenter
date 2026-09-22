@@ -4,7 +4,8 @@ import { BadgeEuro, CircleAlert, CircleCheck } from 'lucide-react';
 import { Card, PageHeader, PaymentBadge, StatusBadge, td, th } from '@/components/admin/ui';
 import { buttonClass } from '@/components/ui/button';
 import { db } from '@/lib/db';
-import { orders, products, variants } from '@/lib/db/schema';
+import { categories, orders, products, variants } from '@/lib/db/schema';
+import { hazardPriorityCategoryIds, needsHazardCheck } from '@/lib/ghs';
 import { releaseAbandonedCardOrders } from '@/lib/orders';
 import { cardProvider } from '@/lib/payments';
 import { getSettings } from '@/lib/settings.server';
@@ -20,7 +21,7 @@ export default async function AdminDashboard() {
   const since = daysAgo;
   const sum = sql<number>`coalesce(sum(${orders.totalCents}), 0)`;
 
-  const [[today], [week], [month], [pending], [unverified], [flagged], [productCount], recent] = await Promise.all([
+  const [[today], [week], [month], [pending], [unverified], [flagged], [productCount], recent, categoryRows, hazardRows] = await Promise.all([
     db.select({ n: count(), total: sum }).from(orders).where(and(real, gte(orders.createdAt, since(1)))),
     db.select({ n: count(), total: sum }).from(orders).where(and(real, gte(orders.createdAt, since(7)))),
     db.select({ n: count(), total: sum }).from(orders).where(and(real, gte(orders.createdAt, since(30)))),
@@ -29,12 +30,18 @@ export default async function AdminDashboard() {
     db.select({ n: count() }).from(products).where(isNotNull(products.internalNotes)),
     db.select({ n: count() }).from(products).where(eq(products.isActive, true)),
     db.select().from(orders).orderBy(desc(orders.createdAt)).limit(8),
+    db.select({ id: categories.id, slug: categories.slug, parentId: categories.parentId }).from(categories),
+    db.select({ isActive: products.isActive, categoryId: products.categoryId, hazard: products.hazard }).from(products),
   ]);
+  // chemicals, fluids and 2-stroke oils whose hazard labelling has not been checked against the pack yet (lib/ghs.ts)
+  const hazardIds = hazardPriorityCategoryIds(categoryRows);
+  const hazardTodo = hazardRows.filter((p) => needsHazardCheck(p, hazardIds)).length;
 
   const { shop, payments, storefront } = settings;
   const checklist = [
     { done: unverified.n === 0, label: 'Επιβεβαίωση τιμών', detail: unverified.n ? `${unverified.n} συσκευασίες δεν έχουν επιβεβαιωμένη τιμή: στο κατάστημα γράφουν «Καλέστε για τιμή» και δεν μπαίνουν στο καλάθι.` : 'Όλες οι τιμές είναι επιβεβαιωμένες.', href: '/admin/prices?filter=unverified' },
     { done: flagged.n === 0, label: 'Έλεγχος στοιχείων προϊόντων', detail: flagged.n ? `${flagged.n} προϊόντα έχουν σημείωση προς έλεγχο (π.χ. συσκευασία που δεν φαινόταν στη φωτογραφία).` : 'Κανένα προϊόν δεν περιμένει έλεγχο.', href: '/admin/products?filter=review' },
+    { done: hazardTodo === 0, label: 'Σήμανση κινδύνου στα χημικά', detail: hazardTodo ? `${hazardTodo} αντιψυκτικά, υγρά, πρόσθετα, σπρέι και δίχρονα δεν έχουν ακόμη τη σήμανση της ετικέτας τους (εικονογράμματα, «Κίνδυνος/Προσοχή», δηλώσεις). Ο ευρωπαϊκός κανονισμός για τα χημικά (CLP) ζητά να τη βλέπει ο πελάτης πριν αγοράσει online — επιβεβαιώστε το και με τον νομικό σας. Ανοίξτε κάθε προϊόν → «Σήμανση κινδύνου & SDS».` : 'Όλα τα χημικά έχουν ελεγμένη σήμανση.', href: '/admin/products?filter=hazard' },
     { done: shop.hoursVerified, label: 'Ωράριο λειτουργίας', detail: shop.hoursVerified ? 'Επιβεβαιωμένο.' : 'Το ωράριο είναι ενδεικτικό. Διορθώστε το και σημειώστε το ως επιβεβαιωμένο.', href: '/admin/settings#hours' },
     { done: Boolean(shop.vatNumber && shop.gemi), label: 'ΑΦΜ & Αρ. ΓΕΜΗ', detail: 'Ο νόμος απαιτεί να φαίνεται στο ηλεκτρονικό κατάστημα ποιος είναι ο πωλητής (εμφανίζονται στο υποσέλιδο). Η ΔΟΥ είναι προαιρετική.', href: '/admin/settings#company' },
     { done: Boolean(shop.instagramUrl && shop.skroutzUrl), label: 'Σύνδεσμοι Instagram & Skroutz', detail: shop.instagramUrl && shop.skroutzUrl ? 'Εμφανίζονται στην κεφαλίδα, στο μενού, στο υποσέλιδο και δίπλα στον χάρτη.' : `Λείπει: ${[!shop.instagramUrl && 'Instagram', !shop.skroutzUrl && 'Skroutz'].filter(Boolean).join(' και ')}. Επικολλήστε τον σύνδεσμο και θα εμφανιστεί αμέσως στο κατάστημα.`, href: '/admin/settings#social' },

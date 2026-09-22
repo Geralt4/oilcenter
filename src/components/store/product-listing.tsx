@@ -11,6 +11,14 @@ import { cn } from '@/lib/utils';
 
 export type Crumb = { name: string; href: string };
 
+/**
+ * The same cards as everywhere else, but the filters take a fixed 384 px out of the row from 1024 up, so from there
+ * the image is (33vw − 143 px) over three columns, and a flat 215 px once the fourth column arrives at 1280. Rounded
+ * up a little; below 1024 the filters are a drawer and the grid has the row to itself, so those two entries match
+ * ProductGrid's own default.
+ */
+const LISTING_IMAGE_SIZES = '(min-width: 1280px) 220px, (min-width: 1024px) calc(33vw - 130px), (min-width: 640px) 33vw, 50vw';
+
 export function Breadcrumbs({ items }: { items: Crumb[] }) {
   const all = [{ name: 'Αρχική', href: '/' }, ...items];
   return (
@@ -63,18 +71,22 @@ function Pagination({ page, pageCount, pathname, searchParams }: { page: number;
 type Props = {
   pathname: string;
   searchParams: RawSearchParams;
-  /** fixed scope of the page (category / brand); merged over whatever the URL says */
-  scope?: Pick<ListingFilters, 'categorySlug' | 'brandSlug'>;
+  /** fixed scope of the page (category / brand / viscosity); merged over whatever the URL says */
+  scope?: Pick<ListingFilters, 'categorySlug' | 'brandSlug' | 'viscosity'>;
   title: string;
   eyebrow?: string;
   description?: string | null;
   crumbs: Crumb[];
   /** e.g. sub-category chips */
   children?: React.ReactNode;
+  /** shown under the products, e.g. the explainer of a viscosity page */
+  footer?: React.ReactNode;
 };
 
-export async function ProductListing({ pathname, searchParams, scope, title, eyebrow, description, crumbs, children }: Props) {
-  const filters = { ...parseListingParams(searchParams), ...scope };
+export async function ProductListing({ pathname, searchParams, scope, title, eyebrow, description, crumbs, children, footer }: Props) {
+  // a facet the page hides must not filter behind the visitor's back (?cat= on a category page, ?visc= on a viscosity page)
+  const hidden = { hideBrands: Boolean(scope?.brandSlug), hideViscosities: Boolean(scope?.viscosity), hideCategories: Boolean(scope?.categorySlug) };
+  const filters = { ...parseListingParams(searchParams), ...(hidden.hideCategories && { categories: [] }), ...(hidden.hideViscosities && { viscosities: [] }), ...scope };
   const listing = await listProducts(filters);
   const active = activeFilterCount(filters);
 
@@ -93,7 +105,7 @@ export async function ProductListing({ pathname, searchParams, scope, title, eye
       {children}
 
       <div className="mt-8 flex items-start gap-8">
-        <FilterSidebar facets={listing.facets} activeCount={active} hideBrands={Boolean(scope?.brandSlug)} />
+        <FilterSidebar facets={listing.facets} activeCount={active} {...hidden} />
 
         <div className="min-w-0 flex-1">
           <div className="mb-5 flex items-center justify-between gap-3">
@@ -102,14 +114,14 @@ export async function ProductListing({ pathname, searchParams, scope, title, eye
               {filters.q && <> για «{filters.q}»</>}
             </p>
             <div className="flex items-center gap-2">
-              <MobileFilters facets={listing.facets} total={listing.total} activeCount={active} hideBrands={Boolean(scope?.brandSlug)} />
+              <MobileFilters facets={listing.facets} total={listing.total} activeCount={active} {...hidden} />
               <SortSelect sortLabels={SORT_LABELS} />
             </div>
           </div>
 
           {listing.products.length > 0 ? (
             <>
-              <ProductGrid products={listing.products} priorityCount={4} />
+              <ProductGrid products={listing.products} priorityCount={4} sizes={LISTING_IMAGE_SIZES} />
               <Pagination page={listing.page} pageCount={listing.pageCount} pathname={pathname} searchParams={searchParams} />
             </>
           ) : (
@@ -119,11 +131,16 @@ export async function ProductListing({ pathname, searchParams, scope, title, eye
               <p className="mx-auto mt-2 max-w-md text-ink-600">
                 {active > 0 ? 'Δοκιμάστε να αφαιρέσετε κάποιο φίλτρο.' : 'Δοκιμάστε άλλη αναζήτηση — π.χ. ιξώδες (5W-30) ή μάρκα.'} Αν ψάχνετε κάτι συγκεκριμένο, καλέστε μας: πιθανότατα το έχουμε στο κατάστημα.
               </p>
-              <Link href={pathname} className={buttonClass({ variant: 'dark', className: 'mt-6' })}>Καθαρισμός φίλτρων</Link>
+              <div className="mt-6 flex flex-wrap justify-center gap-3">
+                <Link href={pathname} className={buttonClass({ variant: 'dark' })}>Καθαρισμός φίλτρων</Link>
+                <Link href="/find-my-oil" className={buttonClass({ variant: 'outline' })}>Ποιο λάδι θέλει το όχημά μου;</Link>
+              </div>
             </div>
           )}
         </div>
       </div>
+
+      {footer}
     </div>
   );
 }

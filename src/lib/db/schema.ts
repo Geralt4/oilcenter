@@ -1,6 +1,7 @@
 import { relations } from 'drizzle-orm';
 import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { Availability } from '@/lib/availability';
+import type { HazardInfo } from '@/lib/ghs';
 
 /*
  * Conventions
@@ -79,6 +80,8 @@ export const products = sqliteTable(
     specs: text('specs', { mode: 'json' }).$type<string[]>().notNull().default([]),
     /** Free-form extra attributes shown in the spec table: { "Χρώμα": "Κόκκινο" } */
     attributes: text('attributes', { mode: 'json' }).$type<Record<string, string>>().notNull().default({}),
+    /** the pack's hazard labelling and safety data sheet (lib/ghs.ts). null = nobody has looked yet; shown only once confirmed */
+    hazard: text('hazard', { mode: 'json' }).$type<HazardInfo>(),
     /** lower-cased, accent-stripped haystack. SQLite LIKE is not case-insensitive for Greek. */
     searchText: text('search_text').notNull().default(''),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
@@ -331,13 +334,20 @@ export const coupons = sqliteTable(
   (t) => [uniqueIndex('coupons_code_uq').on(t.code)],
 );
 
+/** which form a message came from: the contact page, «Ποιο λάδι χρειάζεται το όχημά μου;», or the quote form for professionals */
+export type EnquiryKind = 'contact' | 'oil-finder' | 'quote';
+
 export const contactMessages = sqliteTable('contact_messages', {
   id: id(),
+  kind: text('kind').$type<EnquiryKind>().notNull().default('contact'),
   name: text('name').notNull(),
+  /** '' when the visitor left only a phone number (the vehicle form asks for the phone, the e-mail is optional) */
   email: text('email').notNull(),
   phone: text('phone'),
   subject: text('subject'),
   message: text('message').notNull(),
+  /** the form's structured answers in display order: [["Μάρκα", "Toyota"], ["Μοντέλο", "Yaris"], …] */
+  details: text('details', { mode: 'json' }).$type<Array<[string, string]>>(),
   isRead: integer('is_read', { mode: 'boolean' }).notNull().default(false),
   createdAt: createdAt(),
 });

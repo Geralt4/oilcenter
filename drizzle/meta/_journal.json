@@ -36,6 +36,20 @@
       "when": 1789918709464,
       "tag": "0004_availability",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790016555555,
+      "tag": "0005_enquiries",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790017674497,
+      "tag": "0006_hazard",
+      "breakpoints": true
     }
   ]
 }

@@ -45,6 +45,8 @@ export type ShopSettings = {
     hours: DayHours[];
     /** true once the owner has confirmed the opening hours (seeded values are a guess) */
     hoursVerified: boolean;
+    /** «Από το 19xx». 0 = not known yet: nothing is shown */
+    foundedYear: number;
   };
   storefront: {
     /** shows a site-wide "demo / indicative prices" ribbon and flags orders as test orders */
@@ -55,6 +57,19 @@ export type ShopSettings = {
     launchSignup: boolean;
     announcement: string;
     lowStockThreshold: number;
+    /** «Για συνεργεία & επαγγελματίες»: the page with the quote form, and the links to it. Off = the page does not exist (404). */
+    b2bPage: boolean;
+  };
+  /**
+   * What the shop's customers say elsewhere — typed in by the owner exactly as Google / Skroutz show it, never computed
+   * or estimated here. 0 = not entered: nothing is shown. The Skroutz link itself is shop.skroutzUrl.
+   */
+  reviews: {
+    googleUrl: string;
+    googleRating: number;
+    googleCount: number;
+    skroutzRating: number;
+    skroutzCount: number;
   };
   shipping: {
     courierEnabled: boolean;
@@ -126,6 +141,7 @@ export const DEFAULT_SETTINGS: ShopSettings = {
       { day: 7, closed: true, open: '', close: '' },
     ],
     hoursVerified: false,
+    foundedYear: 0,
   },
   storefront: {
     demoMode: true,
@@ -133,6 +149,14 @@ export const DEFAULT_SETTINGS: ShopSettings = {
     launchSignup: true,
     announcement: 'Δωρεάν μεταφορικά για αγορές άνω των 60 € · Παραλαβή από το κατάστημα χωρίς χρέωση',
     lowStockThreshold: 3,
+    b2bPage: false,
+  },
+  reviews: {
+    googleUrl: '',
+    googleRating: 0,
+    googleCount: 0,
+    skroutzRating: 0,
+    skroutzCount: 0,
   },
   shipping: {
     courierEnabled: true,
