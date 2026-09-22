@@ -82,7 +82,7 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
 
 A review of two local competitors (lazaridis-lubricants.gr, todos.gr) produced seven additions. None copies their
 material; each is a common technique built from this shop's own data. Everything that needs the owner's input ships
-empty or switched off and **renders nothing until he fills it in**. `npm run test:catalog` (58 checks) covers the logic.
+empty or switched off and **renders nothing until he fills it in**. `npm run test:catalog` (73 checks) covers the logic.
 
 - **Viscosity pages** — `/viscosity` and `/viscosity/5w-30`. Filtered listings are `noindex` with `/products` as their
   canonical, so nothing could rank for «λάδια 5W-30»; each SAE grade now has an indexable page whose title, intro and
@@ -120,6 +120,35 @@ empty or switched off and **renders nothing until he fills it in**. `npm run tes
 
 Considered and rejected: a make/model vehicle selector (licensed TecDoc data), on-site product reviews (empty review
 blocks look worse than none), newsletter pop-ups, splash loaders, one product page per pack size.
+
+### Pre-filled from the manufacturers' documents (22.09.2026)
+
+Two data files, applied by `scripts/manufacturer-data.ts` at seed time and as data patches (`2026-09-22-*` in
+`scripts/patches.ts`), so a fresh database and the hosted one end up the same. Both **only fill gaps**: a product that
+already has specs keeps them, a hazard card that exists is never touched, and every entry names the document it came
+from. `npm run test:catalog` checks the files against the catalogue and the regulation's table.
+
+- `catalog/manufacturer-specs.json` — specification lines for 29 of the 45 lubricants that had none, copied from the
+  current product data sheets: Castrol (portal `msdspds.castrol.com`), Motul (Greek product pages + TDS), Valvoline
+  (PI sheets), Mobil 1 ESP 5W-30. "Warranted suitable" / "recommended for" lines were left out; "meets" lines are in.
+  Each product's internal note records the source. Still empty (no reachable manufacturer document): Castrol POWER1
+  15W-50 / 20W-50 / ULTIMATE 10W-50 (not in Castrol's portal for Greece), Mobil Super 3000 ×3 and Mobil 1 FS ×2
+  (mobil.com blocks automated reading), Toyota ×3, Petronas Tutela ×4, Selenia 20K.
+- `catalog/hazard-labels.json` — label elements (SDS section 2.2) for 14 of the 53 chemicals, **all `confirmed:
+  false`**: Liqui Moly ×11 (Greek SDS via the public `pim.liqui-moly.com/sheets/<article>` endpoint, which lists the
+  current sheet per language; the Greek-market article, language line EL-EN-IT, was chosen), Mannol ×3 (Greek SDS
+  linked from mannol.de). Bare codes rely on the official wording; template statements carry the sheet's sentence
+  (`EUH208 Περιέχει …`, `P501 …`); pictograms are the sheet's, or derived from the hazard classes as CLP Annex I
+  prescribes. Discrepancies found on the way sit in the entry's `note` and in the product's internal note (Liqui Moly
+  Radiator Stop Leak is a 150 ml product, not 250 ml; Mannol coolants: only the first six P statements copied). Not
+  done: Mannol ×13 (their `sct-b2b.com` host refuses automated access; the Greek sheets on `b2b.sct.lt` could only be
+  read in part), PRO-TEC ×10 (SDS behind the dealer login), MAG 1 ×7 (US-format sheets in a portal — the Greek
+  importer's CLP label is the right source), Motul 2T ×2 (SDS behind a personal-data form), Castrol POWER1 ULTIMATE 2T,
+  AISIN, Valeo, Avista, SilverSpin, Liqui Moly coolant. Question F1 in `questions.md` asks the distributors for these.
+
+To redo or extend: put the sheet's section 2.2 into an entry (codes only where the official wording is complete), run
+`npm run test:catalog`, then `npm run db:patch` locally — the hosted database picks it up at the next deploy only if
+the patch id is new, so add a new `2026-…` patch entry rather than editing the applied one.
 
 ## Pre-launch tools
 

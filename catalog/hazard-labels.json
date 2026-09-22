@@ -1,0 +1,355 @@
+{
+  "notice": "Label elements (CLP section 2.2) copied from the manufacturers' safety data sheets on 2026-09-22. Codes whose official Greek wording is complete are stored bare (src/lib/ghs-statements-el.ts supplies the text); statements the label must complete carry the sentence printed in the sheet. Pictograms are the ones the sheet names, or follow from the hazard classes as CLP Annex I prescribes. Applied by scripts/manufacturer-data.ts only where products.hazard is still empty, always with confirmed: false — nothing is shown to customers until the owner checks the card against the pack.",
+  "retrieved": "2026-09-22",
+  "entries": [
+    {
+      "slug": "liqui-moly-catalytic-system-cleaner",
+      "hazard": {
+        "signalWord": "danger",
+        "pictograms": [
+          "GHS08"
+        ],
+        "statements": [
+          "H304",
+          "H412",
+          "EUH066",
+          "EUH208 Περιέχει φορμαλδεΰδη. Μπορεί να προκαλέσει αλλεργική αντίδραση."
+        ],
+        "precautions": [
+          "P101",
+          "P102",
+          "P273",
+          "P301+P310 ΣΕ ΠΕΡΙΠΤΩΣΗ ΚΑΤΑΠΟΣΗΣ: καλέστε αμέσως το ΚΕΝΤΡΟ ΔΗΛΗΤΗΡΙΑΣΕΩΝ / γιατρό.",
+          "P331",
+          "P405",
+          "P501 Διάθεση του περιεχομένου / περιέκτη σε αδειοδοτημένη εγκατάσταση αποβλήτων."
+        ],
+        "sdsUrl": "https://sichdatonline.chemical-check.de/Dokumente/566/13337_0039_25-08-2026_EL.pdf",
+        "confirmed": false
+      },
+      "source": "SDS Liqui Moly, άρθρο 8931 (300 ml, EL-EN-IT), αναθεώρηση 25.08.2026",
+      "url": "https://sichdatonline.chemical-check.de/Dokumente/566/13337_0039_25-08-2026_EL.pdf"
+    },
+    {
+      "slug": "liqui-moly-common-rail-additive",
+      "hazard": {
+        "signalWord": "danger",
+        "pictograms": [
+          "GHS08",
+          "GHS09"
+        ],
+        "statements": [
+          "H304",
+          "H411",
+          "EUH044",
+          "EUH066"
+        ],
+        "precautions": [
+          "P101",
+          "P102",
+          "P273",
+          "P301+P310 ΣΕ ΠΕΡΙΠΤΩΣΗ ΚΑΤΑΠΟΣΗΣ: καλέστε αμέσως το ΚΕΝΤΡΟ ΔΗΛΗΤΗΡΙΑΣΕΩΝ / γιατρό.",
+          "P331",
+          "P391",
+          "P405",
+          "P501 Διάθεση του περιεχομένου / περιέκτη σύμφωνα με όλους τους τοπικούς, περιφερειακούς, εγχώριους και διεθνείς νόμους."
+        ],
+        "sdsUrl": "https://sichdatonline.chemical-check.de/Dokumente/566/10506_0018_27-04-2026_EL.pdf",
+        "confirmed": false
+      },
+      "source": "SDS Liqui Moly, άρθρο 8953 (250 ml, EL-EN-IT), αναθεώρηση 27.04.2026",
+      "url": "https://sichdatonline.chemical-check.de/Dokumente/566/10506_0018_27-04-2026_EL.pdf"
+    },
+    {
+      "slug": "liqui-moly-diesel-particulate-filter-protector",
+      "hazard": {
+        "signalWord": "danger",
+        "pictograms": [
+          "GHS08"
+        ],
+        "statements": [
+          "H304",
+          "EUH066"
+        ],
+        "precautions": [
+          "P101",
+          "P102",
+          "P301+P310 ΣΕ ΠΕΡΙΠΤΩΣΗ ΚΑΤΑΠΟΣΗΣ: καλέστε αμέσως το ΚΕΝΤΡΟ ΔΗΛΗΤΗΡΙΑΣΕΩΝ / γιατρό.",
+          "P331",
+          "P405",
+          "P501 Διάθεση του περιεχομένου / περιέκτη σύμφωνα με όλους τους τοπικούς, περιφερειακούς, εγχώριους και διεθνείς νόμους."
+        ],
+        "sdsUrl": "https://sichdatonline.chemical-check.de/Dokumente/566/12803_0004_03-05-2026_EL.pdf",
+        "confirmed": false
+      },
+      "source": "SDS Liqui Moly, άρθρο 7180 (250 ml, EL-EN-IT), αναθεώρηση 03.05.2026",
+      "url": "https://sichdatonline.chemical-check.de/Dokumente/566/12803_0004_03-05-2026_EL.pdf"
+    },
+    {
+      "slug": "liqui-moly-hydraulic-lifter-additive",
+      "hazard": {
+        "none": true,
+        "sdsUrl": "https://sichdatonline.chemical-check.de/Dokumente/566/10326_0020_08-05-2026_EL.pdf",
+        "confirmed": false
+      },
+      "source": "SDS Liqui Moly, άρθρο 2770 (300 ml, EL-EN-IT), αναθεώρηση 08.05.2026",
+      "url": "https://sichdatonline.chemical-check.de/Dokumente/566/10326_0020_08-05-2026_EL.pdf"
+    },
+    {
+      "slug": "liqui-moly-injection-cleaner",
+      "hazard": {
+        "signalWord": "danger",
+        "pictograms": [
+          "GHS08"
+        ],
+        "statements": [
+          "H304",
+          "H412",
+          "EUH066",
+          "EUH208 Περιέχει μηλεϊνικός ανυδρίτης. Μπορεί να προκαλέσει αλλεργική αντίδραση."
+        ],
+        "precautions": [
+          "P101",
+          "P102",
+          "P273",
+          "P301+P310 ΣΕ ΠΕΡΙΠΤΩΣΗ ΚΑΤΑΠΟΣΗΣ: καλέστε αμέσως το ΚΕΝΤΡΟ ΔΗΛΗΤΗΡΙΑΣΕΩΝ / γιατρό.",
+          "P331",
+          "P405",
+          "P501 Διάθεση του περιεχομένου / περιέκτη σε αδειοδοτημένη εγκατάσταση αποβλήτων."
+        ],
+        "sdsUrl": "https://sichdatonline.chemical-check.de/Dokumente/566/13271_0039_26-08-2026_EL.pdf",
+        "confirmed": false
+      },
+      "source": "SDS Liqui Moly, άρθρο 1803 (300 ml, EL-EN-IT), αναθεώρηση 26.08.2026",
+      "url": "https://sichdatonline.chemical-check.de/Dokumente/566/13271_0039_26-08-2026_EL.pdf"
+    },
+    {
+      "slug": "liqui-moly-motor-oil-saver",
+      "hazard": {
+        "pictograms": [],
+        "statements": [
+          "EUH210"
+        ],
+        "precautions": [],
+        "sdsUrl": "https://sichdatonline.chemical-check.de/Dokumente/566/10010_0025_27-03-2026_EL.pdf",
+        "confirmed": false
+      },
+      "source": "SDS Liqui Moly, άρθρο 1802 (300 ml, EL-EN-IT), αναθεώρηση 27.03.2026",
+      "url": "https://sichdatonline.chemical-check.de/Dokumente/566/10010_0025_27-03-2026_EL.pdf"
+    },
+    {
+      "slug": "liqui-moly-pro-line-diesel-system-reiniger",
+      "hazard": {
+        "signalWord": "danger",
+        "pictograms": [
+          "GHS08",
+          "GHS09"
+        ],
+        "statements": [
+          "H304",
+          "H411",
+          "EUH044",
+          "EUH066"
+        ],
+        "precautions": [
+          "P101",
+          "P102",
+          "P273",
+          "P301+P310 ΣΕ ΠΕΡΙΠΤΩΣΗ ΚΑΤΑΠΟΣΗΣ: καλέστε αμέσως το ΚΕΝΤΡΟ ΔΗΛΗΤΗΡΙΑΣΕΩΝ / γιατρό.",
+          "P331",
+          "P405",
+          "P501 Διάθεση του περιεχομένου / περιέκτη σε αδειοδοτημένη εγκατάσταση αποβλήτων."
+        ],
+        "sdsUrl": "https://sichdatonline.chemical-check.de/Dokumente/566/10817_0022_21-04-2026_EL.pdf",
+        "confirmed": false
+      },
+      "source": "SDS Liqui Moly, άρθρο 1797 (500 ml, AR-DE-EL-FR-NL), αναθεώρηση 21.04.2026",
+      "url": "https://sichdatonline.chemical-check.de/Dokumente/566/10817_0022_21-04-2026_EL.pdf",
+      "note": "Το ράφι έχει τη γερμανική συσκευασία (5156)· το SDS είναι του ίδιου προϊόντος."
+    },
+    {
+      "slug": "liqui-moly-pro-line-motorspulung-engine-flush",
+      "hazard": {
+        "signalWord": "danger",
+        "pictograms": [
+          "GHS07",
+          "GHS08"
+        ],
+        "statements": [
+          "H319",
+          "H317",
+          "H304",
+          "EUH066"
+        ],
+        "precautions": [
+          "P101",
+          "P102",
+          "P261",
+          "P280 Να φοράτε μέσα ατομικής προστασίας για τα μάτια / πρόσωπο.",
+          "P301+P310 ΣΕ ΠΕΡΙΠΤΩΣΗ ΚΑΤΑΠΟΣΗΣ: καλέστε αμέσως το ΚΕΝΤΡΟ ΔΗΛΗΤΗΡΙΑΣΕΩΝ / γιατρό.",
+          "P305+P351+P338",
+          "P314 Συμβουλευθείτε / Επισκεφθείτε γιατρό, εάν αισθανθείτε αδιαθεσία.",
+          "P331",
+          "P405",
+          "P501 Διάθεση του περιεχομένου / περιέκτη σε αδειοδοτημένη εγκατάσταση αποβλήτων."
+        ],
+        "sdsUrl": "https://sichdatonline.chemical-check.de/Dokumente/566/10414_0044_22-06-2026_EN.pdf",
+        "confirmed": false
+      },
+      "source": "SDS Liqui Moly, άρθρο 2427 (500 ml, DE-EN-ES-PT), αναθεώρηση 22.06.2026",
+      "url": "https://sichdatonline.chemical-check.de/Dokumente/566/10414_0044_22-06-2026_EN.pdf",
+      "note": "Δεν υπάρχει ελληνική έκδοση SDS για αυτό το άρθρο· διαβάστηκε η αγγλική. Οι φράσεις που συμπληρώνει η ετικέτα (P301+P310, P280, P314, P501) γράφτηκαν με τη διατύπωση που χρησιμοποιεί η Liqui Moly στα ελληνικά SDS των άλλων προϊόντων της."
+    },
+    {
+      "slug": "liqui-moly-radiator-cleaner",
+      "hazard": {
+        "signalWord": "danger",
+        "pictograms": [
+          "GHS05"
+        ],
+        "statements": [
+          "H318",
+          "EUH208 Περιέχει μάζα αντίδρασης από 5-χλωρο-2-μεθυλο-2H-ισοθειαζολ-3-όνη και 2-μεθυλο-2H-ισοθειαζολ-3-όνη (3:1). Μπορεί να προκαλέσει αλλεργική αντίδραση."
+        ],
+        "precautions": [
+          "P101",
+          "P102",
+          "P280 Να φοράτε μέσα ατομικής προστασίας για τα μάτια / πρόσωπο.",
+          "P305+P351+P338",
+          "P310 Καλέστε αμέσως το ΚΕΝΤΡΟ ΔΗΛΗΤΗΡΙΑΣΕΩΝ / γιατρό."
+        ],
+        "sdsUrl": "https://sichdatonline.chemical-check.de/Dokumente/566/10972_0036_15-05-2026_EL.pdf",
+        "confirmed": false
+      },
+      "source": "SDS Liqui Moly, άρθρο 1804 (300 ml, EL-EN-IT), αναθεώρηση 15.05.2026",
+      "url": "https://sichdatonline.chemical-check.de/Dokumente/566/10972_0036_15-05-2026_EL.pdf"
+    },
+    {
+      "slug": "liqui-moly-radiator-stop-leak",
+      "hazard": {
+        "pictograms": [],
+        "statements": [
+          "EUH208 Περιέχει μάζα αντίδρασης από 5-χλωρο-2-μεθυλο-2H-ισοθειαζολ-3-όνη και 2-μεθυλο-2H-ισοθειαζολ-3-όνη (3:1). Μπορεί να προκαλέσει αλλεργική αντίδραση.",
+          "EUH210"
+        ],
+        "precautions": [],
+        "sdsUrl": "https://sichdatonline.chemical-check.de/Dokumente/566/10339_0025_08-05-2026_EL.pdf",
+        "confirmed": false
+      },
+      "source": "SDS Liqui Moly, άρθρο 8956 (150 ml, EL-EN-IT), αναθεώρηση 08.05.2026",
+      "url": "https://sichdatonline.chemical-check.de/Dokumente/566/10339_0025_08-05-2026_EL.pdf",
+      "note": "Το Radiator Stop Leak της Liqui Moly κυκλοφορεί σε 150 ml· η καταχώρηση λέει 250 ml (εκτίμηση). Σε 250 ml υπάρχει το Pro-Line Radiator Stop Leak K — ελέγξτε ποιο είναι στο ράφι."
+    },
+    {
+      "slug": "liqui-moly-super-diesel-additive",
+      "hazard": {
+        "signalWord": "danger",
+        "pictograms": [
+          "GHS08",
+          "GHS09"
+        ],
+        "statements": [
+          "H304",
+          "H411",
+          "EUH044",
+          "EUH066"
+        ],
+        "precautions": [
+          "P101",
+          "P102",
+          "P260 Μην αναπνέετε ατμούς.",
+          "P273",
+          "P301+P310 ΣΕ ΠΕΡΙΠΤΩΣΗ ΚΑΤΑΠΟΣΗΣ: καλέστε αμέσως το ΚΕΝΤΡΟ ΔΗΛΗΤΗΡΙΑΣΕΩΝ / γιατρό.",
+          "P314 Συμβουλευθείτε / Επισκεφθείτε γιατρό, εάν αισθανθείτε αδιαθεσία.",
+          "P331",
+          "P405",
+          "P501 Διάθεση του περιεχομένου / περιέκτη σε αδειοδοτημένη εγκατάσταση αποβλήτων."
+        ],
+        "sdsUrl": "https://sichdatonline.chemical-check.de/Dokumente/566/10316_0042_21-04-2026_EL.pdf",
+        "confirmed": false
+      },
+      "source": "SDS Liqui Moly, άρθρο 1806 (250 ml, EL-EN-IT), αναθεώρηση 21.04.2026",
+      "url": "https://sichdatonline.chemical-check.de/Dokumente/566/10316_0042_21-04-2026_EL.pdf"
+    },
+    {
+      "slug": "mannol-3002-dot-4-brake-fluid",
+      "hazard": {
+        "signalWord": "warning",
+        "pictograms": [
+          "GHS07"
+        ],
+        "statements": [
+          "H319"
+        ],
+        "precautions": [
+          "P101",
+          "P102",
+          "P103",
+          "P264 Πλύνετε σχολαστικά μετά το χειρισμό.",
+          "P280 Να φοράτε μέσα ατομικής προστασίας για τα μάτια / μέσα ατομικής προστασίας για το πρόσωπο.",
+          "P305+P351+P338",
+          "P337+P313"
+        ],
+        "sdsUrl": "https://b2b.sct.lt/msds/download/5659",
+        "confirmed": false
+      },
+      "source": "SDS Mannol (SCT-Vertriebs GmbH), άρθρο MN3002 (ελληνικό SDS), αναθεώρηση 26.07.2024",
+      "url": "https://b2b.sct.lt/msds/download/5659"
+    },
+    {
+      "slug": "mannol-4013-ag13-antifreeze-ready-to-use-hightec-coolant-fluid",
+      "hazard": {
+        "signalWord": "warning",
+        "pictograms": [
+          "GHS07",
+          "GHS08"
+        ],
+        "statements": [
+          "H302",
+          "H373 Μπορεί να προκαλέσει βλάβες στους νεφρούς ύστερα από παρατεταμένη ή επανειλημμένη έκθεση. Τρόπος έκθεσης: Κατάποση."
+        ],
+        "precautions": [
+          "P101",
+          "P102",
+          "P103",
+          "P260 Μην αναπνέετε σκόνη/αναθυμιάσεις/αέρια/σταγονίδια/ατμούς/εκνεφώματα.",
+          "P264 Πλύνετε σχολαστικά μετά το χειρισμό.",
+          "P270"
+        ],
+        "sdsUrl": "https://b2b.sct.lt/msds/download/9836",
+        "confirmed": false
+      },
+      "source": "SDS Mannol (SCT-Vertriebs GmbH), άρθρο MN4013 (ελληνικό SDS), αναθεώρηση 25.02.2026",
+      "url": "https://b2b.sct.lt/msds/download/9836",
+      "note": "Από τις δηλώσεις προφύλαξης (P) αντιγράφηκαν μόνο οι έξι πρώτες (P101–P270)· η λίστα του SDS συνεχίζει — συμπληρώστε τις υπόλοιπες από τη συσκευασία."
+    },
+    {
+      "slug": "mannol-4212-g12-plus-coolant-ready-to-use-antifreeze",
+      "hazard": {
+        "signalWord": "warning",
+        "pictograms": [
+          "GHS07",
+          "GHS08"
+        ],
+        "statements": [
+          "H302",
+          "H319",
+          "H373 Μπορεί να προκαλέσει βλάβες στους νεφρούς ύστερα από παρατεταμένη ή επανειλημμένη έκθεση. Τρόπος έκθεσης: Κατάποση."
+        ],
+        "precautions": [
+          "P101",
+          "P102",
+          "P103",
+          "P260 Μην αναπνέετε σκόνη/αναθυμιάσεις/αέρια/σταγονίδια/ατμούς/εκνεφώματα.",
+          "P264 Πλύνετε σχολαστικά μετά το χειρισμό.",
+          "P270"
+        ],
+        "sdsUrl": "https://b2b.sct.lt/msds/download/10090",
+        "confirmed": false
+      },
+      "source": "SDS Mannol (SCT-Vertriebs GmbH), άρθρο MN4212 (ελληνικό SDS), αναθεώρηση 27.03.2026",
+      "url": "https://b2b.sct.lt/msds/download/10090",
+      "note": "Από τις δηλώσεις προφύλαξης (P) αντιγράφηκαν μόνο οι έξι πρώτες (P101–P270)· η λίστα του SDS συνεχίζει — συμπληρώστε τις υπόλοιπες από τη συσκευασία."
+    }
+  ]
+}

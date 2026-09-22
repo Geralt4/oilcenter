@@ -18,7 +18,7 @@ async function main() {
   dir = await cloneDatabase('oc-catalog-');
   const { eq } = await import('drizzle-orm');
   const { db } = await import('../src/lib/db');
-  const { products, variants } = await import('../src/lib/db/schema');
+  const { categories, products, variants } = await import('../src/lib/db/schema');
   const { getViscosities, getViscosityBySlug, listProducts, matchCode, suggestProducts, viscosityLabel, viscositySlug } = await import('../src/lib/catalog');
   const { activeFilterCount, parseListingParams } = await import('../src/lib/listing-params');
 
@@ -120,6 +120,43 @@ async function main() {
   check('the worklist covers chemicals with their sub-categories and 2-stroke oils, not car engine oils', [...ids].sort().join() === '1,2,4');
   check('a product leaves the worklist once confirmed — with labelling or as «none»', needsHazardCheck({ isActive: true, categoryId: 2, hazard: null }, ids) && needsHazardCheck({ isActive: true, categoryId: 2, hazard: built }, ids) && !needsHazardCheck({ isActive: true, categoryId: 2, hazard: { none: true, confirmed: true } }, ids) && !needsHazardCheck({ isActive: true, categoryId: 5, hazard: null }, ids) && !needsHazardCheck({ isActive: false, categoryId: 2, hazard: null }, ids));
 
+  console.log('Manufacturer data (catalog/manufacturer-specs.json, catalog/hazard-labels.json)');
+  const { applyHazardLabels, applyManufacturerSpecs, hazardFromEntry, loadHazardLabels, loadManufacturerSpecs } = await import('./manufacturer-data');
+  const { readFileSync } = await import('node:fs');
+  const { parseSpecLine: specLine } = await import('../src/lib/approvals');
+  const seedCatalog = JSON.parse(readFileSync('catalog/catalog.json', 'utf8')) as { products: Array<{ slug: string; specs: string[] }> };
+  const seedBySlug = new Map(seedCatalog.products.map((p) => [p.slug, p]));
+  const specEntries = [...loadManufacturerSpecs().values()];
+  const hazardEntries = [...loadHazardLabels().values()];
+  check('both files hold something', specEntries.length >= 20 && hazardEntries.length >= 10, { specs: specEntries.length, hazard: hazardEntries.length });
+  check('every spec entry names a catalogue product that had no specs, and says where it comes from', specEntries.every((e) => seedBySlug.get(e.slug)?.specs.length === 0 && e.source.length > 10 && e.url.startsWith('https://')), specEntries.filter((e) => !seedBySlug.has(e.slug) || seedBySlug.get(e.slug)!.specs.length > 0).map((e) => e.slug));
+  check('every spec line is something the label could print — no empty or duplicated lines', specEntries.every((e) => e.specs.every((s) => s.trim() === s && s.length > 2) && new Set(e.specs).size === e.specs.length));
+  check('the approval filter understands at least one line of every entry', specEntries.every((e) => e.specs.some((s) => specLine(s).length > 0)), specEntries.filter((e) => !e.specs.some((s) => specLine(s).length > 0)).map((e) => e.slug));
+  check('every hazard entry names a catalogue product and its data sheet', hazardEntries.every((e) => seedBySlug.has(e.slug) && e.source.startsWith('SDS ') && e.url.startsWith('https://') && e.hazard.sdsUrl === e.url), hazardEntries.filter((e) => !seedBySlug.has(e.slug)).map((e) => e.slug));
+  const builtEntries = hazardEntries.map((e) => [e.slug, hazardFromEntry(e)] as const);
+  check('every hazard entry builds a card, and never a confirmed one', builtEntries.every(([, h]) => h !== null && h.confirmed === false), builtEntries.filter(([, h]) => !h).map(([s]) => s));
+  check('a card with statements has pictograms only from the official set and a valid signal word', builtEntries.every(([, h]) => h!.none || ((h!.pictograms ?? []).every((p) => /^GHS0[1-9]$/.test(p)) && (h!.signalWord === undefined || h!.signalWord === 'danger' || h!.signalWord === 'warning'))));
+  check('every code has wording: bare codes are in the table, template statements carry their sentence', builtEntries.every(([, h]) => h!.none || unknownCodes(h!).length === 0), builtEntries.filter(([, h]) => !h!.none && unknownCodes(h!).length).map(([s, h]) => `${s}: ${unknownCodes(h!).join(',')}`));
+  check('every statement starts with a code the regulation knows', builtEntries.every(([, h]) => [...(h!.statements ?? []), ...(h!.precautions ?? [])].every((line) => { const c = parseStatement(line).code; return c !== null && c.toUpperCase() in GHS_STATEMENTS_EL; })));
+  check('a hazard statement always comes with a signal word (EUH-only labels excepted)', builtEntries.every(([, h]) => h!.none || !(h!.statements ?? []).some((s) => /^H\d/.test(s)) || h!.signalWord !== undefined));
+  check('nothing pre-filled is public', builtEntries.every(([, h]) => publicHazard(h) === null));
+  // the copy under test may already carry the data (npm run db:patch): start the apply checks from a blank slate
+  const { inArray } = await import('drizzle-orm');
+  await db.update(products).set({ hazard: null }).where(inArray(products.slug, hazardEntries.map((e) => e.slug)));
+  await db.update(products).set({ specs: [] }).where(inArray(products.slug, specEntries.map((e) => e.slug)));
+  const dryHazard = await applyHazardLabels({ dry: true, verbose: false });
+  const dryHazardCount = Number(/^\[dry run\] (\d+) hazard/.exec(dryHazard)?.[1]);
+  check('a dry run touches nothing and reports the same number of cards as the file (no unknown slugs)', dryHazardCount === hazardEntries.length && !dryHazard.includes('not in this database'), dryHazard);
+  const applied = await applyHazardLabels({ verbose: false });
+  const again = await applyHazardLabels({ verbose: false });
+  const [sample] = hazardEntries;
+  const [row] = await db.select({ hazard: products.hazard, internalNotes: products.internalNotes, categoryId: products.categoryId, isActive: products.isActive }).from(products).where(eq(products.slug, sample.slug));
+  check('applying fills the cards once, then keeps them', applied.startsWith(`${hazardEntries.length} hazard cards pre-filled`) && again.startsWith('0 hazard cards pre-filled') && again.includes(`${hazardEntries.length} already had a card`), { applied, again });
+  check('the card lands unconfirmed, the product stays on the worklist and the note says so', row?.hazard?.confirmed === false && needsHazardCheck(row!, hazardPriorityCategoryIds(await db.select({ id: categories.id, slug: categories.slug, parentId: categories.parentId }).from(categories))) && (row?.internalNotes ?? '').includes('ΔΕΝ εμφανίζεται'));
+  const dbSpecs = await applyManufacturerSpecs({ verbose: false });
+  const [specRow] = await db.select({ specs: products.specs, searchText: products.searchText, internalNotes: products.internalNotes }).from(products).where(eq(products.slug, specEntries[0].slug));
+  check('specs are filled only where empty and become searchable', dbSpecs.startsWith(`${specEntries.length} products got specs`) && (await applyManufacturerSpecs({ verbose: false })).startsWith('0 products got specs') && specRow?.specs.join() === specEntries[0].specs.join() && specRow.searchText.includes(specEntries[0].specs[0].toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()) && (specRow.internalNotes ?? '').includes('Προδιαγραφές από'));
+
   console.log('Approvals');
   const { parseApprovals, parseSpecLine } = await import('../src/lib/approvals');
   const keysOf = (line: string) => parseSpecLine(line).map((a) => a.key).join(' ');
@@ -133,9 +170,7 @@ async function main() {
   check('nothing is inferred and nothing is guessed', keysOf('API SP') === 'api-sp' && keysOf('Arvin Meritor Axles (LS)') === '' && keysOf('P-OAT') === '' && keysOf('Κατάλληλο για VW') === '');
   check('keys are safe in a URL list (no comma, space or plus)', ['BMW LL-17 FE+', 'G12++', 'JAGUAR LAND ROVER STJLR.03.5006', 'OPEL-VAUXHALL OV 040 1547-G40 / D40'].flatMap((l) => parseSpecLine(l)).every((a) => /^[a-z0-9.-]+$/.test(a.key)));
 
-  const { readFileSync } = await import('node:fs');
-  const source = JSON.parse(readFileSync('catalog/catalog.json', 'utf8')) as { products: Array<{ specs?: string[] }> };
-  const lines = [...new Set(source.products.flatMap((p) => p.specs ?? []))];
+  const lines = [...new Set(seedCatalog.products.flatMap((p) => p.specs ?? []))];
   const unmapped = lines.filter((l) => parseSpecLine(l).length === 0).sort();
   // lines the parser is MEANT to leave alone: not approvals one would filter by, or too unclear to key
   const leftAlone = ['AG13', 'Arvin Meritor Axles (LS)', 'DIN 51524 Teil 2 HLP', 'HVLP', 'P-OAT'];

@@ -5,6 +5,7 @@ import { count, eq } from 'drizzle-orm';
 import { db } from '../src/lib/db';
 import { adminUsers, brands, categories, coupons, productImages, products, variants, type BaseType } from '../src/lib/db/schema';
 import { hashPassword } from '../src/lib/auth/password';
+import { applyHazardLabels, applyManufacturerSpecs } from './manufacturer-data';
 import { loadSkroutzPrices } from './skroutz-prices';
 
 /*
@@ -103,6 +104,10 @@ async function main() {
       });
     }
     console.log(`Seeded ${catalog.brands.length} brands, ${catalog.categories.length} categories, ${catalog.products.length} products, ${variantCount} variants.`);
+
+    // What the manufacturers' data sheets say, where the catalogue was silent (same files as the data patches).
+    console.log(`Manufacturer specs: ${await applyManufacturerSpecs({ verbose: false })}`);
+    console.log(`Hazard labels: ${await applyHazardLabels({ verbose: false })}`);
 
     // An example coupon so the feature can be demonstrated. Inactive on purpose: enable it from /admin/coupons.
     await db
