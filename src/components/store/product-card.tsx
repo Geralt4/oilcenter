@@ -10,7 +10,14 @@ import type { CatalogProduct } from '@/lib/catalog';
 import { useCart, useHydrated, useWishlist } from '@/lib/cart-store';
 import { cn, formatPrice, telHref } from '@/lib/utils';
 
-export function ProductCard({ product, priority = false }: { product: CatalogProduct; priority?: boolean }) {
+/**
+ * Rendered width of a card's image, for a grid that has the row to itself: the home page, related products and the
+ * wishlist. Two cards to a row, then three from 640, then four from 1280; above 1376 the page container stops growing
+ * and 320 px is as wide as the image ever gets. A listing with the filters beside it hands ProductGrid its own string.
+ */
+const GRID_IMAGE_SIZES = '(min-width: 1280px) 320px, (min-width: 640px) 33vw, 50vw';
+
+export function ProductCard({ product, priority = false, sizes = GRID_IMAGE_SIZES }: { product: CatalogProduct; priority?: boolean; sizes?: string }) {
   // open on a size that can actually be bought — on the shelf if possible — and with a confirmed price
   const firstAvailable = product.variants.find((v) => v.availability === 'in_stock' && v.priced) ?? product.variants.find((v) => v.inStock && v.priced) ?? product.variants.find((v) => v.inStock) ?? product.variants[0];
   const { phone } = useStoreConfig();
@@ -54,7 +61,7 @@ export function ProductCard({ product, priority = false }: { product: CatalogPro
               alt=""
               fill
               priority={priority}
-              sizes="(min-width: 1280px) 290px, (min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
+              sizes={sizes}
               className="object-contain p-3 transition-transform duration-300 group-hover:scale-[1.04] sm:p-5"
             />
           )}
@@ -110,8 +117,17 @@ export function ProductCard({ product, priority = false }: { product: CatalogPro
           </div>
         )}
 
-        <div className="relative z-10 mt-auto flex items-end justify-between gap-2 pt-1">
-          <div className="leading-tight">
+        {/*
+          * The footer answers to the card, not to the viewport: the grid below puts the same card anywhere between
+          * 112 px wide (two-up on a small phone) and 358 px (home page), and it is not the wider viewport that makes
+          * the wider card — a column is added instead, and next to the filters one is taken away again. 14rem is where
+          * the widest state of the button — «Προστέθηκε», 142 px — still fits beside the longest price and the gap;
+          * below it the label is dropped and the button is the icon alone. flex-wrap is the last resort for the
+          * narrowest cards, where not even that fits.
+          */}
+        <div className="@container relative z-10 mt-auto flex flex-wrap items-end gap-2 pt-1">
+          {/* flex-1, so a long availability note wraps inside this column instead of pushing the button onto its own line */}
+          <div className="flex-1 leading-tight">
             {variant.priced ? (
               <>
                 {variant.compareAtCents && <p className="tabular text-xs text-ink-400 line-through">{formatPrice(variant.compareAtCents)}</p>}
@@ -128,10 +144,10 @@ export function ProductCard({ product, priority = false }: { product: CatalogPro
             <a
               href={telHref(phone)}
               aria-label={`Καλέστε για την τιμή: ${product.name} ${variant.label}`}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-ink-900 text-white hover:bg-ink-700 sm:w-auto sm:gap-2 sm:px-4"
+              className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-ink-900 text-white hover:bg-ink-700 @min-[14rem]:w-auto @min-[14rem]:gap-2 @min-[14rem]:px-4"
             >
               <Phone className="h-5 w-5" />
-              <span className="hidden text-sm font-semibold sm:inline">Κλήση</span>
+              <span className="hidden text-sm font-semibold @min-[14rem]:inline">Κλήση</span>
             </a>
           ) : (
           <button
@@ -140,12 +156,12 @@ export function ProductCard({ product, priority = false }: { product: CatalogPro
             disabled={!variant.inStock}
             aria-label={`Προσθήκη στο καλάθι: ${product.name} ${variant.label}`}
             className={cn(
-              'flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-colors disabled:cursor-not-allowed disabled:bg-ink-100 disabled:text-ink-300 sm:w-auto sm:gap-2 sm:px-4',
+              'ml-auto flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-colors disabled:cursor-not-allowed disabled:bg-ink-100 disabled:text-ink-300 @min-[14rem]:w-auto @min-[14rem]:gap-2 @min-[14rem]:px-4',
               justAdded ? 'bg-emerald-600 text-white' : 'bg-oil-500 text-ink-950 hover:bg-oil-400',
             )}
           >
             {justAdded ? <Check className="h-5 w-5" /> : <ShoppingCart className="h-5 w-5" />}
-            <span className="hidden text-sm font-semibold sm:inline">{justAdded ? 'Προστέθηκε' : 'Καλάθι'}</span>
+            <span className="hidden text-sm font-semibold @min-[14rem]:inline">{justAdded ? 'Προστέθηκε' : 'Καλάθι'}</span>
           </button>
           )}
         </div>
@@ -154,11 +170,11 @@ export function ProductCard({ product, priority = false }: { product: CatalogPro
   );
 }
 
-export function ProductGrid({ products, priorityCount = 0 }: { products: CatalogProduct[]; priorityCount?: number }) {
+export function ProductGrid({ products, priorityCount = 0, sizes }: { products: CatalogProduct[]; priorityCount?: number; sizes?: string }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 lg:gap-5">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:gap-5 xl:grid-cols-4">
       {products.map((p, i) => (
-        <ProductCard key={p.id} product={p} priority={i < priorityCount} />
+        <ProductCard key={p.id} product={p} priority={i < priorityCount} sizes={sizes} />
       ))}
     </div>
   );
