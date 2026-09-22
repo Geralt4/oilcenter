@@ -2,7 +2,34 @@ import './env';
 import { eq } from 'drizzle-orm';
 import { db } from '../src/lib/db';
 import { settings } from '../src/lib/db/schema';
+import { DEFAULT_SETTINGS, type ShopSettings } from '../src/lib/settings';
+import { saveSettingsGroup } from '../src/lib/settings.server';
 import { applyHazardLabels, applyManufacturerSpecs } from './manufacturer-data';
+
+/**
+ * The owner's own details as given on 22.09.2026 — ΑΦΜ, ΓΕΜΗ, ΔΟΥ, the one landline he keeps (the old fax, mobile and
+ * e-mail are gone; the new store Gmail follows), and the opening hours confirmed exactly as seeded. Whatever else the
+ * settings form holds (address, links, tagline) is kept.
+ */
+async function applyShopDetails(): Promise<string> {
+  const [row] = await db.select().from(settings).where(eq(settings.key, 'shop'));
+  const stored = (row && typeof row.value === 'object' && row.value !== null && !Array.isArray(row.value) ? row.value : {}) as Partial<ShopSettings['shop']>;
+  const d = DEFAULT_SETTINGS.shop;
+  await saveSettingsGroup('shop', {
+    ...d,
+    ...stored,
+    phone: d.phone,
+    mobile: '',
+    fax: '',
+    email: '',
+    vatNumber: d.vatNumber,
+    taxOffice: d.taxOffice,
+    gemi: d.gemi,
+    hours: structuredClone(d.hours),
+    hoursVerified: true,
+  });
+  return `ΑΦΜ ${d.vatNumber} · ΓΕΜΗ ${d.gemi} · ΔΟΥ ${d.taxOffice} · phone ${d.phone} only (fax, mobile, e-mail cleared) · hours confirmed`;
+}
 import { applySkroutzPrices } from './skroutz-prices';
 
 /*
@@ -19,6 +46,8 @@ const PATCHES: Array<{ id: string; run: () => Promise<string> }> = [
   { id: '2026-09-22-manufacturer-specs', run: () => applyManufacturerSpecs({ verbose: false }) },
   // Hazard labelling copied from the manufacturers' safety data sheets — unconfirmed, so nothing shows until checked.
   { id: '2026-09-22-hazard-labels', run: () => applyHazardLabels({ verbose: false }) },
+  // Business details and contact channels as the owner gave them (questions B1–B5, H1).
+  { id: '2026-09-22-shop-details', run: applyShopDetails },
 ];
 
 const KEY = 'dataPatches';

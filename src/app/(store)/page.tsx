@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import { ArrowRight, BadgePercent, Headset, Phone, ShieldCheck, Store, Truck } from 'lucide-react';
+import { ArrowRight, Headset, Phone, ShieldCheck, Store, Truck } from 'lucide-react';
 import { CategoryIcon } from '@/components/category-icon';
 import { ProductGrid } from '@/components/store/product-card';
 import { StoreLocation } from '@/components/store/store-location';
@@ -24,7 +24,7 @@ export default async function HomePage() {
   const totalProducts = tree.reduce((n, c) => n + c.productCount, 0);
 
   const usps: Array<{ icon: typeof Truck; title: string; text: string; href?: string; more?: string }> = [
-    { icon: BadgePercent, title: 'Τιμές χονδρικής', text: 'Ακόμα και για αγορές λιανικής.', ...(settings.storefront.b2bPage && { href: '/professionals', more: 'Για συνεργεία →' }) },
+    { icon: Headset, title: 'Το σωστό λάδι για το όχημά σας', text: 'Πείτε μας μάρκα, μοντέλο και έτος — τηλεφωνικά ή με τη φόρμα οχήματος.', href: '/find-my-oil', more: 'Ποιο λάδι θέλω; →' },
     { icon: Truck, title: 'Αποστολή σε όλη την Ελλάδα', text: shipping.freeOverCents > 0 ? `Δωρεάν για αγορές άνω των ${formatPrice(shipping.freeOverCents)}.` : `Παράδοση σε ${shipping.deliveryEstimate}.` },
     { icon: Store, title: 'Παραλαβή από το κατάστημα', text: `${shop.street}, ${shop.city} — χωρίς χρέωση.` },
     { icon: Headset, title: 'Δεν είστε σίγουροι;', text: 'Πάρτε μας τηλέφωνο: βρίσκουμε το σωστό λάδι για το όχημά σας.' },
@@ -48,7 +48,7 @@ export default async function HomePage() {
               <span className="text-oil-400">για κάθε κινητήρα.</span>
             </h1>
             <p className="mt-5 max-w-xl text-lg leading-relaxed text-ink-200">
-              Λιπαντικά, βαλβολίνες, αντιψυκτικά και χημικά από τις κορυφαίες μάρκες — σε τιμές χονδρικής. Παραγγείλετε online ή περάστε από το κατάστημά μας στη {shop.city}.
+              Λιπαντικά, βαλβολίνες, αντιψυκτικά και χημικά από τις κορυφαίες μάρκες — και συμβουλή για το σωστό λάδι. Παραγγείλετε online ή περάστε από το κατάστημά μας στη {shop.city}.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/products" className={buttonClass({ size: 'lg' })}>

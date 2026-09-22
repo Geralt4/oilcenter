@@ -115,10 +115,11 @@ export const DEFAULT_SETTINGS: ShopSettings = {
     name: 'Oil Center',
     legalName: 'Τσακιρίδης Ηλίας',
     tagline: 'Λιπαντικά · Χημικά · Ανταλλακτικά',
+    // the one landline the owner keeps (22.09.2026); the old fax, mobile and e-mail are gone — the new store Gmail is still to come
     phone: '2310 850778',
-    mobile: '6977 440388',
-    fax: '2310 850267',
-    email: 'iliastsakiridis@hotmail.com',
+    mobile: '',
+    fax: '',
+    email: '',
     street: 'Σόλωνος 52',
     city: 'Θεσσαλονίκη',
     postalCode: '546 44',
@@ -128,9 +129,10 @@ export const DEFAULT_SETTINGS: ShopSettings = {
     facebookUrl: 'https://www.facebook.com/TsakiridisOilCenter/',
     instagramUrl: '',
     skroutzUrl: 'https://www.skroutz.gr/shop/30368/Tsakiridis-Oil-Center/products.html',
-    vatNumber: '',
-    taxOffice: '',
-    gemi: '',
+    vatNumber: '054243156',
+    taxOffice: 'Καλαμαριάς / ΚΕΦΟΔΕ',
+    gemi: '58197804000',
+    // confirmed by the owner on 22.09.2026: no midday break, no summer timetable
     hours: [
       { day: 1, closed: false, open: '08:30', close: '17:00' },
       { day: 2, closed: false, open: '08:30', close: '17:00' },
@@ -140,7 +142,7 @@ export const DEFAULT_SETTINGS: ShopSettings = {
       { day: 6, closed: false, open: '09:00', close: '14:00' },
       { day: 7, closed: true, open: '', close: '' },
     ],
-    hoursVerified: false,
+    hoursVerified: true,
     foundedYear: 0,
   },
   storefront: {

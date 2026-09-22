@@ -15,7 +15,7 @@ export function Footer({ settings, tree }: { settings: ShopSettings; tree: Categ
         <div>
           <Logo tone="light" />
           <p className="mt-5 max-w-sm text-sm leading-relaxed">
-            {shop.legalName} — εμπορία λιπαντικών, χημικών και ανταλλακτικών αυτοκινήτου στη Θεσσαλονίκη. Τιμές χονδρικής, ακόμα και για αγορές λιανικής.
+            {shop.legalName} — εμπορία λιπαντικών, χημικών και ανταλλακτικών αυτοκινήτου στη Θεσσαλονίκη.
           </p>
           <ul className="mt-6 space-y-3 text-sm">
             <li>
@@ -32,12 +32,14 @@ export function Footer({ settings, tree }: { settings: ShopSettings; tree: Categ
                 </a>
               </li>
             )}
-            <li>
-              <a href={`mailto:${shop.email}`} className="flex items-center gap-3 hover:text-white">
-                <Mail className="h-4 w-4 text-oil-400" />
-                {shop.email}
-              </a>
-            </li>
+            {shop.email && (
+              <li>
+                <a href={`mailto:${shop.email}`} className="flex items-center gap-3 hover:text-white">
+                  <Mail className="h-4 w-4 text-oil-400" />
+                  {shop.email}
+                </a>
+              </li>
+            )}
             <li>
               <a href={mapsPlaceUrl(shop)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 hover:text-white">
                 <MapPin className="h-4 w-4 shrink-0 text-oil-400" />

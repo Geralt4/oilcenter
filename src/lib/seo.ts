@@ -18,7 +18,7 @@ export function localBusinessJsonLd(settings: ShopSettings) {
     name: `${shop.name} — ${shop.legalName}`,
     url: siteUrl(),
     telephone: phone,
-    email: shop.email,
+    ...(shop.email && { email: shop.email }),
     image: `${siteUrl()}/shop/counter-mobil-1.webp`,
     priceRange: '€',
     currenciesAccepted: 'EUR',

@@ -55,10 +55,12 @@ export function StoreLocation({ shop, reviews, className }: { shop: ShopSettings
               {shop.mobile}
             </a>
           )}
-          <a href={`mailto:${shop.email}`} className={buttonClass({ variant: 'outline', className: 'min-w-0' })}>
-            <Mail className="h-4 w-4 shrink-0" />
-            <span className="truncate">E-mail</span>
-          </a>
+          {shop.email && (
+            <a href={`mailto:${shop.email}`} className={buttonClass({ variant: 'outline', className: 'min-w-0' })}>
+              <Mail className="h-4 w-4 shrink-0" />
+              <span className="truncate">E-mail</span>
+            </a>
+          )}
         </div>
 
         <div>
