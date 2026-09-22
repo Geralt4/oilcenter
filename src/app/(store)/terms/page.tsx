@@ -19,7 +19,7 @@ export default async function TermsPage() {
       <h2>1. Ποιοι είμαστε</h2>
       <p>
         Το ηλεκτρονικό κατάστημα oilcenter.gr ανήκει στην ατομική επιχείρηση <strong>{shop.legalName}</strong> — εμπορία λιπαντικών αυτοκινήτων, με έδρα {fullAddress(shop)}
-        {shop.vatNumber && <>, ΑΦΜ {shop.vatNumber}</>}{shop.taxOffice && <>, ΔΟΥ {shop.taxOffice}</>}{shop.gemi && <>, Αρ. ΓΕΜΗ {shop.gemi}</>}. Τηλέφωνο <span className="tabular">{shop.phone}</span>, e-mail <a href={`mailto:${shop.email}`}>{shop.email}</a>.
+        {shop.vatNumber && <>, ΑΦΜ {shop.vatNumber}</>}{shop.taxOffice && <>, ΔΟΥ {shop.taxOffice}</>}{shop.gemi && <>, Αρ. ΓΕΜΗ {shop.gemi}</>}. Τηλέφωνο <span className="tabular">{shop.phone}</span>{shop.email && <>, e-mail <a href={`mailto:${shop.email}`}>{shop.email}</a></>}.
       </p>
 
       <h2>2. Προϊόντα και τιμές</h2>

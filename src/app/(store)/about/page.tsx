@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
-import { BadgePercent, Boxes, Handshake, Wrench } from 'lucide-react';
+import { Boxes, Handshake, Headset, Wrench } from 'lucide-react';
 import { Breadcrumbs } from '@/components/store/product-listing';
 import { StoreLocation } from '@/components/store/store-location';
 import { TrustBadges } from '@/components/store/trust-badges';
@@ -11,7 +11,7 @@ import { getSettings } from '@/lib/settings.server';
 
 export const metadata: Metadata = {
   title: 'Το κατάστημα',
-  description: 'Η επιχείρηση εμπορίας λιπαντικών Τσακιρίδης Ηλίας στη Σόλωνος 52, Θεσσαλονίκη: λιπαντικά, χημικά και ανταλλακτικά αυτοκινήτου σε τιμές χονδρικής.',
+  description: 'Η επιχείρηση εμπορίας λιπαντικών Τσακιρίδης Ηλίας στη Σόλωνος 52, Θεσσαλονίκη: λιπαντικά, χημικά και ανταλλακτικά αυτοκινήτου από τις κορυφαίες μάρκες.',
   alternates: { canonical: '/about' },
 };
 
@@ -27,7 +27,7 @@ export default async function AboutPage() {
   const { shop } = settings;
 
   const values = [
-    { icon: BadgePercent, title: 'Τιμές χονδρικής για όλους', text: 'Ό,τι ψάχνετε σε τιμές χονδρικής, ακόμα και για αγορές λιανικής.' },
+    { icon: Headset, title: 'Συμβουλή πριν την αγορά', text: 'Πείτε μας το όχημα και σας λέμε τι χρειάζεται — στο κατάστημα, τηλεφωνικά ή με τη φόρμα οχήματος.' },
     { icon: Boxes, title: `${brands.length}+ μάρκες στο ράφι`, text: 'Οι δημοφιλέστερες μάρκες λιπαντικών, άμεσα διαθέσιμες στο κατάστημα.' },
     { icon: Handshake, title: 'Εξουσιοδοτημένος αντιπρόσωπος accelerate', text: 'Γερμανικά λιπαντικά με εγκρίσεις κατασκευαστών, απευθείας από τον αντιπρόσωπο.' },
     { icon: Wrench, title: 'Συμβουλή από ανθρώπους που ξέρουν', text: 'Πείτε μας το όχημα και σας λέμε ακριβώς τι λάδι, πόσα λίτρα και ποιο φίλτρο χρειάζεται.' },
@@ -40,7 +40,7 @@ export default async function AboutPage() {
       <div className="mt-6 grid items-center gap-10 lg:grid-cols-2">
         <div>
           <p className="eyebrow text-oil-700">{shop.legalName}</p>
-          <h1 className="display mt-2 text-4xl sm:text-6xl">Λιπαντικά σε τιμές χονδρικής, στην καρδιά της Θεσσαλονίκης</h1>
+          <h1 className="display mt-2 text-4xl sm:text-6xl">Λιπαντικά και χημικά αυτοκινήτου, στην καρδιά της Θεσσαλονίκης</h1>
           <div className="prose-oc mt-6 text-lg">
             <p>Στη {shop.street} στη Θεσσαλονίκη λειτουργεί η έδρα της επιχείρησης εμπορίας λιπαντικών αυτοκινήτων <strong>{shop.legalName}</strong>. Στο κατάστημά μας θα βρείτε τις δημοφιλέστερες μάρκες λιπαντικών στις χαμηλότερες τιμές της αγοράς, καθώς και μεγάλη γκάμα ανταλλακτικών. Διαθέτουμε ακόμη αντιψυκτικά, paraflu, γράσα και λάδια υδραυλικού.</p>
             <p>Ελάτε να μας γνωρίσετε, για να σας εξυπηρετήσουμε όπως μόνο εμείς ξέρουμε και μπορούμε!</p>

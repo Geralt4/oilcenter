@@ -32,6 +32,11 @@ function smtp(): Transporter | null {
 }
 
 export async function sendMail(mail: Mail): Promise<boolean> {
+  // no recipient (no ORDERS_NOTIFY_EMAIL and no shop e-mail yet): the record is already saved, the mail is simply not sent
+  if (!mail.to) {
+    console.warn(`[mail] no recipient for "${mail.subject}" — set the shop e-mail in Ρυθμίσεις or ORDERS_NOTIFY_EMAIL`);
+    return false;
+  }
   try {
     const t = smtp();
     if (t) {
@@ -62,7 +67,7 @@ function layout(shop: ShopSettings['shop'], heading: string, body: string): stri
 <tr><td style="padding:28px;"><h1 style="margin:0 0 16px;font-size:22px;line-height:1.25;">${esc(heading)}</h1>${body}</td></tr>
 <tr><td style="background:#f5f6f8;padding:20px 28px;font-size:13px;line-height:1.6;color:#59616f;">
 <strong style="color:#11141a;">${esc(shop.name)} — ${esc(shop.legalName)}</strong><br>${esc(fullAddress(shop))}<br>
-Τηλ. <a href="tel:+30${shop.phone.replace(/\D/g, '')}" style="color:#11141a;">${esc(shop.phone)}</a>${shop.mobile ? ` · <a href="tel:+30${shop.mobile.replace(/\D/g, '')}" style="color:#11141a;">${esc(shop.mobile)}</a>` : ''} · <a href="mailto:${esc(shop.email)}" style="color:#11141a;">${esc(shop.email)}</a>
+Τηλ. <a href="tel:+30${shop.phone.replace(/\D/g, '')}" style="color:#11141a;">${esc(shop.phone)}</a>${shop.mobile ? ` · <a href="tel:+30${shop.mobile.replace(/\D/g, '')}" style="color:#11141a;">${esc(shop.mobile)}</a>` : ''}${shop.email ? ` · <a href="mailto:${esc(shop.email)}" style="color:#11141a;">${esc(shop.email)}</a>` : ''}
 </td></tr></table></td></tr></table></body></html>`;
 }
 
@@ -104,7 +109,7 @@ export function orderConfirmationMail(order: OrderWithItems, settings: ShopSetti
     next = `<div style="margin-top:20px;padding:16px;background:#fff8e6;border-radius:12px;font-size:14px;line-height:1.6;"><strong>Παραλαβή από το κατάστημα</strong><br>Θα σας ειδοποιήσουμε μόλις η παραγγελία είναι έτοιμη. ${esc(fullAddress(shop))} — <a href="${esc(mapsDirectionsUrl(shop))}" style="color:#15406b;">οδηγίες στο Google Maps</a>.</div>`;
   }
   const body = `<p style="margin:0;font-size:15px;line-height:1.6;">Γεια σας ${esc(order.firstName)}, λάβαμε την παραγγελία σας <strong>${esc(order.number)}</strong> (${formatDateTime(order.createdAt)}). Θα επικοινωνήσουμε μαζί σας αν χρειαστεί κάποια διευκρίνιση.</p>${order.isTest ? '<p style="margin:14px 0 0;padding:10px 14px;background:#eef5fc;border-radius:10px;font-size:13px;color:#15406b;">Δοκιμαστική παραγγελία: το κατάστημα λειτουργεί σε δοκιμαστική λειτουργία και η παραγγελία δεν θα εκτελεστεί.</p>' : ''}${next}${itemsTable(order)}${detailsBlock(order)}${button(orderUrl(order), 'Παρακολούθηση παραγγελίας')}`;
-  return { to: order.email, subject: `Η παραγγελία σας ${order.number} — Oil Center`, html: layout(shop, 'Ευχαριστούμε για την παραγγελία σας!', body), replyTo: shop.email };
+  return { to: order.email, subject: `Η παραγγελία σας ${order.number} — Oil Center`, html: layout(shop, 'Ευχαριστούμε για την παραγγελία σας!', body), replyTo: shop.email || undefined };
 }
 
 export function newOrderNotificationMail(order: OrderWithItems, settings: ShopSettings): Mail {
@@ -123,7 +128,7 @@ export function orderStatusMail(order: OrderWithItems, settings: ShopSettings): 
     cancelled: 'Η παραγγελία σας ακυρώθηκε. Αν έχετε ήδη πληρώσει, θα επικοινωνήσουμε μαζί σας για την επιστροφή των χρημάτων.',
   };
   const body = `<p style="margin:0;font-size:15px;line-height:1.6;">Γεια σας ${esc(order.firstName)}, ${messages[order.status] ?? `η κατάσταση της παραγγελίας σας άλλαξε σε «${ORDER_STATUS_LABELS[order.status]}».`}</p>${itemsTable(order)}${button(orderUrl(order), 'Προβολή παραγγελίας')}`;
-  return { to: order.email, subject: `Παραγγελία ${order.number}: ${ORDER_STATUS_LABELS[order.status]}`, html: layout(shop, ORDER_STATUS_LABELS[order.status], body), replyTo: shop.email };
+  return { to: order.email, subject: `Παραγγελία ${order.number}: ${ORDER_STATUS_LABELS[order.status]}`, html: layout(shop, ORDER_STATUS_LABELS[order.status], body), replyTo: shop.email || undefined };
 }
 
 /** `heading` and `details` come from the forms that ask structured questions (vehicle enquiry, quote request); the e-mail is optional there. */

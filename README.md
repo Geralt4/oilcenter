@@ -55,9 +55,11 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
 4. **Opening hours are a guess** (Mon–Fri 08:30–17:00, Sat 09:00–14:00). Correct them and tick "επιβεβαιωμένο" — only
    then are they published to Google via structured data.
 2b. The full list of those 43, grouped by what to check, is in [`REVIEW.md`](REVIEW.md).
-5. **ΑΦΜ and Αρ. ΓΕΜΗ** are empty. A Greek e-shop must identify the seller (ΠΔ 131/2003 art. 4: trade-register number
-   and VAT number; N. 2251/1994: trader identity) — they appear in the footer and the terms page. ΔΟΥ is optional.
-   Payment providers also look for these details when they approve a merchant's site. Confirm with the accountant.
+5. **ΑΦΜ, Αρ. ΓΕΜΗ and ΔΟΥ** were supplied by the owner on 22.09.2026 (defaults in `src/lib/settings.ts`, data patch
+   `2026-09-22-shop-details` for existing databases) and appear in the footer and the terms page, as ΠΔ 131/2003 art. 4
+   and N. 2251/1994 require. The same patch keeps a single landline, drops the old fax / mobile / e-mail and marks the
+   opening hours confirmed. **The shop's e-mail is empty until the owner's new Gmail arrives** — enter it in
+   *Ρυθμίσεις → Στοιχεία*; until then the pages simply omit it and site mail has no recipient (see `ORDERS_NOTIFY_EMAIL`).
 6. **Bank account (IBAN)** — only needed *if* bank transfer is offered; it is shown solely to a buyer who picks that
    method (order page + e-mail). Otherwise switch bank transfer off in the settings.
 7. **Shipping rates** (3,90 € up to 2 kg, +0,90 €/kg, free over 60 € up to 15 kg, COD +2,00 €) are sensible defaults,
