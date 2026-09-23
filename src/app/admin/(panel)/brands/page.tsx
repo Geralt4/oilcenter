@@ -3,6 +3,7 @@ import { Trash2 } from 'lucide-react';
 import { deleteTaxon, saveBrand } from '@/app/admin/actions';
 import { AdminForm, ConfirmButton } from '@/components/admin/admin-form';
 import { Card, Check, Field, PageHeader } from '@/components/admin/ui';
+import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { brands, products, type Brand } from '@/lib/db/schema';
 
@@ -23,6 +24,7 @@ function BrandFields({ brand }: { brand?: Brand }) {
 }
 
 export default async function AdminBrandsPage() {
+  await requireAdmin();
   const [rows, counts] = await Promise.all([db.select().from(brands).orderBy(asc(brands.sort), asc(brands.name)), db.select({ id: products.brandId, n: count() }).from(products).groupBy(products.brandId)]);
   const n = new Map(counts.map((c) => [c.id, c.n]));
 

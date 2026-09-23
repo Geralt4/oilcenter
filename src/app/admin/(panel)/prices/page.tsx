@@ -5,6 +5,7 @@ import { importPricesCsv } from '@/app/admin/actions';
 import { AdminForm } from '@/components/admin/admin-form';
 import { PriceEditor, type PriceRow } from '@/components/admin/price-editor';
 import { PageHeader } from '@/components/admin/ui';
+import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { brands, priceChanges, products, variants, type PriceChangeSource } from '@/lib/db/schema';
 import { cn, formatDateTime, formatPrice } from '@/lib/utils';
@@ -14,6 +15,7 @@ export const metadata = { title: 'Τιμές' };
 const SOURCE_LABELS: Record<PriceChangeSource, string> = { editor: 'Τιμές', product: 'Καρτέλα προϊόντος', csv: 'Εισαγωγή CSV', skroutz: 'Τιμοκατάλογος Skroutz' };
 
 export default async function AdminPricesPage({ searchParams }: { searchParams: Promise<{ q?: string; brand?: string; filter?: string }> }) {
+  await requireAdmin();
   const sp = await searchParams;
   // ids are autoincrement, so the highest id per variant is its newest change
   const newest = db.select({ id: max(priceChanges.id).as('newest_id') }).from(priceChanges).groupBy(priceChanges.variantId).as('newest');

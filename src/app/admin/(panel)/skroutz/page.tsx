@@ -7,6 +7,7 @@ import { CodesEditor, type CodeRow } from '@/components/admin/codes-editor';
 import { CopyField } from '@/components/admin/copy-field';
 import { Card, Check, Field, PageHeader } from '@/components/admin/ui';
 import { buttonClass } from '@/components/ui/button';
+import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { brands, products, variants } from '@/lib/db/schema';
 import { SKROUTZ_AVAILABILITY } from '@/lib/settings';
@@ -21,6 +22,7 @@ export const metadata = { title: 'Skroutz' };
 const REASON_ORDER: FeedExclusion[] = ['price_unconfirmed', 'unavailable', 'out_of_stock', 'no_brand', 'no_category', 'size_inactive', 'product_inactive'];
 
 export default async function AdminSkroutzPage() {
+  await requireAdmin();
   const settings = await getSettings();
   const [feed, log, rows] = await Promise.all([
     buildSkroutzFeed(settings),

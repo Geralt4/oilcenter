@@ -8,6 +8,7 @@ import { AdminForm } from '@/components/admin/admin-form';
 import { PrintButton } from '@/components/admin/print-button';
 import { Card, Check, Field, PageHeader, PaymentBadge, StatusBadge } from '@/components/admin/ui';
 import { AvailabilityTag } from '@/components/store/availability';
+import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { orderEvents, orders, type OrderStatus } from '@/lib/db/schema';
 import { ORDER_STATUS_LABELS } from '@/lib/orders';
@@ -17,6 +18,7 @@ import { formatDateTime, formatPrice, formatWeight, vatPortion } from '@/lib/uti
 export const metadata = { title: 'Παραγγελία' };
 
 export default async function AdminOrderPage({ params }: { params: Promise<{ id: string }> }) {
+  await requireAdmin();
   const id = Number((await params).id);
   if (!Number.isInteger(id)) notFound();
   const order = await db.query.orders.findFirst({ where: eq(orders.id, id), with: { items: true, events: { orderBy: [asc(orderEvents.id)] } } });
