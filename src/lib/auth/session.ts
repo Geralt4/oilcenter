@@ -12,7 +12,7 @@ import { adminUsers, customers } from '@/lib/db/schema';
  */
 
 type Role = 'admin' | 'customer';
-type SessionPayload = { sub: string; role: Role };
+type SessionPayload = { sub: string; role: Role; ver: number };
 
 const COOKIE: Record<Role, { name: string; maxAge: number }> = {
   admin: { name: 'oc_admin', maxAge: 60 * 60 * 12 },
@@ -29,7 +29,7 @@ function secretKey(): Uint8Array {
 }
 
 async function sign(payload: SessionPayload, maxAge: number): Promise<string> {
-  return new SignJWT({ role: payload.role })
+  return new SignJWT({ role: payload.role, ver: payload.ver })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(payload.sub)
     .setIssuedAt()
@@ -37,22 +37,24 @@ async function sign(payload: SessionPayload, maxAge: number): Promise<string> {
     .sign(secretKey());
 }
 
-async function verify(token: string | undefined, role: Role): Promise<number | null> {
+async function verify(token: string | undefined, role: Role): Promise<{ id: number; ver: number } | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secretKey(), { algorithms: ['HS256'] });
     if (payload.role !== role || !payload.sub) return null;
     const id = Number(payload.sub);
-    return Number.isInteger(id) ? id : null;
+    // Tokens minted before token versioning carry no `ver`; treat that as 0 (the column default).
+    const ver = Number(payload.ver ?? 0);
+    return Number.isInteger(id) && Number.isInteger(ver) ? { id, ver } : null;
   } catch {
     return null;
   }
 }
 
-export async function createSession(role: Role, id: number): Promise<void> {
+export async function createSession(role: Role, id: number, tokenVersion: number): Promise<void> {
   const { name, maxAge } = COOKIE[role];
   const store = await cookies();
-  store.set(name, await sign({ sub: String(id), role }, maxAge), {
+  store.set(name, await sign({ sub: String(id), role, ver: tokenVersion }, maxAge), {
     httpOnly: true,
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
@@ -65,20 +67,22 @@ export async function destroySession(role: Role): Promise<void> {
   (await cookies()).delete(COOKIE[role].name);
 }
 
-/** Verifies the cookie AND that the account still exists. Memoised per request. */
+/** Verifies the cookie, that the account still exists, AND that the session has not been revoked. Memoised per request. */
 export const getAdmin = cache(async () => {
-  const id = await verify((await cookies()).get(COOKIE.admin.name)?.value, 'admin');
-  if (!id) return null;
-  const [admin] = await db.select({ id: adminUsers.id, email: adminUsers.email, name: adminUsers.name }).from(adminUsers).where(eq(adminUsers.id, id));
-  return admin ?? null;
+  const session = await verify((await cookies()).get(COOKIE.admin.name)?.value, 'admin');
+  if (!session) return null;
+  const [admin] = await db.select({ id: adminUsers.id, email: adminUsers.email, name: adminUsers.name, tokenVersion: adminUsers.tokenVersion }).from(adminUsers).where(eq(adminUsers.id, session.id));
+  if (!admin || admin.tokenVersion !== session.ver) return null;
+  const { tokenVersion: _v, ...safe } = admin;
+  return safe;
 });
 
 export const getCustomer = cache(async () => {
-  const id = await verify((await cookies()).get(COOKIE.customer.name)?.value, 'customer');
-  if (!id) return null;
-  const [customer] = await db.select().from(customers).where(eq(customers.id, id));
-  if (!customer) return null;
-  const { passwordHash: _p, resetTokenHash: _r, resetTokenExpires: _e, ...safe } = customer;
+  const session = await verify((await cookies()).get(COOKIE.customer.name)?.value, 'customer');
+  if (!session) return null;
+  const [customer] = await db.select().from(customers).where(eq(customers.id, session.id));
+  if (!customer || customer.tokenVersion !== session.ver) return null;
+  const { passwordHash: _p, resetTokenHash: _r, resetTokenExpires: _e, tokenVersion: _v, ...safe } = customer;
   return safe;
 });
 

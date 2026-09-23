@@ -183,6 +183,8 @@ export const customers = sqliteTable(
     marketingOptIn: integer('marketing_opt_in', { mode: 'boolean' }).notNull().default(false),
     resetTokenHash: text('reset_token_hash'),
     resetTokenExpires: integer('reset_token_expires', { mode: 'timestamp_ms' }),
+    /** bumped on password change / reset so existing session cookies stop validating */
+    tokenVersion: integer('token_version').notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('customers_email_uq').on(t.email)],
@@ -196,6 +198,8 @@ export const adminUsers = sqliteTable(
     passwordHash: text('password_hash').notNull(),
     name: text('name').notNull().default(''),
     lastLoginAt: integer('last_login_at', { mode: 'timestamp_ms' }),
+    /** bumped on password change so existing session cookies stop validating */
+    tokenVersion: integer('token_version').notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('admin_users_email_uq').on(t.email)],

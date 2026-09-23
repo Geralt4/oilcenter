@@ -21,5 +21,16 @@ export function rateLimit(key: string, limit: number, windowMs: number): { ok: b
 
 export async function clientIp(): Promise<string> {
   const h = await headers();
-  return h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip') || 'local';
+  const xff = h.get('x-forwarded-for');
+  if (xff) {
+    const chain = xff.split(',').map((s) => s.trim()).filter(Boolean);
+    // TRUSTED_PROXY_HOPS = how many proxies append to X-Forwarded-For between the client and this app.
+    // The real client is that many entries from the right. Default 0 → leftmost, which is correct on hosts
+    // whose edge overwrites the header (e.g. Railway). Behind an appending reverse proxy (nginx/Caddy) set it
+    // to the hop count, so a client-supplied (spoofed) leftmost entry can't be used to dodge the rate limit.
+    const hops = Math.max(0, Number(process.env.TRUSTED_PROXY_HOPS) || 0);
+    const ip = hops > 0 ? chain[chain.length - 1 - hops] : chain[0];
+    if (ip) return ip;
+  }
+  return h.get('x-real-ip') || 'local';
 }

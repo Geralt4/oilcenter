@@ -7,6 +7,18 @@ const DAY_SCHEMA = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Sat
 
 export { siteUrl };
 
+/**
+ * Serialise data for a <script type="application/ld+json"> block. A bare JSON.stringify does not escape
+ * "<", so a value containing "</script>" (e.g. a manufacturer code pasted into the admin or imported from a
+ * distributor CSV) could close the tag and inject markup. Escape the tag-breaking characters, plus the raw
+ * line/paragraph separators that are invalid in JSON embedded in HTML. Use this at every JSON-LD site.
+ */
+export function jsonLdString(data: unknown): string {
+  // Built from a string so the source stays ASCII (a raw U+2028 would terminate a regex literal).
+  const unsafe = new RegExp('[<>&\\u2028\\u2029]', 'g');
+  return JSON.stringify(data).replace(unsafe, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+}
+
 /** schema.org AutoPartsStore — feeds Google's local panel with phone, address, geo and opening hours. */
 export function localBusinessJsonLd(settings: ShopSettings) {
   const { shop } = settings;

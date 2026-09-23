@@ -1,12 +1,12 @@
 'use server';
 
 import { redirect } from 'next/navigation';
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, gt } from 'drizzle-orm';
 import { z } from 'zod';
 import { hashPassword, randomToken, sha256, verifyPassword } from '@/lib/auth/password';
 import { createSession, destroySession, requireCustomer } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { customers, orders } from '@/lib/db/schema';
+import { customers } from '@/lib/db/schema';
 import { passwordResetMail, sendMail } from '@/lib/email';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 import { getSettings } from '@/lib/settings.server';
@@ -22,10 +22,18 @@ function fieldErrors(error: z.ZodError): Record<string, string> {
   return out;
 }
 
-/** Only same-site relative paths are accepted as a post-login destination (no open redirect). */
+/**
+ * Only same-site absolute paths are accepted as a post-login destination (no open redirect).
+ * Browsers treat backslashes and stripped control characters (tab, newline) as slashes, so
+ * "/\evil.com" or "/\t/evil.com" would navigate off-site — reject those, then forbid the
+ * protocol-relative "//host" form.
+ */
 function safeNext(value: FormDataEntryValue | null): string {
   const next = String(value ?? '');
-  return next.startsWith('/') && !next.startsWith('//') ? next : '/account';
+  if (next === '/') return next;
+  if (!/^\/[^/\\]/.test(next)) return '/account';
+  if (/[\u0000-\u001f\u007f\\]/.test(next)) return '/account';
+  return next;
 }
 
 export async function registerCustomer(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -44,9 +52,10 @@ export async function registerCustomer(_prev: FormState, formData: FormData): Pr
     .insert(customers)
     .values({ email: parsed.data.email, passwordHash: await hashPassword(parsed.data.password), firstName: parsed.data.firstName, lastName: parsed.data.lastName })
     .returning({ id: customers.id });
-  // Earlier guest orders placed with the same e-mail show up in the new account's history.
-  await db.update(orders).set({ customerId: created.id }).where(and(eq(orders.email, parsed.data.email), isNull(orders.customerId)));
-  await createSession('customer', created.id);
+  // Deliberately NOT linking earlier guest orders by e-mail: registration does not prove ownership
+  // of that address, so it must not surface another person's order history. Guest orders stay
+  // reachable through the order lookup (number + e-mail) or the secret link in the confirmation e-mail.
+  await createSession('customer', created.id, 0);
   redirect(safeNext(formData.get('next')));
 }
 
@@ -62,7 +71,7 @@ export async function loginCustomer(_prev: FormState, formData: FormData): Promi
   const valid = await verifyPassword(parsed.data.password, customer?.passwordHash ?? 'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAA');
   if (!customer || !valid) return { ok: false, message: 'Λάθος e-mail ή κωδικός.' };
 
-  await createSession('customer', customer.id);
+  await createSession('customer', customer.id, customer.tokenVersion);
   redirect(safeNext(formData.get('next')));
 }
 
@@ -92,13 +101,16 @@ export async function resetPassword(_prev: FormState, formData: FormData): Promi
   if (!parsed.success) return { ok: false, message: 'Ελέγξτε τον κωδικό.', fieldErrors: fieldErrors(parsed.error) };
 
   const [customer] = await db
-    .select({ id: customers.id })
+    .select({ id: customers.id, tokenVersion: customers.tokenVersion })
     .from(customers)
     .where(and(eq(customers.resetTokenHash, sha256(parsed.data.token)), gt(customers.resetTokenExpires, new Date())));
   if (!customer) return { ok: false, message: 'Ο σύνδεσμος επαναφοράς δεν ισχύει ή έχει λήξει. Ζητήστε νέο.' };
 
-  await db.update(customers).set({ passwordHash: await hashPassword(parsed.data.password), resetTokenHash: null, resetTokenExpires: null }).where(eq(customers.id, customer.id));
-  await createSession('customer', customer.id);
+  // Bump the session version: every other session for this account (e.g. one an attacker opened with the
+  // old password) is invalidated, and only this browser stays signed in.
+  const nextVersion = customer.tokenVersion + 1;
+  await db.update(customers).set({ passwordHash: await hashPassword(parsed.data.password), resetTokenHash: null, resetTokenExpires: null, tokenVersion: nextVersion }).where(eq(customers.id, customer.id));
+  await createSession('customer', customer.id, nextVersion);
   redirect('/account');
 }
 

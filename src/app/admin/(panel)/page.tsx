@@ -3,6 +3,7 @@ import { and, count, desc, eq, gte, isNotNull, ne, sql } from 'drizzle-orm';
 import { BadgeEuro, CircleAlert, CircleCheck } from 'lucide-react';
 import { Card, PageHeader, PaymentBadge, StatusBadge, td, th } from '@/components/admin/ui';
 import { buttonClass } from '@/components/ui/button';
+import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { categories, orders, products, variants } from '@/lib/db/schema';
 import { hazardPriorityCategoryIds, needsHazardCheck } from '@/lib/ghs';
@@ -15,6 +16,7 @@ const DAY = 24 * 60 * 60 * 1000;
 const daysAgo = (days: number) => new Date(Date.now() - days * DAY);
 
 export default async function AdminDashboard() {
+  await requireAdmin();
   await releaseAbandonedCardOrders();
   const settings = await getSettings();
   const real = and(eq(orders.isTest, false), ne(orders.status, 'cancelled'));

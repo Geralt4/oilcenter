@@ -3,6 +3,7 @@ import { Trash2 } from 'lucide-react';
 import { deleteCoupon, saveCoupon } from '@/app/admin/actions';
 import { AdminForm, ConfirmButton } from '@/components/admin/admin-form';
 import { Card, Check, Field, PageHeader } from '@/components/admin/ui';
+import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { coupons, type Coupon } from '@/lib/db/schema';
 import { centsToInput, cn, formatPrice } from '@/lib/utils';
@@ -34,6 +35,7 @@ function CouponFields({ coupon }: { coupon?: Coupon }) {
 }
 
 export default async function AdminCouponsPage() {
+  await requireAdmin();
   const rows = await db.select().from(coupons).orderBy(desc(coupons.createdAt));
   const describe = (c: Coupon) => (c.type === 'percent' ? `−${c.value}%` : c.type === 'fixed' ? `−${formatPrice(c.value)}` : 'Δωρεάν μεταφορικά');
 

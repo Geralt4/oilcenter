@@ -6,12 +6,14 @@ import { buttonClass } from '@/components/ui/button';
 import { backupsSupported, listBackups } from '@/lib/backup';
 import { cardProvider } from '@/lib/payments';
 import { DAY_NAMES } from '@/lib/settings';
+import { requireAdmin } from '@/lib/auth/session';
 import { getSettings } from '@/lib/settings.server';
 import { centsToInput, formatDate } from '@/lib/utils';
 
 export const metadata = { title: 'Ρυθμίσεις' };
 
 export default async function AdminSettingsPage() {
+  await requireAdmin();
   const [s, backups] = await Promise.all([getSettings(), listBackups()]);
   const { shop, storefront, reviews, shipping, payments, tax } = s;
   const provider = cardProvider();

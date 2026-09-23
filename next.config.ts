@@ -1,12 +1,33 @@
 import type { NextConfig } from 'next';
 
+// Baseline Content-Security-Policy. A nonce-based policy would be stricter, but the CSP guide for this
+// Next version notes that nonces force every page into dynamic rendering (no static/CDN caching), which is
+// not worth it here. 'unsafe-inline' is required for the scripts/styles Next injects; the other directives
+// still block the high-value vectors — off-site script origins, <base> injection, framing, form hijacking.
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'self'",
+  "form-action 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self'",
+  "connect-src 'self'",
+  // the store-location map is an embedded Google Maps iframe
+  "frame-src https://www.google.com",
+].join('; ');
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   // libSQL ships a native binding; keep it out of the server bundle.
   serverExternalPackages: ['@libsql/client', 'libsql', 'sharp', 'nodemailer'],
   experimental: {
     serverActions: {
-      // Admin product form uploads photos straight from a phone camera.
+      // Admin product form uploads photos straight from a phone camera. Next applies one body-size limit
+      // to ALL server actions, so this ceiling also covers the public forms (contact, checkout, …); those are
+      // further bounded by their zod field limits and per-IP rate limiting, so the practical exposure is small.
       bodySizeLimit: '25mb',
     },
   },
@@ -29,6 +50,9 @@ const nextConfig: NextConfig = {
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(self)' },
+          // Two years; browsers only honour it over HTTPS, so it is inert on local http.
+          { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' },
+          { key: 'Content-Security-Policy', value: contentSecurityPolicy },
         ],
       },
       {

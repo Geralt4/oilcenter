@@ -1,12 +1,14 @@
 import { notFound } from 'next/navigation';
 import { asc, eq } from 'drizzle-orm';
 import { ProductEditor } from '@/components/admin/product-editor';
+import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { productImages, products, variants } from '@/lib/db/schema';
 
 export const metadata = { title: 'Επεξεργασία προϊόντος' };
 
 export default async function AdminProductPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ created?: string }> }) {
+  await requireAdmin();
   const [{ id: raw }, sp] = await Promise.all([params, searchParams]);
   if (raw === 'new') return <ProductEditor />;
 

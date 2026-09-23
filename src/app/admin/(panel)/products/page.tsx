@@ -5,6 +5,7 @@ import { Plus, TriangleAlert } from 'lucide-react';
 import { PageHeader, td, th } from '@/components/admin/ui';
 import { buttonClass } from '@/components/ui/button';
 import { AVAILABILITY_SHORT, AVAILABILITY_TONE, effectiveAvailability } from '@/lib/availability';
+import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { brands, categories, productImages, products, variants } from '@/lib/db/schema';
 import { hazardPriorityCategoryIds, needsHazardCheck } from '@/lib/ghs';
@@ -14,6 +15,7 @@ export const metadata = { title: 'Προϊόντα' };
 const PER_PAGE = 40;
 
 export default async function AdminProductsPage({ searchParams }: { searchParams: Promise<{ q?: string; brand?: string; filter?: string; page?: string; deleted?: string }> }) {
+  await requireAdmin();
   const sp = await searchParams;
   const [productRows, variantRows, imageRows, brandRows, categoryRows] = await Promise.all([
     db.select().from(products).orderBy(asc(products.name)),

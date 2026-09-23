@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { and, count, desc, eq, like, or, type SQL } from 'drizzle-orm';
 import { PageHeader, PaymentBadge, StatusBadge, td, th } from '@/components/admin/ui';
+import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { orders, type OrderStatus } from '@/lib/db/schema';
 import { ORDER_STATUS_LABELS } from '@/lib/orders';
@@ -11,6 +12,7 @@ export const metadata = { title: 'Παραγγελίες' };
 const PER_PAGE = 30;
 
 export default async function AdminOrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string; page?: string }> }) {
+  await requireAdmin();
   const sp = await searchParams;
   const status = (Object.keys(ORDER_STATUS_LABELS) as OrderStatus[]).find((s) => s === sp.status);
   const q = (sp.q ?? '').trim().slice(0, 80);

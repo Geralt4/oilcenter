@@ -4,6 +4,7 @@ import { deleteTaxon, saveCategory } from '@/app/admin/actions';
 import { AdminForm, ConfirmButton } from '@/components/admin/admin-form';
 import { Card, Check, Field, PageHeader } from '@/components/admin/ui';
 import { CATEGORY_ICONS, CategoryIcon } from '@/components/category-icon';
+import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { categories, products, type Category } from '@/lib/db/schema';
 
@@ -25,6 +26,7 @@ function CategoryFields({ category, parents }: { category?: Category; parents: C
 }
 
 export default async function AdminCategoriesPage() {
+  await requireAdmin();
   const [rows, counts] = await Promise.all([
     db.select().from(categories).orderBy(asc(categories.sort), asc(categories.name)),
     db.select({ id: products.categoryId, n: count() }).from(products).where(eq(products.isActive, true)).groupBy(products.categoryId),

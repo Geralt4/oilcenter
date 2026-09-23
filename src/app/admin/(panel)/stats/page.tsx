@@ -4,6 +4,7 @@ import { Download } from 'lucide-react';
 import { deleteSignup } from '@/app/admin/actions';
 import { ConfirmButton } from '@/components/admin/admin-form';
 import { Card, PageHeader } from '@/components/admin/ui';
+import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { brands, categories, launchSignups, products } from '@/lib/db/schema';
 import { dailySeries, topKeys, total } from '@/lib/stats';
@@ -38,6 +39,7 @@ function TopList({ title, description, rows, empty }: { title: string; descripti
 }
 
 export default async function AdminStatsPage({ searchParams }: { searchParams: Promise<{ days?: string }> }) {
+  await requireAdmin();
   const sp = await searchParams;
   const days = PERIODS.includes(Number(sp.days)) ? Number(sp.days) : 30;
 

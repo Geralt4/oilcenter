@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { ContactForm } from '@/components/store/contact-form';
 import { Breadcrumbs } from '@/components/store/product-listing';
 import { StoreLocation } from '@/components/store/store-location';
-import { localBusinessJsonLd } from '@/lib/seo';
+import { jsonLdString, localBusinessJsonLd } from '@/lib/seo';
 import { getSettings } from '@/lib/settings.server';
 
 export const metadata: Metadata = {
@@ -16,7 +16,7 @@ export default async function ContactPage() {
   const settings = await getSettings();
   return (
     <div className="container-page py-6 sm:py-8">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd(settings)) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdString(localBusinessJsonLd(settings)) }} />
       <Breadcrumbs items={[{ name: 'Επικοινωνία', href: '/contact' }]} />
       <h1 className="display mt-5 text-4xl sm:text-5xl">Επικοινωνία</h1>
       <p className="mt-3 max-w-2xl text-ink-600">Ο πιο γρήγορος τρόπος είναι ένα τηλεφώνημα: πείτε μας το όχημά σας και σας λέμε αμέσως τι χρειάζεται. Αλλιώς, περάστε από το κατάστημα ή γράψτε μας.</p>

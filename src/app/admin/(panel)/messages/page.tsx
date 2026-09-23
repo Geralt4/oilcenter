@@ -4,6 +4,7 @@ import { Mail, Phone, Trash2 } from 'lucide-react';
 import { messageAction } from '@/app/admin/actions';
 import { ConfirmButton } from '@/components/admin/admin-form';
 import { PageHeader } from '@/components/admin/ui';
+import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { contactMessages, type EnquiryKind } from '@/lib/db/schema';
 import { ENQUIRY_KINDS, ENQUIRY_KIND_LABELS } from '@/lib/enquiries';
@@ -14,6 +15,7 @@ export const metadata = { title: 'Μηνύματα' };
 type Props = { searchParams: Promise<{ kind?: string | string[] }> };
 
 export default async function AdminMessagesPage({ searchParams }: Props) {
+  await requireAdmin();
   const { kind: wanted } = await searchParams;
   const kind = ENQUIRY_KINDS.find((k) => k === (Array.isArray(wanted) ? wanted[0] : wanted)) ?? null;
 
