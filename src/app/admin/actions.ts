@@ -44,7 +44,7 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
   if (!admin || !valid) return { ok: false, message: 'Λάθος e-mail ή κωδικός.' };
 
   await db.update(adminUsers).set({ lastLoginAt: new Date() }).where(eq(adminUsers.id, admin.id));
-  await createSession('admin', admin.id);
+  await createSession('admin', admin.id, admin.tokenVersion);
   redirect('/admin');
 }
 
@@ -59,7 +59,10 @@ export async function changeAdminPassword(_prev: AdminFormState, fd: FormData): 
   if (next.length < 10) return { ok: false, message: 'Ο νέος κωδικός πρέπει να έχει τουλάχιστον 10 χαρακτήρες.' };
   const [row] = await db.select().from(adminUsers).where(eq(adminUsers.id, me.id));
   if (!row || !(await verifyPassword(String(fd.get('currentPassword') ?? ''), row.passwordHash))) return { ok: false, message: 'Ο τρέχων κωδικός δεν είναι σωστός.' };
-  await db.update(adminUsers).set({ passwordHash: await hashPassword(next) }).where(eq(adminUsers.id, me.id));
+  // Bump the session version so other sessions are signed out; re-issue this one so the admin stays logged in here.
+  const nextVersion = row.tokenVersion + 1;
+  await db.update(adminUsers).set({ passwordHash: await hashPassword(next), tokenVersion: nextVersion }).where(eq(adminUsers.id, me.id));
+  await createSession('admin', me.id, nextVersion);
   return { ok: true, message: 'Ο κωδικός άλλαξε.' };
 }
 
