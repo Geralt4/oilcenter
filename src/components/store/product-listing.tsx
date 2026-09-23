@@ -6,7 +6,7 @@ import { TrackSearch } from '@/components/store/tracker';
 import { buttonClass } from '@/components/ui/button';
 import { SORT_LABELS, listProducts, type ListingFilters } from '@/lib/catalog';
 import { activeFilterCount, listingHref, parseListingParams, type RawSearchParams } from '@/lib/listing-params';
-import { breadcrumbJsonLd } from '@/lib/seo';
+import { breadcrumbJsonLd, jsonLdString } from '@/lib/seo';
 import { cn } from '@/lib/utils';
 
 export type Crumb = { name: string; href: string };
@@ -23,7 +23,7 @@ export function Breadcrumbs({ items }: { items: Crumb[] }) {
   const all = [{ name: 'Αρχική', href: '/' }, ...items];
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd(all)) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdString(breadcrumbJsonLd(all)) }} />
       <nav aria-label="Διαδρομή" className="no-scrollbar overflow-x-auto">
         <ol className="flex items-center gap-1.5 text-sm whitespace-nowrap text-ink-500">
           {all.map((item, i) => (

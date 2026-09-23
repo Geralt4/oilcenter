@@ -8,7 +8,7 @@ import { ProductView } from '@/components/store/product-view';
 import { parseSpecLine } from '@/lib/approvals';
 import { effectiveAvailability } from '@/lib/availability';
 import { BASE_TYPE_LABELS, getCategoryTrailById, getProductBySlug, getRelatedProducts, viscositySlug, type ProductDetail } from '@/lib/catalog';
-import { productJsonLd } from '@/lib/seo';
+import { jsonLdString, productJsonLd } from '@/lib/seo';
 import { getSettings } from '@/lib/settings.server';
 import { formatWeight } from '@/lib/utils';
 
@@ -76,7 +76,7 @@ export default async function ProductPage({ params, searchParams }: Props) {
 
   return (
     <div className="container-page py-6 sm:py-8">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd(product, settings)) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdString(productJsonLd(product, settings)) }} />
       <Breadcrumbs items={[...trail.map((c) => ({ name: c.name, href: `/category/${c.slug}` })), { name: product.name, href: `/product/${product.slug}` }]} />
 
       <div className="mt-6">

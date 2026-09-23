@@ -7,7 +7,7 @@ import { StoreLocation } from '@/components/store/store-location';
 import { TrustBadges } from '@/components/store/trust-badges';
 import { buttonClass } from '@/components/ui/button';
 import { getBrands, getCategoryTree, getFeaturedProducts, getPopularViscosities, listProducts, viscositySlug } from '@/lib/catalog';
-import { localBusinessJsonLd } from '@/lib/seo';
+import { jsonLdString, localBusinessJsonLd } from '@/lib/seo';
 import { getSettings } from '@/lib/settings.server';
 import { formatPrice, telHref } from '@/lib/utils';
 
@@ -32,7 +32,7 @@ export default async function HomePage() {
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd(settings)) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdString(localBusinessJsonLd(settings)) }} />
 
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="steel relative overflow-hidden text-white">
