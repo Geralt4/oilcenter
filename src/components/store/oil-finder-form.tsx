@@ -1,16 +1,16 @@
 'use client';
 
-import { useActionState } from 'react';
 import { CircleCheck, LoaderCircle, Send } from 'lucide-react';
 import { sendVehicleEnquiry, type OilFinderState } from '@/app/(store)/find-my-oil/actions';
 import { buttonClass } from '@/components/ui/button';
+import { useKeptForm } from '@/components/ui/use-kept-form';
 import { COMMON_MAKES, FUELS, NEEDS, VEHICLE_TYPES } from '@/lib/oil-finder';
 
 const optional = <span className="font-normal text-ink-400">(προαιρετικό)</span>;
 
 /** `product`: set when the visitor came from a product page asking «ταιριάζει αυτό στο όχημά μου;» */
 export function OilFinderForm({ product }: { product?: { slug: string; name: string } | null }) {
-  const [state, action, pending] = useActionState<OilFinderState, FormData>(sendVehicleEnquiry, null);
+  const { state, pending, formRef, formAction, onSubmit } = useKeptForm<OilFinderState>(sendVehicleEnquiry, null);
 
   if (state?.ok) {
     return (
@@ -22,12 +22,13 @@ export function OilFinderForm({ product }: { product?: { slug: string; name: str
   }
 
   const err = (name: string) => state?.fieldErrors?.[name];
-  // React resets a form to its default values once the action returns: echo what was typed, or a mistake in one field wipes the other eleven
+  // without JavaScript the page reloads with the errors: echo what was typed, or a mistake in one field wipes the other eleven
+  // (with it, useKeptForm keeps the fields as they are)
   const was = (name: string, fallback = '') => state?.values?.[name] ?? fallback;
   const error = (name: string) => err(name) && <p className="mt-1.5 text-sm font-medium text-red-600">{err(name)}</p>;
 
   return (
-    <form action={action} className="grid gap-4 sm:grid-cols-2" noValidate>
+    <form ref={formRef} action={formAction} onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2" noValidate>
       {state && !state.ok && <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-800 sm:col-span-2">{state.message}</p>}
       {product && (
         <p className="rounded-2xl border border-line bg-ink-50 p-3 text-sm text-ink-700 sm:col-span-2">

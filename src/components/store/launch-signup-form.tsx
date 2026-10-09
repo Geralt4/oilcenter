@@ -1,14 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState } from 'react';
 import { BellRing, Check, LoaderCircle } from 'lucide-react';
 import { signupForLaunch, type SignupState } from '@/app/(store)/checkout/signup-actions';
 import { buttonClass } from '@/components/ui/button';
+import { useKeptForm } from '@/components/ui/use-kept-form';
 
 /** "Tell me when online orders open". Shown on the closed checkout when the owner has it switched on. */
 export function LaunchSignupForm() {
-  const [state, action, pending] = useActionState<SignupState, FormData>(signupForLaunch, null);
+  const { state, pending, formRef, formAction, onSubmit } = useKeptForm<SignupState>(signupForLaunch, null);
 
   if (state?.ok) {
     return (
@@ -20,7 +20,7 @@ export function LaunchSignupForm() {
   }
 
   return (
-    <form action={action} className="mt-6 rounded-xl bg-white p-4 sm:p-5">
+    <form ref={formRef} action={formAction} onSubmit={onSubmit} className="mt-6 rounded-xl bg-white p-4 sm:p-5">
       <p className="flex items-center gap-2 font-semibold text-ink-950">
         <BellRing className="h-4 w-4 text-oil-600" />
         Θέλετε να μάθετε πότε ανοίγουν;

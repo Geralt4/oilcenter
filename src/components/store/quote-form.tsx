@@ -1,15 +1,15 @@
 'use client';
 
-import { useActionState } from 'react';
 import { CircleCheck, LoaderCircle, Send } from 'lucide-react';
 import { sendQuoteRequest, type QuoteState } from '@/app/(store)/professionals/actions';
 import { buttonClass } from '@/components/ui/button';
+import { useKeptForm } from '@/components/ui/use-kept-form';
 import { BUSINESS_TYPES } from '@/lib/quote';
 
 const optional = <span className="font-normal text-ink-400">(προαιρετικό)</span>;
 
 export function QuoteForm() {
-  const [state, action, pending] = useActionState<QuoteState, FormData>(sendQuoteRequest, null);
+  const { state, pending, formRef, formAction, onSubmit } = useKeptForm<QuoteState>(sendQuoteRequest, null);
 
   if (state?.ok) {
     return (
@@ -21,12 +21,12 @@ export function QuoteForm() {
   }
 
   const err = (name: string) => state?.fieldErrors?.[name];
-  // React resets a form to its default values once the action returns: echo what was typed
+  // without JavaScript the page reloads with the errors: echo what was typed (with it, useKeptForm keeps the fields as they are)
   const was = (name: string, fallback = '') => state?.values?.[name] ?? fallback;
   const error = (name: string) => err(name) && <p className="mt-1.5 text-sm font-medium text-red-600">{err(name)}</p>;
 
   return (
-    <form action={action} className="grid gap-4 sm:grid-cols-2" noValidate>
+    <form ref={formRef} action={formAction} onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2" noValidate>
       {state && !state.ok && <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-800 sm:col-span-2">{state.message}</p>}
 
       <div>

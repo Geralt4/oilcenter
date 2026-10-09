@@ -1,12 +1,12 @@
 'use client';
 
-import { useActionState } from 'react';
 import { CircleCheck, LoaderCircle, Send } from 'lucide-react';
 import { sendContactMessage, type ContactState } from '@/app/(store)/contact/actions';
 import { buttonClass } from '@/components/ui/button';
+import { useKeptForm } from '@/components/ui/use-kept-form';
 
 export function ContactForm() {
-  const [state, action, pending] = useActionState<ContactState, FormData>(sendContactMessage, null);
+  const { state, pending, formRef, formAction, onSubmit } = useKeptForm<ContactState>(sendContactMessage, null);
 
   if (state?.ok) {
     return (
@@ -19,7 +19,7 @@ export function ContactForm() {
 
   const err = (name: string) => state?.fieldErrors?.[name];
   return (
-    <form action={action} className="grid gap-4 sm:grid-cols-2" noValidate>
+    <form ref={formRef} action={formAction} onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2" noValidate>
       {state && !state.ok && <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-800 sm:col-span-2">{state.message}</p>}
       <div>
         <label htmlFor="c-name" className="label">Ονοματεπώνυμο</label>

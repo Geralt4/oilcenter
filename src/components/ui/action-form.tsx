@@ -1,8 +1,8 @@
 'use client';
 
-import { useActionState } from 'react';
 import { CircleCheck, LoaderCircle } from 'lucide-react';
 import { buttonClass } from '@/components/ui/button';
+import { useKeptForm } from '@/components/ui/use-kept-form';
 import { cn } from '@/lib/utils';
 
 export type ActionFormState = { ok: boolean; message: string; fieldErrors?: Record<string, string> } | null;
@@ -34,7 +34,7 @@ type Props = {
 
 /** Small declarative form bound to a server action. Used for auth and profile screens. */
 export function ActionForm({ action, fields, submitLabel, hidden, variant = 'primary', stayOnSuccess, children }: Props) {
-  const [state, formAction, pending] = useActionState<ActionFormState, FormData>(action, null);
+  const { state, pending, formRef, formAction, onSubmit } = useKeptForm<ActionFormState>(action, null);
 
   if (state?.ok && !stayOnSuccess) {
     return (
@@ -46,7 +46,7 @@ export function ActionForm({ action, fields, submitLabel, hidden, variant = 'pri
   }
 
   return (
-    <form action={formAction} noValidate className="grid gap-4 sm:grid-cols-2">
+    <form ref={formRef} action={formAction} onSubmit={onSubmit} noValidate className="grid gap-4 sm:grid-cols-2">
       {state && <p role={state.ok ? 'status' : 'alert'} className={cn('rounded-2xl border p-3 text-sm font-medium sm:col-span-2', state.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800')}>{state.message}</p>}
       {Object.entries(hidden ?? {}).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
       {fields.map((f) => {
