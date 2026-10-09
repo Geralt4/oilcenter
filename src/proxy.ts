@@ -3,7 +3,12 @@ import { jwtVerify } from 'jose';
 import { NextResponse, type NextRequest } from 'next/server';
 
 /*
- * Two gates run before any page is rendered:
+ * Three gates run before any page is rendered:
+ *
+ * 0. Canonical host. Once SITE_URL names the public origin (https://www.oilcenter.gr), a request that arrives under
+ *    any other host — the bare oilcenter.gr, the *.up.railway.app preview address — is redirected there with the
+ *    same path and query, so browsers and search engines see a single origin. Nothing happens while SITE_URL is
+ *    unset (the temporary preview) or outside production, and the platform's health probe is not matched at all.
  *
  * 1. Pre-launch curtain. While the SITE_PASSWORD environment variable is set, the whole site — storefront, admin,
  *    images — answers 401 until the browser sends HTTP Basic credentials (user: SITE_USER, default "oilcenter").
@@ -46,7 +51,36 @@ async function hasAdminSession(request: NextRequest): Promise<boolean> {
   }
 }
 
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * Redirect to the canonical origin when the request came in under another host. Only the hostname is compared —
+ * the scheme is the platform's business (Railway terminates TLS and forwards plain HTTP) and the port never appears
+ * in a public host header. The destination is always SITE_URL, so a forged X-Forwarded-Host cannot turn this into
+ * an open redirect.
+ */
+function canonicalHostRedirect(request: NextRequest): NextResponse | null {
+  const explicit = process.env.SITE_URL?.trim();
+  if (!explicit || process.env.NODE_ENV !== 'production') return null;
+  let canonical: URL;
+  try {
+    canonical = new URL(explicit);
+  } catch {
+    return null;
+  }
+  const forwarded = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? '';
+  const hostname = forwarded.split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
+  if (!hostname || hostname === canonical.hostname || LOCAL_HOSTS.has(hostname)) return null;
+  const target = new URL(request.nextUrl.pathname + request.nextUrl.search, canonical);
+  // 301 for GET/HEAD; 308 keeps the method and body for anything else (a form posted to the wrong host).
+  const status = request.method === 'GET' || request.method === 'HEAD' ? 301 : 308;
+  return NextResponse.redirect(target, status);
+}
+
 export async function proxy(request: NextRequest) {
+  const canonical = canonicalHostRedirect(request);
+  if (canonical) return canonical;
+
   const password = process.env.SITE_PASSWORD;
   if (password) {
     const user = process.env.SITE_USER || 'oilcenter';

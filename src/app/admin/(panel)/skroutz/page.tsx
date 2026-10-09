@@ -21,6 +21,9 @@ export const metadata = { title: 'Skroutz' };
 /** Reasons the owner can do something about come first; switched-off products are left out on purpose. */
 const REASON_ORDER: FeedExclusion[] = ['price_unconfirmed', 'unavailable', 'out_of_stock', 'no_brand', 'no_category', 'size_inactive', 'product_inactive'];
 
+/** The only address the feed may be registered under at Skroutz (same value scripts/test-feed.ts checks against). */
+const CANONICAL_ORIGIN = 'https://www.oilcenter.gr';
+
 export default async function AdminSkroutzPage() {
   await requireAdmin();
   const settings = await getSettings();
@@ -50,7 +53,9 @@ export default async function AdminSkroutzPage() {
   const warnings: string[] = [];
   if (process.env.SITE_PASSWORD) warnings.push('Το site είναι κλειδωμένο με κωδικό πρόσβασης. Το Skroutz δεν μπορεί να συνδεθεί πουθενά: δεν θα διαβάσει ούτε το αρχείο ούτε τις σελίδες και τις φωτογραφίες των προϊόντων.');
   if (storefront.demoMode) warnings.push('Το site είναι σε δοκιμαστική λειτουργία. Το Skroutz ελέγχει δειγματοληπτικά τις σελίδες των προϊόντων και θα βρει την ένδειξη «δοκιμαστική λειτουργία».');
-  if (!base.startsWith('https://') || /localhost|railway\.app/.test(base)) warnings.push(`Η διεύθυνση του site είναι προσωρινή (${base}). Δώστε τη διεύθυνση του αρχείου στο Skroutz μόνο όταν το site είναι στο oilcenter.gr — αν αλλάξει αργότερα, πρέπει να τη στείλετε ξανά.`);
+  // Anything but the canonical origin counts as temporary: the preview address, localhost, http, and also the bare
+  // oilcenter.gr or a typo in SITE_URL — the feed address handed to Skroutz must never need re-sending.
+  if (base !== CANONICAL_ORIGIN) warnings.push(`Η διεύθυνση του site είναι προσωρινή (${base}). Δώστε τη διεύθυνση του αρχείου στο Skroutz μόνο όταν το site είναι στο ${CANONICAL_ORIGIN} — αν αλλάξει αργότερα, πρέπει να τη στείλετε ξανά.`);
   if (!storefront.ordersEnabled) warnings.push('Οι online παραγγελίες είναι κλειστές. Αν το Skroutz στέλνει τους πελάτες στο site σας για να αγοράσουν (και όχι μέσα από το καλάθι του Skroutz), θα βρουν κλειστό ταμείο.');
 
   return (

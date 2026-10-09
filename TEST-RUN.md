@@ -36,15 +36,25 @@ All the questions of section 5 are in Greek, with room for each answer, in [`que
 - [ ] E-mail sending (SMTP), so contact-form messages and sign-ups actually arrive `→ C1, C2` (the code is there; it needs the account and DNS records)
 - [ ] Move `railway.json` to Railway's new config format (their deadline: 1/12/2026) — **prepared** in `.railway/railway.ts`, not applied: applying it starts a deployment, so it waits until the site may come back up. Steps in the README.
 
-### Domain — [you] / [Ilias], then [dev]
-- [ ] Find out who controls `oilcenter.gr` and get DNS access `→ D1`
-- [ ] Make sure no mailbox on the domain breaks `→ D2`
-- [ ] Keep a copy of the old site before replacing it `→ D3`
-- [ ] Railway plan active on the account that will own the site `→ D4`
+### Domain — [you] / [Ilias], then [dev] — step by step in `DOMAIN.md`
+- [x] Find out who controls `oilcenter.gr` `→ D1` — **Papaki, inside the old agency's account, together with the free
+  hosting package that also serves the domain's DNS** (activation e-mail forwarded 23/9/2026; registry WHOIS: paid up to 2/11/2027)
+- [x] [you] Ask the agency whose Papaki account holds the domain `→ D1` — **24/9/2026: the developer's own account; he agreed to hand the domain over.** The registered holder shows in Ilias's account after the move.
+- [ ] [Ilias] His own Papaki account with 2FA; first payment as «Τιμολόγιο» with the shop's ΑΦΜ; note the billing code (`DOMAIN.md` step 1) `→ D1`
+- [ ] [you → developer] Message with the billing code and the ticket text; the developer sends the ticket and the domain moves to Ilias's account (`DOMAIN.md` step 1) `→ D1`
+- [ ] [Ilias + developer] Owner change from Ilias's account, only if the registered holder is the developer: both sign the LAR letter (`DOMAIN.md` step 2) `→ D1`
+- [ ] [Ilias] Optional now: search his old mailboxes for registry/Papaki mail about `oilcenter.gr`, a fallback if the developer stops answering (`DOMAIN.md` step 0) `→ D1`
+- [ ] [Ilias] The five checks of full rights, ending with the authorisation-code e-mail reaching him (`DOMAIN.md` step 3) `→ D1`
+- [ ] [dev] New DNS zone off the old server (Papaki DNS or Cloudflare) with the Railway records and the "no mail" records `→ D2` — the live
+  MX/SPF were set by the agency and never used; they lapse with the hosting
+- [ ] ~~Keep a copy of the old site~~ — not wanted (decided 23/9/2026); all 15 old pages already redirect. One-command mirror in `DOMAIN.md` if that changes `→ D3`
+- [ ] [Ilias] Delete the old hosting (Plesk, FTP, mailboxes, files) — only after the site is live on the new DNS; irreversible `→ D3`
+- [ ] Railway plan active on the account that will own the site — Hobby allows 2 custom domains per service, exactly `www` + bare `→ D4`
 
 ## 2. Launch day — [dev], about two hours
-- [ ] Bring the app back up, set `SITE_URL=https://www.oilcenter.gr`, attach `www` and the bare domain, add the DNS records, wait for the certificate
-- [ ] Check: old `.html` addresses redirect, canonical links, sitemap, robots.txt, phone and map links on a real phone
+- [ ] Attach `www` and the bare domain on Railway, add the CNAME + TXT records at the DNS host, wait for both certificates, set
+  `SITE_URL=https://www.oilcenter.gr` and redeploy — the app then redirects the bare domain and the preview address to `www` (`DOMAIN.md` steps 4–7)
+- [ ] Check: old `.html` addresses redirect, bare domain → `www`, canonical links (also on a 404 page), HSTS header, sitemap, robots.txt, phone and map links on a real phone
 - [ ] Switch off demo mode, remove the site password, leave ordering **closed**
 - [ ] Google Search Console: verify the domain, submit the sitemap `→ L3`
 - [ ] Point everything at the site: Google Business Profile, Instagram bio, Facebook page, Skroutz shop profile, a QR code at the counter `→ L2` — without these, two months of traffic will be too thin to read
@@ -103,7 +113,8 @@ Where there is a default, "OK" is a complete answer.
 
 ### Communication
 - **C1.** Which e-mail address should receive contact-form messages and alerts, and is it checked daily? Default: iliastsakiridis@hotmail.com.
-- **C2.** *(you)* Which sender address for the site's e-mails? Default: `info@oilcenter.gr` through a mail service (needs the DNS access of D1).
+- **C2.** *(you)* Which sender address for the site's e-mails? Recommendation (23/9/2026): the new store Gmail through Gmail SMTP for now — no mail
+  records on the domain; `orders@oilcenter.gr` through a sending service later, with its SPF/DKIM records at the new DNS host (`DOMAIN.md` → decisions).
 - **C3.** Does he want the "notify me when online orders open" sign-up? It collects e-mail addresses, so he becomes responsible for them. Default: yes.
 
 ### Test-run decisions

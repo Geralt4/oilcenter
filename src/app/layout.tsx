@@ -19,6 +19,12 @@ const display = Sofia_Sans_Condensed({
 
 const SITE_URL = siteUrl();
 
+// Render everything at request time, the 404 page included. Without this the default /_not-found page is
+// prerendered during `next build`, where SITE_URL is not visible (Railway passes variables to a Dockerfile build
+// only through ARG), and its canonical/og:url would carry http://localhost:3000 for good. Every other segment
+// is already dynamic, so nothing else changes.
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
@@ -36,7 +42,8 @@ export const metadata: Metadata = {
     url: SITE_URL,
   },
   formatDetection: { telephone: true, address: true, email: true },
-  alternates: { canonical: '/' },
+  // No default canonical here: a page that has none (cart, checkout, account, 404) must not claim the home page.
+  // Every indexable page declares its own; the home page does so in (store)/page.tsx.
 };
 
 export const viewport: Viewport = {

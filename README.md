@@ -79,6 +79,10 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
 12. **Hazard labelling of chemicals.** 52 products (antifreeze & fluids, additives, sprays, 2-stroke oils) have no
     hazard data yet — see "Borrowed from the competition" → hazard labelling. The dashboard lists it; the legal question
     behind it is F1 in [`questions.md`](questions.md).
+13. **The domain.** `oilcenter.gr` is registered at Papaki inside the old web agency's account, together with a free
+    hosting package that also serves the domain's DNS and still shows the 2015 site. The handover (owner's own Papaki
+    account, domain moved or re-registered to him, DNS rebuilt off the old server, both hostnames on Railway,
+    `SITE_URL` set, old hosting deleted last) is the runbook in [`DOMAIN.md`](DOMAIN.md). Nothing public can happen before it.
 
 ## Borrowed from the competition (September 2026)
 
@@ -357,9 +361,10 @@ finished), with the volume `web-volume` (500 MB) mounted at `/app/data`.
 - Ship a new version: `railway up --service web --ci` from this directory (uploads the working tree, honours `.gitignore`).
 - Logs: `railway logs --service web --deployment --lines 100`. Variables: `railway variable list --service web`
   (prints secret values — do not paste the output anywhere).
-- `SITE_URL` is not set: the app falls back to Railway's `RAILWAY_PUBLIC_DOMAIN`. When the real domain is attached
-  (`railway domain www.oilcenter.gr --service web`, then the DNS records it prints), set `SITE_URL=https://www.oilcenter.gr`.
-  Railway injects the domain variable only into deployments created **after** the domain exists, so redeploy after adding one.
+- `SITE_URL` is not set: the app falls back to Railway's `RAILWAY_PUBLIC_DOMAIN`. The move to `www.oilcenter.gr` — both
+  hostnames on the service, DNS off the old Papaki hosting, `SITE_URL=https://www.oilcenter.gr`, redeploy — is the
+  step-by-step runbook in [`DOMAIN.md`](DOMAIN.md). Once `SITE_URL` is set, `src/proxy.ts` redirects every other host
+  (the bare domain, this preview address) to it.
 - The volume survives redeploys: a restart logs "Database already has 175 products — skipping catalogue seed".
   Catalogue edits made in the hosted admin therefore stay; `catalog/catalog.json` is only used for an empty database.
 - Anything set on Railway outside the repo (a variable, the custom domain) must also be listed in `.railway/railway.ts`
@@ -382,8 +387,9 @@ is not set is left alone), and keeps the restart policy in a raw `deploy` block,
 Finish the move at the next deploy:
 
 1. `npm install --prefix .railway` — the SDK the CLI needs; it lives there so it never reaches the production image.
-2. `railway config plan` has to show `0 to add, 2 to change, 0 to destroy`: `build.builder → "DOCKERFILE"`, and
-   `deploy.healthcheckPath`, `healthcheckTimeout`, `restartPolicyType`, `restartPolicyMaxRetries`. **Stop at any `Delete`
+2. `railway config plan` has to show `2 to change, 0 to destroy`: `build.builder → "DOCKERFILE"`, and
+   `deploy.healthcheckPath`, `healthcheckTimeout`, `restartPolicyType`, `restartPolicyMaxRetries`. The two custom domains
+   of [`DOMAIN.md`](DOMAIN.md) show up as `2 to add` unless `railway domain` already created them. **Stop at any `Delete`
    line or any change to `web-volume`** (the shop database) and fix the file instead; never pass `--confirm-destructive`.
    A `Delete variable` line means the variable is missing from the `env` list.
 3. `railway config apply` and confirm. It may start a deployment by itself.
@@ -397,7 +403,7 @@ Finish the move at the next deploy:
    `railway up` again — that is the configuration that was running before.
 
 Afterwards the settings change like this: edit `.railway/railway.ts`, `railway config plan`, `railway config apply`. A new variable
-goes into the `env` list, the custom domain into `domains: ["www.oilcenter.gr"]` (`railway config pull --json` shows how
-Railway describes the live project), or the next apply proposes to delete it.
+goes into the `env` list, a custom domain into the `domains` list — always as `{ domain, port: 3000 }`, a bare string means
+port 8080 — (`railway config pull --json` shows how Railway describes the live project), or the next apply proposes to delete it.
 
 Old URLs from the 2015 site (`/castrol.html`, `/contact.html`, …) are 301-redirected in `next.config.ts`.

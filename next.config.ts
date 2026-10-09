@@ -50,7 +50,11 @@ const nextConfig: NextConfig = {
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(self)' },
-          // Two years; browsers only honour it over HTTPS, so it is inert on local http.
+          // Two years; browsers only honour it over HTTPS, so it is inert on local http. Once the bare oilcenter.gr
+          // is served here too (redirecting to www), includeSubDomains pins EVERY *.oilcenter.gr to HTTPS for two
+          // years in each browser that saw it — fine, because the old Papaki hosting and its mail./ftp. hosts are
+          // being deleted, but any future subdomain must be HTTPS from day one. Never add `preload`: it is
+          // effectively irreversible.
           { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' },
           { key: 'Content-Security-Policy', value: contentSecurityPolicy },
         ],
