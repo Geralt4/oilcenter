@@ -35,7 +35,6 @@ export type ShopSettings = {
     region: string;
     lat: number;
     lng: number;
-    facebookUrl: string;
     instagramUrl: string;
     /** the shop's page on skroutz.gr (price-comparison site most Greek shoppers check first) */
     skroutzUrl: string;
@@ -128,7 +127,6 @@ export const DEFAULT_SETTINGS: ShopSettings = {
     region: 'Θεσσαλονίκη',
     lat: 40.606737,
     lng: 22.957507,
-    facebookUrl: 'https://www.facebook.com/TsakiridisOilCenter/',
     instagramUrl: '',
     skroutzUrl: 'https://www.skroutz.gr/shop/30368/Tsakiridis-Oil-Center/products.html',
     vatNumber: '054243156',

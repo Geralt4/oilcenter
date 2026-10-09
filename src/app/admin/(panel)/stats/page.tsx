@@ -13,7 +13,7 @@ import { cn, formatDate } from '@/lib/utils';
 export const metadata = { title: 'Στατιστικά' };
 
 const PERIODS = [7, 30, 60, 90];
-const CLICK_LABELS: Record<string, string> = { call: 'Κλήση στο κατάστημα', directions: 'Οδηγίες / χάρτης', skroutz: 'Skroutz', instagram: 'Instagram', facebook: 'Facebook', email: 'E-mail' };
+const CLICK_LABELS: Record<string, string> = { call: 'Κλήση στο κατάστημα', directions: 'Οδηγίες / χάρτης', skroutz: 'Skroutz', instagram: 'Instagram', email: 'E-mail' };
 
 type Row = { label: string; n: number; href?: string };
 

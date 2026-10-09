@@ -604,7 +604,7 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
     name: str(fd, 'name') || DEFAULT_SETTINGS.shop.name, legalName: str(fd, 'legalName'), tagline: str(fd, 'tagline'), phone: str(fd, 'phone'), mobile: str(fd, 'mobile'), fax: str(fd, 'fax'),
     email: str(fd, 'email'), street: str(fd, 'street'), city: str(fd, 'city'), postalCode: str(fd, 'postalCode'), region: str(fd, 'region'),
     lat: num('lat', current.shop.lat), lng: num('lng', current.shop.lng),
-    facebookUrl: link('facebookUrl', 'Facebook'), instagramUrl: link('instagramUrl', 'Instagram', instagramUrl), skroutzUrl: link('skroutzUrl', 'Skroutz'),
+    instagramUrl: link('instagramUrl', 'Instagram', instagramUrl), skroutzUrl: link('skroutzUrl', 'Skroutz'),
     vatNumber: str(fd, 'vatNumber'), taxOffice: str(fd, 'taxOffice'), gemi: str(fd, 'gemi'), hours, hoursVerified: bool(fd, 'hoursVerified'),
     foundedYear: ((y) => (y >= 1900 && y <= new Date().getFullYear() ? y : 0))(int(fd, 'foundedYear')),
     accelerateDealer: bool(fd, 'accelerateDealer'),

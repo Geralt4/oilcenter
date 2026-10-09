@@ -53,11 +53,10 @@ export default async function AdminSettingsPage() {
           </div>
         </Card>
 
-        <Card title="Instagram, Facebook & Skroutz" description="Επικολλήστε τον σύνδεσμο κάθε σελίδας. Όσα πεδία συμπληρωθούν εμφανίζονται στην κεφαλίδα, στο μενού του κινητού, στο υποσέλιδο και δίπλα στον χάρτη· τα κενά απλώς δεν εμφανίζονται.">
-          <div id="social" className="grid gap-4 md:grid-cols-3">
+        <Card title="Instagram & Skroutz" description="Επικολλήστε τον σύνδεσμο κάθε σελίδας. Όσα πεδία συμπληρωθούν εμφανίζονται στην κεφαλίδα, στο μενού του κινητού, στο υποσέλιδο και δίπλα στον χάρτη· τα κενά απλώς δεν εμφανίζονται.">
+          <div id="social" className="grid gap-4 md:grid-cols-2">
             <Field label="Instagram" hint="Σύνδεσμος προφίλ ή απλώς @όνομα."><input name="instagramUrl" inputMode="url" autoCapitalize="none" spellCheck={false} placeholder="https://www.instagram.com/…" defaultValue={shop.instagramUrl} className="field" /></Field>
             <Field label="Skroutz" hint="Η σελίδα του καταστήματος στο skroutz.gr."><input name="skroutzUrl" inputMode="url" autoCapitalize="none" spellCheck={false} placeholder="https://www.skroutz.gr/shop/…" defaultValue={shop.skroutzUrl} className="field" /></Field>
-            <Field label="Facebook"><input name="facebookUrl" inputMode="url" autoCapitalize="none" spellCheck={false} placeholder="https://www.facebook.com/…" defaultValue={shop.facebookUrl} className="field" /></Field>
           </div>
         </Card>
 

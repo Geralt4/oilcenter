@@ -1,16 +1,15 @@
 import { Tag } from 'lucide-react';
-import { FacebookIcon, InstagramIcon } from '@/components/logo';
+import { InstagramIcon } from '@/components/logo';
 import type { ShopSettings } from '@/lib/settings';
 import { cn } from '@/lib/utils';
 
-type Shop = Pick<ShopSettings['shop'], 'facebookUrl' | 'instagramUrl' | 'skroutzUrl'>;
+type Shop = Pick<ShopSettings['shop'], 'instagramUrl' | 'skroutzUrl'>;
 
 /** Only the profiles the owner has filled in under Admin → Ρυθμίσεις. Pure: safe to use from client components. */
 export function socialProfiles(shop: Shop) {
   return [
     { key: 'instagram', name: 'Instagram', cta: 'Ακολουθήστε μας στο Instagram', href: shop.instagramUrl, Icon: InstagramIcon },
     { key: 'skroutz', name: 'Skroutz', cta: 'Βρείτε μας στο Skroutz', href: shop.skroutzUrl, Icon: Tag },
-    { key: 'facebook', name: 'Facebook', cta: 'Ακολουθήστε μας στο Facebook', href: shop.facebookUrl, Icon: FacebookIcon },
   ].filter((p) => p.href);
 }
 

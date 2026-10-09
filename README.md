@@ -42,7 +42,7 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
    shown**: the storefront says «Καλέστε για τιμή», offers a call button instead of add-to-cart, and the amount is
    zeroed on the server so it cannot leak. Confirm prices in *Τιμές* — on screen, or export the CSV, fill it in Excel
    and import it back.
-1b. **Instagram and Skroutz links are empty.** Paste them in *Ρυθμίσεις → Instagram, Facebook & Skroutz* (an Instagram
+1b. **Instagram and Skroutz links are empty.** Paste them in *Ρυθμίσεις → Instagram & Skroutz* (an Instagram
    `@handle` is accepted too). Filled-in links appear in the header strip, the mobile menu, the footer, next to the map
    (home / about / contact) and in the `sameAs` structured data; empty ones are simply not rendered.
 2. **43 products are flagged "προς έλεγχο".** Mostly pack sizes that are not printed on the front of the container
