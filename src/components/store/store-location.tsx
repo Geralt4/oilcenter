@@ -1,4 +1,5 @@
 import { Clock, Mail, MapPin, Navigation, Phone } from 'lucide-react';
+import { MapEmbed } from '@/components/store/map-embed';
 import { SocialLinks, socialProfiles } from '@/components/store/social-links';
 import { TrustBadges } from '@/components/store/trust-badges';
 import { buttonClass } from '@/components/ui/button';
@@ -13,14 +14,7 @@ export function StoreLocation({ shop, reviews, className }: { shop: ShopSettings
   return (
     <div className={cn('grid overflow-hidden rounded-3xl border border-line bg-white shadow-tile lg:grid-cols-[1.15fr_1fr]', className)}>
       <div className="relative min-h-[20rem] bg-ink-100 lg:min-h-[28rem]">
-        <iframe
-          title={`Χάρτης: ${fullAddress(shop)}`}
-          src={mapsEmbedUrl(shop)}
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
-          allowFullScreen
-          className="absolute inset-0 h-full w-full border-0"
-        />
+        <MapEmbed title={`Χάρτης: ${fullAddress(shop)}`} src={mapsEmbedUrl(shop)} address={fullAddress(shop)} />
       </div>
 
       <div className="flex flex-col gap-6 p-6 sm:p-8">
@@ -74,7 +68,7 @@ export function StoreLocation({ shop, reviews, className }: { shop: ShopSettings
               .map((d) => (
                 <div key={d.day} className={cn('flex justify-between gap-4 py-2', d.day === todayIso && 'font-semibold text-ink-950')}>
                   <dt>{DAY_NAMES[d.day - 1]}</dt>
-                  <dd className={cn('tabular text-right', d.closed && 'text-ink-400')}>{formatDayHours(d)}</dd>
+                  <dd className={cn('tabular text-right', d.closed && 'text-ink-500')}>{formatDayHours(d)}</dd>
                 </div>
               ))}
           </dl>

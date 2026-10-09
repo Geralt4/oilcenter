@@ -93,14 +93,14 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
                   <td className={td}>
                     <Link href={`/admin/products/${p.id}`} className="flex items-center gap-3">
                       <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-line bg-white">{image && <Image src={image} alt="" fill sizes="48px" className="object-contain p-0.5" />}</span>
-                      <span><span className="block text-xs font-semibold tracking-wide text-ink-400 uppercase">{p.brandId ? brandName.get(p.brandId) : '—'}</span><span className="font-semibold text-petrol-500 hover:underline">{p.name}</span></span>
+                      <span><span className="block text-xs font-semibold tracking-wide text-ink-500 uppercase">{p.brandId ? brandName.get(p.brandId) : '—'}</span><span className="font-semibold text-petrol-500 hover:underline">{p.name}</span></span>
                     </Link>
                   </td>
                   <td className={td}>{p.categoryId ? categoryName.get(p.categoryId) : <span className="text-red-600">Χωρίς κατηγορία</span>}</td>
                   <td className={td}>
                     <span className="flex flex-wrap gap-1">
                       {vs.map((v) => (
-                        <span key={v.id} className={cn('tabular rounded-md px-1.5 py-0.5 text-xs', !v.isActive ? 'bg-ink-100 text-ink-400 line-through' : v.priceVerified ? 'bg-ink-100 text-ink-800' : 'bg-amber-100 text-amber-900')} title={v.priceVerified ? 'Επιβεβαιωμένη τιμή' : 'Ενδεικτική τιμή'}>
+                        <span key={v.id} className={cn('tabular rounded-md px-1.5 py-0.5 text-xs', !v.isActive ? 'bg-ink-100 text-ink-500 line-through' : v.priceVerified ? 'bg-ink-100 text-ink-800' : 'bg-amber-100 text-amber-900')} title={v.priceVerified ? 'Επιβεβαιωμένη τιμή' : 'Ενδεικτική τιμή'}>
                           {v.label} · {formatPrice(v.priceCents)}{v.trackStock ? ` · ${v.stock} τεμ.` : ''}
                           {effectiveAvailability(v) !== 'in_stock' && <span className={cn('ml-1 font-semibold', AVAILABILITY_TONE[effectiveAvailability(v)].text)}>· {AVAILABILITY_SHORT[effectiveAvailability(v)]}</span>}
                         </span>

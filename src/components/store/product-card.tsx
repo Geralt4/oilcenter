@@ -77,7 +77,7 @@ export function ProductCard({ product, priority = false, sizes = GRID_IMAGE_SIZE
           onClick={() => toggleWish(product.id)}
           aria-pressed={hydrated && wished}
           aria-label={hydrated && wished ? 'Αφαίρεση από τα αγαπημένα' : 'Προσθήκη στα αγαπημένα'}
-          className="absolute top-2 right-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/90 text-ink-400 shadow-sm backdrop-blur transition-colors hover:text-red-500"
+          className="absolute top-2 right-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/90 text-ink-500 shadow-sm backdrop-blur transition-colors hover:text-red-500"
         >
           <Heart className={cn('h-[1.125rem] w-[1.125rem]', hydrated && wished && 'fill-red-500 text-red-500')} />
         </button>
@@ -88,7 +88,7 @@ export function ProductCard({ product, priority = false, sizes = GRID_IMAGE_SIZE
       </div>
 
       <div className="flex flex-1 flex-col gap-2 border-t border-line p-3 sm:p-4">
-        {product.brand && <p className="eyebrow text-[0.6875rem] text-ink-400">{product.brand.name}</p>}
+        {product.brand && <p className="eyebrow text-[0.6875rem] text-ink-500">{product.brand.name}</p>}
         <h3 className="line-clamp-2 min-h-[2.6em] text-[0.9375rem] leading-snug font-semibold text-ink-900">
           <Link href={href} className="after:absolute after:inset-0 after:z-0 hover:text-oil-700">
             {product.name}
@@ -130,7 +130,7 @@ export function ProductCard({ product, priority = false, sizes = GRID_IMAGE_SIZE
           <div className="flex-1 leading-tight">
             {variant.priced ? (
               <>
-                {variant.compareAtCents && <p className="tabular text-xs text-ink-400 line-through">{formatPrice(variant.compareAtCents)}</p>}
+                {variant.compareAtCents && <p className="tabular text-xs text-ink-500 line-through">{formatPrice(variant.compareAtCents)}</p>}
                 <p className="tabular text-lg font-bold text-ink-950 sm:text-xl">{formatPrice(variant.priceCents)}</p>
               </>
             ) : (

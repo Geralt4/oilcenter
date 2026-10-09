@@ -18,7 +18,7 @@ function Statements({ title, lines }: { title: string; lines: string[] }) {
           return (
             <li key={line}>
               {s.text ?? s.code}
-              {s.code && s.text && <span className="tabular ml-1.5 text-xs text-ink-400">({s.code})</span>}
+              {s.code && s.text && <span className="tabular ml-1.5 text-xs text-ink-500">({s.code})</span>}
             </li>
           );
         })}

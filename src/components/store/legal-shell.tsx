@@ -23,7 +23,8 @@ export async function LegalShell({ href, title, updated, children }: { href: str
     <div className="container-page py-6 sm:py-8">
       <Breadcrumbs items={[{ name: title, href }]} />
       <div className="mt-6 grid gap-10 lg:grid-cols-[16rem_1fr]">
-        <nav aria-label="Πληροφορίες" className="lg:sticky lg:top-44 lg:self-start">
+        {/* min-w-0: a grid child is as wide as its content by default, and the scrolling menu row is wider than a phone */}
+        <nav aria-label="Πληροφορίες" className="min-w-0 lg:sticky lg:top-44 lg:self-start">
           <ul className="no-scrollbar -mx-4 flex gap-1.5 overflow-x-auto px-4 lg:mx-0 lg:flex-col lg:px-0">
             {pages.map((p) => (
               <li key={p.href} className="shrink-0">
@@ -34,7 +35,7 @@ export async function LegalShell({ href, title, updated, children }: { href: str
             ))}
           </ul>
         </nav>
-        <article className="max-w-3xl">
+        <article className="max-w-3xl min-w-0">
           <h1 className="display text-4xl sm:text-5xl">{title}</h1>
           <p className="mt-2 text-sm text-ink-500">Τελευταία ενημέρωση: {updated}</p>
           <div className="prose-oc mt-6">{children}</div>

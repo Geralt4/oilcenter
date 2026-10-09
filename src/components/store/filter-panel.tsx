@@ -70,7 +70,7 @@ function FacetGroup({ title, options, selected, onToggle, columns = 1, note }: {
             <label key={o.value} className={cn('flex cursor-pointer items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-[0.9375rem] hover:bg-ink-50', disabled && 'cursor-not-allowed opacity-40 hover:bg-transparent')}>
               <input type="checkbox" checked={checked} disabled={disabled} onChange={() => onToggle(o.value)} className="h-[1.125rem] w-[1.125rem] shrink-0 cursor-pointer rounded border-ink-300 accent-ink-900" />
               <span className={cn('tabular min-w-0 flex-1', columns === 1 && 'truncate', checked ? 'font-semibold text-ink-950' : 'text-ink-700')}>{o.label}</span>
-              <span className="tabular text-xs text-ink-400">{o.count}</span>
+              <span className="tabular text-xs text-ink-500">{o.count}</span>
             </label>
           );
         })}
@@ -111,13 +111,13 @@ function Facets({ facets, hideBrands, hideViscosities, hideCategories }: Pick<Pr
           <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-[0.9375rem] text-ink-700 hover:bg-ink-50">
             <input type="checkbox" checked={nav.searchParams.get('sale') === '1'} onChange={(e) => nav.setParam('sale', e.target.checked ? '1' : null)} className="h-[1.125rem] w-[1.125rem] cursor-pointer accent-ink-900" />
             <span className="flex-1">Μόνο προσφορές</span>
-            <span className="tabular text-xs text-ink-400">{facets.onSaleCount}</span>
+            <span className="tabular text-xs text-ink-500">{facets.onSaleCount}</span>
           </label>
         )}
         <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-[0.9375rem] text-ink-700 hover:bg-ink-50">
           <input type="checkbox" checked={nav.searchParams.get('stock') === '1'} onChange={(e) => nav.setParam('stock', e.target.checked ? '1' : null)} className="h-[1.125rem] w-[1.125rem] cursor-pointer accent-ink-900" />
           <span className="flex-1">Μόνο διαθέσιμα</span>
-          <span className="tabular text-xs text-ink-400">{facets.inStockCount}</span>
+          <span className="tabular text-xs text-ink-500">{facets.inStockCount}</span>
         </label>
       </div>
     </div>
@@ -148,7 +148,7 @@ function PriceForm({ initialMin, initialMax, placeholderMin, placeholderMax }: {
   return (
     <form onSubmit={submit} className="clear-both flex items-center gap-2">
       <input inputMode="decimal" value={min} onChange={(e) => setMin(e.target.value)} placeholder={String(placeholderMin)} aria-label="Ελάχιστη τιμή" className="field h-10 min-w-0 px-3" />
-      <span className="text-ink-400">–</span>
+      <span className="text-ink-500">–</span>
       <input inputMode="decimal" value={max} onChange={(e) => setMax(e.target.value)} placeholder={String(placeholderMax)} aria-label="Μέγιστη τιμή" className="field h-10 min-w-0 px-3" />
       <button type="submit" className="h-10 shrink-0 cursor-pointer rounded-xl bg-ink-900 px-3.5 text-sm font-semibold text-white hover:bg-ink-700">OK</button>
     </form>

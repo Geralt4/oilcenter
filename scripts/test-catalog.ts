@@ -188,6 +188,20 @@ async function main() {
   check('standards come in the order ACEA, API, ILSAC, JASO', ((labels) => labels.findIndex((l) => l.startsWith('API')) > labels.findIndex((l) => l.startsWith('ACEA')) && labels.findIndex((l) => l.startsWith('JASO')) > labels.findIndex((l) => l.startsWith('API')))(everything.facets.approvals.standard.map((o) => o.label)));
   check('approvals never travel to the browser with the product cards', everything.products.every((p) => !('approvals' in p) && !('searchText' in p)));
 
+  console.log('How people type');
+  const total = async (q: string) => (await listProducts({ q, perPage: 1 })).total;
+  const grade = await Promise.all(['5w30', '5w-30', '5W-30', '5 w 30', '5w 30'].map(total));
+  check('"5w30", "5w-30", "5 w 30" and "5w 30" are the same search', grade[0] > 0 && grade.every((n) => n === grade[0]), grade);
+  const strays = (await listProducts({ q: '5 w 30', perPage: 500 })).products.filter((p) => ['5W-40', '15W-40', '15W-50', '10W-30'].includes(p.viscosity ?? '')).map((p) => p.slug);
+  check('…and still not 5W-40 or 15W-40', strays.length === 0, strays);
+  check('a brand in Greek letters: «καστρολ» = "castrol"', (await total('καστρολ')) === (await total('castrol')) && (await total('castrol')) > 0, [await total('καστρολ'), await total('castrol')]);
+  check('«καστρολ 5w30» finds Castrol 5W-30', (await total('καστρολ 5w30')) > 0 && (await total('καστρολ 5w30')) === (await total('castrol 5w-30')), [await total('καστρολ 5w30'), await total('castrol 5w-30')]);
+  check('Greek in Latin letters: «ladi» finds oils', (await total('ladi')) > 0 && (await total('ladi')) === (await total('λάδι')), [await total('ladi'), await total('λάδι')]);
+  const coolant = await Promise.all(['αντιψυκτικό', 'antipsiktiko', 'antipsyktiko', 'ANTIPSIKTIKO'].map(total));
+  check('«antipsiktiko» and «antipsyktiko» both find the antifreeze', coolant[0] > 0 && coolant.every((n) => n === coolant[0]), coolant);
+  check('«valvolini» finds gear oil, «μοτουλ» finds Motul', (await total('valvolini')) > 0 && (await total('μοτουλ')) === (await total('motul')) && (await total('motul')) > 0);
+  check('nonsense still finds nothing', (await total('zzzqqq')) === 0 && (await total('ζζζξξξ')) === 0);
+
   console.log('URL');
   check('?spec= is read as a list, lower-cased', parseListingParams({ spec: 'VW-504-00,mb-229.51' }).approvals?.join('|') === 'vw-504-00|mb-229.51');
   const parsed = parseListingParams({ cat: 'valvolines,atf-cvt-dct', visc: '5W-30' });

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Commissioner, Sofia_Sans_Condensed } from 'next/font/google';
 import { siteUrl } from '@/lib/site-url';
 import './globals.css';
+import { OG_BASE, OG_IMAGE } from '@/lib/seo';
 
 // Both families ship a proper Greek subset, which most display faces do not.
 const text = Commissioner({
@@ -28,7 +29,7 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: 'Oil Center — Λιπαντικά Αυτοκινήτου & Μοτοσυκλέτας | Τσακιρίδης, Θεσσαλονίκη',
+    default: 'Oil Center Τσακιρίδης — Λιπαντικά Αυτοκινήτου, Θεσσαλονίκη',
     template: '%s | Oil Center',
   },
   description:
@@ -36,12 +37,8 @@ export const metadata: Metadata = {
     'Λιπαντικά κινητήρα, βαλβολίνες, αντιψυκτικά και χημικά από Castrol, Motul, Mobil, Valvoline, Shell, Liqui Moly και accelerate. Κατάστημα στη Θεσσαλονίκη, με συμβουλή για το σωστό λάδι.',
   applicationName: 'Oil Center',
   authors: [{ name: 'Τσακιρίδης Ηλίας' }],
-  openGraph: {
-    type: 'website',
-    locale: 'el_GR',
-    siteName: 'Oil Center — Τσακιρίδης',
-    url: SITE_URL,
-  },
+  openGraph: { ...OG_BASE, images: [OG_IMAGE] },
+  twitter: { card: 'summary_large_image' },
   formatDetection: { telephone: true, address: true, email: true },
   // No default canonical here: a page that has none (cart, checkout, account, 404) must not claim the home page.
   // Every indexable page declares its own; the home page does so in (store)/page.tsx.

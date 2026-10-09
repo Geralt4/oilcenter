@@ -2,6 +2,7 @@ import { bestAvailability, effectiveAvailability } from '@/lib/availability';
 import type { ProductDetail } from '@/lib/catalog';
 import type { ShopSettings } from '@/lib/settings';
 import { siteUrl } from '@/lib/site-url';
+import { telHref } from '@/lib/utils';
 
 const DAY_SCHEMA = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -19,10 +20,20 @@ export function jsonLdString(data: unknown): string {
   return JSON.stringify(data).replace(unsafe, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 }
 
+/**
+ * What every share card has in common. Next replaces `openGraph` as a whole when a page sets its own, so a page that
+ * does must spread this in — and must NOT inherit a url: a card that names the home page as its address sends every
+ * share of a category or a product back to the home page.
+ */
+export const OG_BASE = { type: 'website', locale: 'el_GR', siteName: 'Oil Center — Τσακιρίδης' } as const;
+/** the card shown when a page has no picture of its own (1200×630, public/shop/share.jpg) */
+export const OG_IMAGE = { url: '/shop/share.jpg', width: 1200, height: 630, alt: 'Oil Center — Τσακιρίδης · Λιπαντικά, Θεσσαλονίκη' } as const;
+
 /** schema.org AutoPartsStore — feeds Google's local panel with phone, address, geo and opening hours. */
 export function localBusinessJsonLd(settings: ShopSettings) {
   const { shop } = settings;
-  const phone = `+30${shop.phone.replace(/\D/g, '')}`;
+  // telHref knows a number may already carry its +30
+  const phone = telHref(shop.phone).replace(/^tel:/, '');
   return {
     '@context': 'https://schema.org',
     '@type': 'AutoPartsStore',

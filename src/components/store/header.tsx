@@ -141,7 +141,7 @@ export function Header({ settings, tree, brands, customerName, canOrder, adminPr
                     className="flex h-9 items-center gap-1 rounded-lg px-2.5 text-ink-700 group-focus-within:bg-ink-100 group-hover:bg-ink-100 hover:text-ink-950"
                   >
                     {cat.name}
-                    {cat.children.length > 0 && <ChevronDown className="h-3.5 w-3.5 text-ink-400 transition-transform group-hover:rotate-180" />}
+                    {cat.children.length > 0 && <ChevronDown className="h-3.5 w-3.5 text-ink-500 transition-transform group-hover:rotate-180" />}
                   </Link>
                   {cat.children.length > 0 && (
                     <div className="invisible absolute top-full left-0 z-50 w-80 pt-2 opacity-0 transition-[opacity,visibility] duration-150 group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
@@ -168,7 +168,7 @@ export function Header({ settings, tree, brands, customerName, canOrder, adminPr
             <li className="group relative ml-auto">
               <Link href="/brands" className="flex h-9 items-center gap-1 rounded-lg px-2.5 text-ink-700 group-focus-within:bg-ink-100 group-hover:bg-ink-100 hover:text-ink-950">
                 Μάρκες
-                <ChevronDown className="h-3.5 w-3.5 text-ink-400 transition-transform group-hover:rotate-180" />
+                <ChevronDown className="h-3.5 w-3.5 text-ink-500 transition-transform group-hover:rotate-180" />
               </Link>
               <div className="invisible absolute top-full right-0 z-50 w-[28rem] pt-2 opacity-0 transition-[opacity,visibility] duration-150 group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
                 <ul className="grid grid-cols-2 gap-0.5 rounded-2xl border border-line bg-white p-2 shadow-lift">
@@ -176,7 +176,7 @@ export function Header({ settings, tree, brands, customerName, canOrder, adminPr
                     <li key={b.id}>
                       <Link href={`/brand/${b.slug}`} className="flex items-center justify-between rounded-xl px-3 py-2 hover:bg-oil-50">
                         <span className="font-semibold text-ink-900">{b.name}</span>
-                        <span className="text-xs text-ink-400">{b.productCount}</span>
+                        <span className="text-xs text-ink-500">{b.productCount}</span>
                       </Link>
                     </li>
                   ))}

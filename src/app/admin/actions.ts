@@ -218,7 +218,9 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   const [category] = categoryId ? await db.select().from(categories).where(eq(categories.id, categoryId)) : [];
 
   const slug = await uniqueSlug(slugify(str(fd, 'slug') || (name.toLowerCase().startsWith((brand?.name ?? '\u0000').toLowerCase()) ? name : `${brand?.name ?? ''} ${name}`)), id ?? undefined);
-  const viscosity = str(fd, 'viscosity').toUpperCase().replace(/\s/g, '') || null;
+  // the grade becomes an address (/viscosity/5w-30): «SAE 30» is stored as 30, and «80W/90» would be a broken link
+  const viscosity = str(fd, 'viscosity').toUpperCase().replace(/\s/g, '').replace(/^SAE(?=\d)/, '') || null;
+  if (viscosity && !/^[0-9A-Z][0-9A-Z.-]{0,15}$/.test(viscosity)) return { ok: false, message: `Το ιξώδες «${viscosity}» γράφεται με γράμματα, αριθμούς και παύλα: 5W-30, 75W-90, 46.`, fieldErrors: { viscosity: 'Π.χ. 5W-30' } };
   const specs = str(fd, 'specs').split(/\n|;/).map((s) => s.trim()).filter(Boolean).slice(0, 60);
   const baseType = (['synthetic', 'synthetic-technology', 'semi-synthetic', 'mineral'] as const).find((b) => b === str(fd, 'baseType')) ?? null;
 

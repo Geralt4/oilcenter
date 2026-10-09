@@ -17,7 +17,8 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
     title: hit.node.name,
     description: hit.node.description ?? undefined,
     alternates: { canonical: `/category/${hit.node.slug}` },
-    robots: filtered ? { index: false, follow: true } : undefined,
+    // spread, not `robots: undefined`: an explicit undefined would erase the store layout's demo-mode noindex
+    ...(filtered ? { robots: { index: false, follow: true } } : {}),
   };
 }
 
@@ -57,7 +58,7 @@ export default async function CategoryPage({ params, searchParams }: Props) {
                 >
                   <CategoryIcon name={c.icon} className="h-4 w-4 opacity-70" />
                   {c.name}
-                  <span className="tabular text-xs font-medium opacity-60">{c.productCount}</span>
+                  <span className="tabular text-xs font-medium opacity-80">{c.productCount}</span>
                 </Link>
               </li>
             ))}

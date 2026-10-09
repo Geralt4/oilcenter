@@ -50,7 +50,7 @@ export async function ProductEditor({ product, created }: Props) {
                   <button type="submit" name="op" value="primary" disabled={i === 0} title="Ορισμός ως κύρια" className="flex h-8 flex-1 cursor-pointer items-center justify-center rounded-lg text-ink-500 hover:bg-ink-100 disabled:cursor-default disabled:opacity-30"><Star className="h-4 w-4" /></button>
                   <ConfirmButton message="Διαγραφή αυτής της φωτογραφίας; Δεν αναιρείται." name="op" value="delete" title="Διαγραφή φωτογραφίας" className="flex h-8 flex-1 cursor-pointer items-center justify-center rounded-lg text-ink-500 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></ConfirmButton>
                 </form>
-                <p className="text-center text-xs text-ink-400">Φωτό {i + 1}</p>
+                <p className="text-center text-xs text-ink-500">Φωτό {i + 1}</p>
               </li>
             ))}
           </ul>

@@ -27,7 +27,7 @@ export function ContactForm() {
         {err('name') && <p className="mt-1.5 text-sm font-medium text-red-600">{err('name')}</p>}
       </div>
       <div>
-        <label htmlFor="c-phone" className="label">Τηλέφωνο <span className="font-normal text-ink-400">(προαιρετικό)</span></label>
+        <label htmlFor="c-phone" className="label">Τηλέφωνο <span className="font-normal text-ink-500">(προαιρετικό)</span></label>
         <input id="c-phone" name="phone" type="tel" inputMode="tel" autoComplete="tel" className="field" />
       </div>
       <div>
@@ -36,7 +36,7 @@ export function ContactForm() {
         {err('email') && <p className="mt-1.5 text-sm font-medium text-red-600">{err('email')}</p>}
       </div>
       <div>
-        <label htmlFor="c-subject" className="label">Θέμα <span className="font-normal text-ink-400">(προαιρετικό)</span></label>
+        <label htmlFor="c-subject" className="label">Θέμα <span className="font-normal text-ink-500">(προαιρετικό)</span></label>
         <input id="c-subject" name="subject" placeholder="π.χ. Λάδι για Toyota Yaris 2018" className="field" />
       </div>
       <div className="sm:col-span-2">

@@ -28,7 +28,7 @@ function Field({ label, name, error, className, optional, ...props }: React.Inpu
   return (
     <div className={className}>
       <label htmlFor={name} className="label">
-        {label} {optional && <span className="font-normal text-ink-400">(προαιρετικό)</span>}
+        {label} {optional && <span className="font-normal text-ink-500">(προαιρετικό)</span>}
       </label>
       <input id={name} name={name} aria-invalid={Boolean(error)} aria-describedby={error ? `${name}-err` : undefined} className="field" {...props} />
       {error && <p id={`${name}-err`} className="mt-1.5 text-sm font-medium text-red-600">{error}</p>}
@@ -52,7 +52,7 @@ function ChoiceCard({ checked, onSelect, icon: Icon, title, hint, aside, name, v
   return (
     <label className={cn('flex cursor-pointer items-start gap-3.5 rounded-2xl border-2 p-4 transition-colors', checked ? 'border-ink-900 bg-ink-50' : 'border-ink-200 bg-white hover:border-ink-400')}>
       <input type="radio" name={name} value={value} checked={checked} onChange={onSelect} className="mt-1 h-[1.125rem] w-[1.125rem] shrink-0 cursor-pointer accent-ink-900" />
-      <Icon className={cn('mt-0.5 h-5 w-5 shrink-0', checked ? 'text-oil-700' : 'text-ink-400')} />
+      <Icon className={cn('mt-0.5 h-5 w-5 shrink-0', checked ? 'text-oil-700' : 'text-ink-500')} />
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline justify-between gap-3">
           <span className="font-semibold text-ink-950">{title}</span>
@@ -231,7 +231,7 @@ export function CheckoutForm({ prefill, pickupAddress }: { prefill: CheckoutPref
           )}
 
           <div className="mt-5">
-            <label htmlFor="notes" className="label">Σχόλια παραγγελίας <span className="font-normal text-ink-400">(προαιρετικό)</span></label>
+            <label htmlFor="notes" className="label">Σχόλια παραγγελίας <span className="font-normal text-ink-500">(προαιρετικό)</span></label>
             <textarea id="notes" name="notes" rows={3} value={form.notes} onChange={set('notes')} maxLength={1000} placeholder="π.χ. μοντέλο & έτος οχήματος, ώρες παράδοσης…" className="field resize-y" />
           </div>
         </Section>

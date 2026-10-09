@@ -41,7 +41,7 @@ export default async function FindMyOilPage({ searchParams }: Props) {
                   <Icon className="h-5 w-5" />
                 </span>
                 <div>
-                  <p className="font-semibold text-ink-900"><span className="tabular text-ink-400">{i + 1}.</span> {title}</p>
+                  <p className="font-semibold text-ink-900"><span className="tabular text-ink-500">{i + 1}.</span> {title}</p>
                   <p className="text-sm text-ink-600">{text}</p>
                 </div>
               </li>

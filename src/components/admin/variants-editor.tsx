@@ -69,7 +69,7 @@ export function VariantsEditor({ initial, images }: { initial: VariantRow[]; ima
                 </td>
                 <td className="pr-2 text-center"><input type="checkbox" checked={r.isActive} onChange={(e) => patch(i, { isActive: e.target.checked })} aria-label="Ενεργή" className="h-4 w-4 cursor-pointer accent-ink-900" /></td>
                 <td className="pr-2 text-center"><input type="checkbox" checked={r.priceVerified} onChange={(e) => patch(i, { priceVerified: e.target.checked })} aria-label="Η τιμή είναι επιβεβαιωμένη" className="h-4 w-4 cursor-pointer accent-emerald-600" /></td>
-                <td><button type="button" onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((_, j) => j !== i) : rs))} disabled={rows.length === 1} aria-label="Αφαίρεση συσκευασίας" className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-ink-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30"><Trash2 className="h-4 w-4" /></button></td>
+                <td><button type="button" onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((_, j) => j !== i) : rs))} disabled={rows.length === 1} aria-label="Αφαίρεση συσκευασίας" className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-ink-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30"><Trash2 className="h-4 w-4" /></button></td>
               </tr>
             ))}
           </tbody>

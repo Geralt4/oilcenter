@@ -6,7 +6,7 @@ import { buttonClass } from '@/components/ui/button';
 import { useKeptForm } from '@/components/ui/use-kept-form';
 import { BUSINESS_TYPES } from '@/lib/quote';
 
-const optional = <span className="font-normal text-ink-400">(προαιρετικό)</span>;
+const optional = <span className="font-normal text-ink-500">(προαιρετικό)</span>;
 
 export function QuoteForm() {
   const { state, pending, formRef, formAction, onSubmit } = useKeptForm<QuoteState>(sendQuoteRequest, null);

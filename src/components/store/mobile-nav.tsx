@@ -95,7 +95,7 @@ export function MobileNav({ tree, brands, shop, customerName }: Props) {
                           <li key={child.id}>
                             <Link href={`/category/${child.slug}`} className="flex items-center justify-between rounded-lg px-2 py-2.5 text-[0.9375rem] text-ink-700 hover:bg-ink-50">
                               {child.name}
-                              <span className="text-xs text-ink-400">{child.productCount}</span>
+                              <span className="text-xs text-ink-500">{child.productCount}</span>
                             </Link>
                           </li>
                         ))}
