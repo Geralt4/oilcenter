@@ -17,7 +17,7 @@ export const StatEvent = z.discriminatedUnion('t', [
   z.object({ t: z.literal('view'), path: z.string().startsWith('/').max(200), ref: z.string().max(300).optional(), w: z.number().int().min(0).max(10000).optional() }),
   z.object({ t: z.literal('search'), q: z.string().min(1).max(80), n: z.number().int().min(0).max(100000) }),
   z.object({ t: z.literal('cart'), slug: z.string().min(1).max(160) }),
-  z.object({ t: z.literal('click'), what: z.enum(['call', 'directions', 'skroutz', 'instagram', 'facebook', 'email']) }),
+  z.object({ t: z.literal('click'), what: z.enum(['call', 'directions', 'skroutz', 'instagram', 'email']) }),
 ]);
 export type StatEvent = z.infer<typeof StatEvent>;
 

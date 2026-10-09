@@ -44,6 +44,19 @@ async function applyShopEmail(): Promise<string> {
   await saveSettingsGroup('shop', { ...DEFAULT_SETTINGS.shop, ...stored, email });
   return `shop e-mail set to ${email}`;
 }
+
+/**
+ * The Facebook link is gone from the site (owner's instruction, 09.10.2026): no button, no setting. This removes the
+ * address that older databases still carry inside the stored shop settings.
+ */
+async function removeFacebookLink(): Promise<string> {
+  const [row] = await db.select().from(settings).where(eq(settings.key, 'shop'));
+  const stored = (row && typeof row.value === 'object' && row.value !== null && !Array.isArray(row.value) ? row.value : null) as Record<string, unknown> | null;
+  if (!stored || !('facebookUrl' in stored)) return 'nothing stored';
+  const { facebookUrl: _gone, ...rest } = stored;
+  await db.update(settings).set({ value: rest }).where(eq(settings.key, 'shop'));
+  return 'stored Facebook link removed';
+}
 import { applySearchKeywords } from './search-keywords';
 import { applySkroutzPrices } from './skroutz-prices';
 
@@ -79,6 +92,8 @@ const PATCHES: Array<{ id: string; run: () => Promise<string> }> = [
   { id: '2026-10-09-accelerate-claim', run: removeAccelerateClaim },
   // The shop's Gmail: shown on the site and used as the recipient of form messages.
   { id: '2026-10-09-shop-email', run: applyShopEmail },
+  // No Facebook link any more: drop the stored address too.
+  { id: '2026-10-09-remove-facebook', run: removeFacebookLink },
   // Search synonyms get their own column; search texts the product editor had stripped of them are rebuilt.
   { id: '2026-10-09-search-keywords', run: applySearchKeywords },
 ];

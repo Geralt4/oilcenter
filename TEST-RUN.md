@@ -57,7 +57,7 @@ All the questions of section 5 are in Greek, with room for each answer, in [`que
 - [ ] Check: old `.html` addresses redirect, bare domain → `www`, canonical links (also on a 404 page), HSTS header, sitemap, robots.txt, phone and map links on a real phone
 - [ ] Switch off demo mode, remove the site password, leave ordering **closed**
 - [ ] Google Search Console: verify the domain, submit the sitemap `→ L3`
-- [ ] Point everything at the site: Google Business Profile, Instagram bio, Facebook page, Skroutz shop profile, a QR code at the counter `→ L2` — without these, two months of traffic will be too thin to read
+- [ ] Point everything at the site: Google Business Profile, Instagram bio, Skroutz shop profile, a QR code at the counter `→ L2` — without these, two months of traffic will be too thin to read
 
 ## 3. During the test run (6–8 weeks)
 - [ ] [Ilias] keeps prices current in *Admin → Τιμές* (and on Skroutz, until the feed below exists)
@@ -108,7 +108,7 @@ Where there is a default, "OK" is a complete answer.
 
 ### Links and Google
 - **L1.** Instagram profile link.
-- **L2.** Is the Facebook page still active (facebook.com/TsakiridisOilCenter)? Does he have access to the shop's Google Business Profile (the listing on Google Maps) — with which Google account?
+- **L2.** (The Facebook link was removed from the site on 2026-10-09 — not needed.) Does he have access to the shop's Google Business Profile (the listing on Google Maps) — with which Google account?
 - **L3.** *(you)* Which Google account should own Search Console — his or yours?
 
 ### Communication

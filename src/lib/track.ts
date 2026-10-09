@@ -7,7 +7,7 @@ export type TrackEvent =
   | { t: 'view'; path: string; ref?: string; w?: number }
   | { t: 'search'; q: string; n: number }
   | { t: 'cart'; slug: string }
-  | { t: 'click'; what: 'call' | 'directions' | 'skroutz' | 'instagram' | 'facebook' | 'email' };
+  | { t: 'click'; what: 'call' | 'directions' | 'skroutz' | 'instagram' | 'email' };
 
 export function track(event: TrackEvent): void {
   if (typeof window === 'undefined') return;
@@ -31,6 +31,5 @@ export function classifyLink(href: string): Extract<TrackEvent, { t: 'click' }>[
   if (/google\.[a-z.]+\/maps|maps\.google\.|maps\.app\.goo\.gl|goo\.gl\/maps/i.test(href)) return 'directions';
   if (/skroutz\.gr/i.test(href)) return 'skroutz';
   if (/instagram\.com/i.test(href)) return 'instagram';
-  if (/facebook\.com/i.test(href)) return 'facebook';
   return null;
 }
