@@ -30,6 +30,20 @@ async function applyShopDetails(): Promise<string> {
   });
   return `ΑΦΜ ${d.vatNumber} · ΓΕΜΗ ${d.gemi} · ΔΟΥ ${d.taxOffice} · phone ${d.phone} only (fax, mobile, e-mail cleared) · hours confirmed`;
 }
+
+/**
+ * The shop's new Gmail (given on 09.10.2026, question C1). It is the address the site shows — footer, contact page,
+ * privacy and returns texts — and where form messages are sent once SMTP is configured. An address the owner has
+ * typed into Admin → Ρυθμίσεις in the meantime is kept.
+ */
+async function applyShopEmail(): Promise<string> {
+  const email = 'oilcenterthess@gmail.com';
+  const [row] = await db.select().from(settings).where(eq(settings.key, 'shop'));
+  const stored = (row && typeof row.value === 'object' && row.value !== null && !Array.isArray(row.value) ? row.value : {}) as Partial<ShopSettings['shop']>;
+  if (stored.email) return `kept ${stored.email}`;
+  await saveSettingsGroup('shop', { ...DEFAULT_SETTINGS.shop, ...stored, email });
+  return `shop e-mail set to ${email}`;
+}
 import { applySearchKeywords } from './search-keywords';
 import { applySkroutzPrices } from './skroutz-prices';
 
@@ -63,6 +77,8 @@ const PATCHES: Array<{ id: string; run: () => Promise<string> }> = [
   { id: '2026-09-22-shop-details', run: applyShopDetails },
   // The accelerate dealership is no longer stated until the owner confirms it (questions.md T4, Admin → Ρυθμίσεις).
   { id: '2026-10-09-accelerate-claim', run: removeAccelerateClaim },
+  // The shop's Gmail: shown on the site and used as the recipient of form messages.
+  { id: '2026-10-09-shop-email', run: applyShopEmail },
   // Search synonyms get their own column; search texts the product editor had stripped of them are rebuilt.
   { id: '2026-10-09-search-keywords', run: applySearchKeywords },
 ];
