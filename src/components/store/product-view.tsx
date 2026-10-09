@@ -162,7 +162,8 @@ export function ProductView({ product, images, variants, initialVariantId }: Pro
         )}
 
         <div className="mt-7 flex flex-wrap items-stretch gap-3">
-          {variant.priceVerified ? (
+          {/* catalogue mode (ordering closed): the way to buy is the phone, exactly as for a size without a confirmed price */}
+          {variant.priceVerified && config.canOrder ? (
             <>
               <QuantityStepper value={quantity} onChange={setQuantity} max={variant.stockLeft} />
               <button
@@ -205,7 +206,7 @@ export function ProductView({ product, images, variants, initialVariantId }: Pro
         </div>
 
         <ul className="mt-7 divide-y divide-line rounded-2xl border border-line bg-white text-sm">
-          {shipping.courierEnabled && (
+          {config.canOrder && shipping.courierEnabled && (
             <li className="flex items-start gap-3 p-4">
               <Truck className="mt-0.5 h-5 w-5 shrink-0 text-oil-700" />
               <span>
@@ -217,7 +218,7 @@ export function ProductView({ product, images, variants, initialVariantId }: Pro
               </span>
             </li>
           )}
-          {shipping.pickupEnabled && (
+          {config.canOrder && shipping.pickupEnabled && (
             <li className="flex items-start gap-3 p-4">
               <Store className="mt-0.5 h-5 w-5 shrink-0 text-oil-700" />
               <span>
@@ -226,11 +227,20 @@ export function ProductView({ product, images, variants, initialVariantId }: Pro
               </span>
             </li>
           )}
+          {!config.canOrder && (
+            <li className="flex items-start gap-3 p-4">
+              <Store className="mt-0.5 h-5 w-5 shrink-0 text-oil-700" />
+              <span>
+                <strong className="font-semibold text-ink-900">Θα το βρείτε στο κατάστημά μας</strong>
+                <span className="block text-ink-600">{config.address}. Καλέστε μας για διαθεσιμότητα πριν περάσετε.</span>
+              </span>
+            </li>
+          )}
           <li className="flex items-start gap-3 p-4">
             <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-oil-700" />
             <span>
               <strong className="font-semibold text-ink-900">Γνήσιο προϊόν</strong>
-              <span className="block text-ink-600">Απευθείας από επίσημους αντιπροσώπους, με δικαίωμα επιστροφής 14 ημερών.</span>
+              <span className="block text-ink-600">Απευθείας από επίσημους αντιπροσώπους{config.canOrder ? ', με δικαίωμα επιστροφής 14 ημερών' : ''}.</span>
             </span>
           </li>
         </ul>

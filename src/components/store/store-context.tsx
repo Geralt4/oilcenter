@@ -10,12 +10,18 @@ export type PublicStoreConfig = {
   vatRate: number;
   cardProviderConfigured: boolean;
   demoMode: boolean;
-  /** can THIS visitor check out? false while ordering is closed to the public (pre-launch) */
+  /**
+   * Can THIS visitor use the shop part — cart, checkout, account? false while ordering is closed to the public.
+   * Closed means catalogue mode: the site is a plain website (products, prices, contact) and every cart control,
+   * shop page and «παραγγείλετε online» sentence is hidden, not merely disabled.
+   */
   canOrder: boolean;
   /** ordering is closed to the public but this visitor is a logged-in admin placing test orders */
   adminTestOrders: boolean;
   lowStockThreshold: number;
   phone: string;
+  /** «Σόλωνος 52, Θεσσαλονίκη» — where to send a visitor who cannot order online */
+  address: string;
 };
 
 const StoreContext = createContext<PublicStoreConfig | null>(null);

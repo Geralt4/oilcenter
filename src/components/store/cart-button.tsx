@@ -14,7 +14,7 @@ export function CartButton() {
     <button
       type="button"
       onClick={open}
-      aria-label={count ? `Καλάθι, ${count} προϊόντα` : 'Καλάθι'}
+      aria-label={count ? `Καλάθι, ${count === 1 ? '1 προϊόν' : `${count} προϊόντα`}` : 'Καλάθι'}
       className="relative flex h-11 cursor-pointer items-center gap-2.5 rounded-xl bg-ink-900 pr-4 pl-3.5 text-white transition-colors hover:bg-ink-700"
     >
       <span className="relative">

@@ -10,10 +10,12 @@ import { db } from '@/lib/db';
 import { orders } from '@/lib/db/schema';
 import { ORDER_STATUS_LABELS } from '@/lib/orders';
 import { cn, formatDate, formatPrice } from '@/lib/utils';
+import { requireOrderingOrHistory } from '@/lib/catalogue-mode';
 
 export const metadata: Metadata = { title: 'Ο λογαριασμός μου', robots: { index: false, follow: false } };
 
 export default async function AccountPage() {
+  await requireOrderingOrHistory();
   const customer = await requireCustomer('/account');
   const myOrders = await db.select().from(orders).where(eq(orders.customerId, customer.id)).orderBy(desc(orders.createdAt)).limit(50);
 

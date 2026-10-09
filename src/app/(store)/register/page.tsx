@@ -4,10 +4,12 @@ import { redirect } from 'next/navigation';
 import { registerCustomer } from '@/app/(store)/account/actions';
 import { ActionForm } from '@/components/ui/action-form';
 import { getCustomer } from '@/lib/auth/session';
+import { requireOrdering } from '@/lib/catalogue-mode';
 
 export const metadata: Metadata = { title: 'Εγγραφή', robots: { index: false, follow: true } };
 
 export default async function RegisterPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+  await requireOrdering();
   const [{ next }, customer] = await Promise.all([searchParams, getCustomer()]);
   if (customer) redirect('/account');
   return (

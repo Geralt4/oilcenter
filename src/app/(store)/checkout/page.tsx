@@ -5,10 +5,12 @@ import { Breadcrumbs } from '@/components/store/product-listing';
 import { getAdmin, getCustomer } from '@/lib/auth/session';
 import { fullAddress } from '@/lib/settings';
 import { getSettings } from '@/lib/settings.server';
+import { requireOrdering } from '@/lib/catalogue-mode';
 
 export const metadata: Metadata = { title: 'Ολοκλήρωση παραγγελίας', robots: { index: false, follow: false } };
 
 export default async function CheckoutPage() {
+  await requireOrdering();
   const [settings, customer, admin] = await Promise.all([getSettings(), getCustomer(), getAdmin()]);
   const closed = !settings.storefront.ordersEnabled;
 

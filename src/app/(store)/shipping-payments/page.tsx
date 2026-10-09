@@ -4,10 +4,12 @@ import { courierRateCents } from '@/lib/pricing';
 import { fullAddress } from '@/lib/settings';
 import { getSettings } from '@/lib/settings.server';
 import { formatPrice } from '@/lib/utils';
+import { requireOrdering } from '@/lib/catalogue-mode';
 
 export const metadata: Metadata = { title: 'Αποστολές & πληρωμές', description: 'Κόστος και χρόνοι αποστολής, παραλαβή από το κατάστημα και τρόποι πληρωμής στο Oil Center.', alternates: { canonical: '/shipping-payments' } };
 
 export default async function ShippingPaymentsPage() {
+  await requireOrdering();
   const { shop, shipping, payments } = await getSettings();
   const examples = [1, 5, 10, 20].map((kg) => ({ kg, price: courierRateCents(kg * 1000, shipping) }));
 

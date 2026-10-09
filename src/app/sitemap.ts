@@ -21,7 +21,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...(settings.storefront.b2bPage ? [{ url: `${base}/professionals`, changeFrequency: 'yearly' as const, priority: 0.6 }] : []),
     { url: `${base}/contact`, changeFrequency: 'yearly', priority: 0.7 },
     { url: `${base}/about`, changeFrequency: 'yearly', priority: 0.6 },
-    ...['shipping-payments', 'returns', 'terms', 'privacy', 'cookies'].map((p) => ({ url: `${base}/${p}`, changeFrequency: 'yearly' as const, priority: 0.2 })),
+    // the shipping and returns pages exist only while the shop takes online orders (lib/catalogue-mode.ts)
+    ...[...(settings.storefront.ordersEnabled ? ['shipping-payments', 'returns'] : []), 'terms', 'privacy', 'cookies'].map((p) => ({ url: `${base}/${p}`, changeFrequency: 'yearly' as const, priority: 0.2 })),
     ...flat(tree).filter((c) => c.productCount > 0).map((c) => ({ url: `${base}/category/${c.slug}`, changeFrequency: 'weekly' as const, priority: 0.8 })),
     ...brands.map((b) => ({ url: `${base}/brand/${b.slug}`, changeFrequency: 'weekly' as const, priority: 0.6 })),
     { url: `${base}/viscosity`, changeFrequency: 'monthly', priority: 0.5 },

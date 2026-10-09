@@ -32,7 +32,8 @@ export const metadata: Metadata = {
     template: '%s | Oil Center',
   },
   description:
-    'Λιπαντικά κινητήρα, βαλβολίνες, αντιψυκτικά και χημικά από Castrol, Motul, Mobil, Valvoline, Shell, Liqui Moly και accelerate. Αποστολή σε όλη την Ελλάδα, παραλαβή από το κατάστημα στη Θεσσαλονίκη.',
+    // says nothing about delivery: that sentence is added by the store layout only while online ordering is open
+    'Λιπαντικά κινητήρα, βαλβολίνες, αντιψυκτικά και χημικά από Castrol, Motul, Mobil, Valvoline, Shell, Liqui Moly και accelerate. Κατάστημα στη Θεσσαλονίκη, με συμβουλή για το σωστό λάδι.',
   applicationName: 'Oil Center',
   authors: [{ name: 'Τσακιρίδης Ηλίας' }],
   openGraph: {

@@ -16,26 +16,35 @@ type Props = {
   tree: CategoryNode[];
   brands: BrandWithCount[];
   customerName: string | null;
+  /** false = catalogue mode: no cart, no account (see store-context.tsx) */
+  canOrder: boolean;
+  /** ordering is closed to the public and this visitor is the logged-in owner, who still sees the whole shop */
+  adminPreview: boolean;
 };
 
-export function Header({ settings, tree, brands, customerName }: Props) {
+export function Header({ settings, tree, brands, customerName, canOrder, adminPreview }: Props) {
   const { shop, storefront } = settings;
   const status = openStatus(shop.hours);
 
   return (
     <header className="sticky top-0 z-40">
-      {!storefront.ordersEnabled ? (
+      {/* One ribbon at most. With ordering closed and demo mode off there is none: the site is simply the shop's website. */}
+      {adminPreview ? (
         <div className="bg-petrol-700 px-4 py-1.5 text-center text-xs font-medium text-white">
-          Το ηλεκτρονικό κατάστημα ετοιμάζεται — οι online παραγγελίες δεν έχουν ανοίξει ακόμη. Για αγορές καλέστε στο{' '}
-          <a href={telHref(shop.phone)} className="tabular font-semibold whitespace-nowrap underline underline-offset-2">{shop.phone}</a>.
+          Βλέπετε το κατάστημα ως διαχειριστής: καλάθι και ταμείο εμφανίζονται μόνο σε εσάς, για δοκιμές. Οι επισκέπτες βλέπουν προϊόντα και τιμές, χωρίς αγορά.
         </div>
-      ) : (
-        storefront.demoMode && (
-          <div className="bg-petrol-700 px-4 py-1.5 text-center text-xs font-medium text-white">
-            Δοκιμαστική λειτουργία — οι τιμές είναι ενδεικτικές και οι παραγγελίες δεν εκτελούνται.
-          </div>
-        )
-      )}
+      ) : storefront.demoMode ? (
+        <div className="bg-petrol-700 px-4 py-1.5 text-center text-xs font-medium text-white">
+          {storefront.ordersEnabled ? (
+            'Δοκιμαστική λειτουργία — οι τιμές είναι ενδεικτικές και οι παραγγελίες δεν εκτελούνται.'
+          ) : (
+            <>
+              Η ιστοσελίδα ετοιμάζεται — οι τιμές είναι ενδεικτικές. Για τιμές και διαθεσιμότητα καλέστε στο{' '}
+              <a href={telHref(shop.phone)} className="tabular font-semibold whitespace-nowrap underline underline-offset-2">{shop.phone}</a>.
+            </>
+          )}
+        </div>
+      ) : null}
 
       {/* Utility bar: the two things a local customer wants most — call and find us */}
       <div className="bg-ink-900 text-ink-200">
@@ -85,18 +94,21 @@ export function Header({ settings, tree, brands, customerName }: Props) {
             <SearchBox />
           </div>
 
-          <nav className="ml-auto flex items-center gap-1" aria-label="Λογαριασμός και καλάθι">
-            <Link
-              href={customerName ? '/account' : '/login'}
-              className="hidden h-11 items-center gap-2 rounded-xl px-3 text-sm font-medium text-ink-700 hover:bg-ink-100 sm:flex"
-            >
-              <User className="h-5 w-5" />
-              <span className="hidden xl:inline">{customerName ? customerName : 'Σύνδεση'}</span>
-            </Link>
+          <nav className="ml-auto flex items-center gap-1" aria-label={canOrder ? 'Λογαριασμός και καλάθι' : 'Αγαπημένα'}>
+            {canOrder && (
+              <Link
+                href={customerName ? '/account' : '/login'}
+                aria-label={customerName ? `Ο λογαριασμός μου (${customerName})` : 'Σύνδεση'}
+                className="hidden h-11 items-center gap-2 rounded-xl px-3 text-sm font-medium text-ink-700 hover:bg-ink-100 sm:flex"
+              >
+                <User className="h-5 w-5" />
+                <span className="hidden xl:inline">{customerName ? customerName : 'Σύνδεση'}</span>
+              </Link>
+            )}
             <Link href="/wishlist" aria-label="Αγαπημένα" className="hidden h-11 w-11 items-center justify-center rounded-xl text-ink-700 hover:bg-ink-100 sm:flex">
               <Heart className="h-5 w-5" />
             </Link>
-            <CartButton />
+            {canOrder && <CartButton />}
           </nav>
         </div>
 

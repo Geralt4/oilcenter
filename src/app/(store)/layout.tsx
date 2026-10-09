@@ -19,7 +19,11 @@ export const dynamic = 'force-dynamic';
 /** Demo mode = placeholder prices. Tell search engines to stay away until the owner switches it off. */
 export async function generateMetadata(): Promise<Metadata> {
   const { storefront } = await getSettings();
-  return storefront.demoMode ? { robots: { index: false, follow: false } } : {};
+  return {
+    ...(storefront.demoMode ? { robots: { index: false, follow: false } } : {}),
+    // the promise of delivery belongs to the site only while it really takes orders (catalogue mode otherwise)
+    ...(storefront.ordersEnabled ? { description: 'Λιπαντικά κινητήρα, βαλβολίνες, αντιψυκτικά και χημικά από Castrol, Motul, Mobil, Valvoline, Shell, Liqui Moly και accelerate. Αποστολή σε όλη την Ελλάδα, παραλαβή από το κατάστημα στη Θεσσαλονίκη.' } : {}),
+  };
 }
 
 export default async function StoreLayout({ children }: { children: React.ReactNode }) {
@@ -37,6 +41,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
     adminTestOrders: !ordersEnabled && admin !== null,
     lowStockThreshold: settings.storefront.lowStockThreshold,
     phone: settings.shop.phone,
+    address: [settings.shop.street, settings.shop.city].filter(Boolean).join(', '),
   };
 
   return (
@@ -44,13 +49,13 @@ export default async function StoreLayout({ children }: { children: React.ReactN
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[60] focus:rounded-lg focus:bg-oil-500 focus:px-4 focus:py-2 focus:font-semibold focus:text-ink-950">
         Μετάβαση στο περιεχόμενο
       </a>
-      <Header settings={settings} tree={tree} brands={brands} customerName={customer ? customer.firstName || 'Λογαριασμός' : null} />
+      <Header settings={settings} tree={tree} brands={brands} customerName={customer ? customer.firstName || 'Λογαριασμός' : null} canOrder={config.canOrder} adminPreview={config.adminTestOrders} />
       <main id="main" className="pb-20 md:pb-0">
         {children}
       </main>
-      <Footer settings={settings} tree={tree} />
+      <Footer settings={settings} tree={tree} canOrder={config.canOrder} />
       <BottomBar phoneHref={telHref(settings.shop.phone)} directionsHref={mapsDirectionsUrl(settings.shop)} />
-      <CartDrawer />
+      {config.canOrder && <CartDrawer />}
       <CookieNotice />
       <Tracker />
     </StoreProvider>

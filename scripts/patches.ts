@@ -1,7 +1,7 @@
 import './env';
 import { eq } from 'drizzle-orm';
 import { db } from '../src/lib/db';
-import { settings } from '../src/lib/db/schema';
+import { brands, settings } from '../src/lib/db/schema';
 import { DEFAULT_SETTINGS, type ShopSettings } from '../src/lib/settings';
 import { saveSettingsGroup } from '../src/lib/settings.server';
 import { applyHazardLabels, applyManufacturerSpecs } from './manufacturer-data';
@@ -33,6 +33,18 @@ async function applyShopDetails(): Promise<string> {
 import { applySearchKeywords } from './search-keywords';
 import { applySkroutzPrices } from './skroutz-prices';
 
+/**
+ * The seeded description of the accelerate brand said «Το Oil Center είναι εξουσιοδοτημένος αντιπρόσωπος της accelerate».
+ * The owner has not confirmed that yet, so the sentence goes; a description he has rewritten himself is left alone.
+ */
+async function removeAccelerateClaim(): Promise<string> {
+  const claim = ' Το Oil Center είναι εξουσιοδοτημένος αντιπρόσωπος της accelerate.';
+  const [brand] = await db.select({ id: brands.id, description: brands.description }).from(brands).where(eq(brands.slug, 'accelerate'));
+  if (!brand?.description?.includes(claim)) return 'nothing to change';
+  await db.update(brands).set({ description: brand.description.replace(claim, '') }).where(eq(brands.id, brand.id));
+  return 'sentence removed from the accelerate brand description';
+}
+
 /*
  * One-time DATA patches for existing databases. Runs at start-up after the migrations and the seed (see Dockerfile).
  * The hosted database lives on a volume and is never re-seeded, so this is how a data change rides along with a deploy.
@@ -49,6 +61,8 @@ const PATCHES: Array<{ id: string; run: () => Promise<string> }> = [
   { id: '2026-09-22-hazard-labels', run: () => applyHazardLabels({ verbose: false }) },
   // Business details and contact channels as the owner gave them (questions B1–B5, H1).
   { id: '2026-09-22-shop-details', run: applyShopDetails },
+  // The accelerate dealership is no longer stated until the owner confirms it (questions.md T4, Admin → Ρυθμίσεις).
+  { id: '2026-10-09-accelerate-claim', run: removeAccelerateClaim },
   // Search synonyms get their own column; search texts the product editor had stripped of them are rebuilt.
   { id: '2026-10-09-search-keywords', run: applySearchKeywords },
 ];

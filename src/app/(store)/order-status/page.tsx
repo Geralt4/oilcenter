@@ -7,6 +7,7 @@ import { buttonClass } from '@/components/ui/button';
 import { db } from '@/lib/db';
 import { orders } from '@/lib/db/schema';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
+import { requireOrderingOrHistory } from '@/lib/catalogue-mode';
 
 export const metadata: Metadata = { title: 'Η παραγγελία μου', robots: { index: false, follow: true } };
 
@@ -23,6 +24,7 @@ async function lookup(formData: FormData) {
 }
 
 export default async function OrderStatusPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+  await requireOrderingOrHistory();
   const { error } = await searchParams;
   return (
     <div className="container-page max-w-xl py-6 sm:py-8">
