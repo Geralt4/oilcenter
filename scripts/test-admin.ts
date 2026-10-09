@@ -30,9 +30,10 @@ async function main() {
   console.log('Typed prices');
   const cents = (s: string) => parsePriceToCents(s);
   check('"12,90", "12.90", "12" and "12,9 €"', cents('12,90') === 1290 && cents('12.90') === 1290 && cents('12') === 1200 && cents('12,9 €') === 1290);
-  check('"1.250" is one thousand two hundred and fifty euro, not 1,25', cents('1.250') === 125000, cents('1.250'));
-  check('"1.234,56" and "1,234.56" are the same amount', cents('1.234,56') === 123456 && cents('1,234.56') === 123456, [cents('1.234,56'), cents('1,234.56')]);
-  check('"0.125" and "12.5" stay decimals', cents('0.125') === 13 && cents('12.5') === 1250, [cents('0.125'), cents('12.5')]);
+  check('"1.250", "12.500" and "12,500" could be thousands or decimals: refused, not guessed', cents('1.250') === null && cents('12.500') === null && cents('12,500') === null, [cents('1.250'), cents('12.500'), cents('12,500')]);
+  check('unmistakable thousands are read: "1.250,00", "1,250.00", "1.250.000"', cents('1.250,00') === 125000 && cents('1,250.00') === 125000 && cents('1.250.000') === 125000000 && cents('1.234,56') === 123456, [cents('1.250,00'), cents('1,250.00'), cents('1.250.000')]);
+  check('"12.5" is twelve fifty; three decimals are refused', cents('12.5') === 1250 && cents('0.125') === null && cents('12,905') === null);
+  check('a stray mark is refused, not folded into the amount: "12,90." "12." "12,90.5" ",5"', cents('12,90.') === null && cents('12.') === null && cents('12,90.5') === null && cents(',5') === null, [cents('12,90.'), cents('12.'), cents('12,90.5')]);
   check('nonsense is refused, not guessed', cents('abc') === null && cents('') === null && cents('-5') === null && cents('1e3') === null && cents('12,90,1') === null);
 
   console.log('Reading a CSV file');

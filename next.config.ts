@@ -28,11 +28,11 @@ const nextConfig: NextConfig = {
       // Admin product form uploads photos straight from a phone camera. Next applies one body-size limit
       // to ALL server actions, so this ceiling also covers the public forms (contact, checkout, …); those are
       // further bounded by their zod field limits and per-IP rate limiting, so the practical exposure is small.
-      bodySizeLimit: '25mb',
+      bodySizeLimit: '32mb',
     },
     // src/proxy.ts runs in front of /admin too, and Next buffers a request body for the proxy only up to this size
     // (10 MB by default): without it a save with a few phone photos reached the action cut short.
-    proxyClientMaxBodySize: '25mb',
+    proxyClientMaxBodySize: '32mb',
   },
   images: {
     formats: ['image/avif', 'image/webp'],

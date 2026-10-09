@@ -4,6 +4,7 @@ import { asc } from 'drizzle-orm';
 import { ExternalLink, Star, Trash2, TriangleAlert } from 'lucide-react';
 import { deleteProduct, imageAction, saveProduct } from '@/app/admin/actions';
 import { AdminForm, ConfirmButton } from '@/components/admin/admin-form';
+import { FileInput } from '@/components/admin/file-input';
 import { Card, Check, Field, PageHeader } from '@/components/admin/ui';
 import { VariantsEditor, type VariantRow } from '@/components/admin/variants-editor';
 import { BASE_TYPE_LABELS } from '@/lib/catalog';
@@ -79,7 +80,8 @@ export async function ProductEditor({ product, created }: Props) {
         </Card>
 
         <Card title="Προσθήκη φωτογραφιών" description="Τραβήξτε το προϊόν σε ανοιχτόχρωμο φόντο. Το σύστημα καθαρίζει το φόντο, κεντράρει και φέρνει όλες τις φωτογραφίες στο ίδιο μέγεθος.">
-          <input type="file" name="images" accept="image/jpeg,image/png,image/webp" multiple className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-900 file:px-4 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-700" />
+          <FileInput name="images" accept="image/jpeg,image/png,image/webp" multiple maxFiles={12} maxTotalMb={20} what="φωτογραφίες" className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-900 file:px-4 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-700" />
+          <p className="mt-2 text-xs text-ink-500">Έως 12 φωτογραφίες και 20 MB συνολικά σε κάθε αποθήκευση· αν έχετε περισσότερες, ανεβάστε τες σε δύο δόσεις.</p>
         </Card>
 
         <Card
@@ -116,9 +118,10 @@ export async function ProductEditor({ product, created }: Props) {
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Δελτίο δεδομένων ασφαλείας (SDS): σύνδεσμος" hint={hazard?.sdsUrl?.startsWith('/media/') ? 'Ανεβασμένο αρχείο. Σβήστε το πεδίο για να αφαιρεθεί.' : 'Η σελίδα ή το PDF του κατασκευαστή (https://…). Ή ανεβάστε το PDF δίπλα.'}><input name="sdsUrl" inputMode="url" autoCapitalize="none" spellCheck={false} defaultValue={hazard?.sdsUrl ?? ''} placeholder="https://…" className="field" /></Field>
+              <Field label="Δελτίο δεδομένων ασφαλείας (SDS): σύνδεσμος" hint={hazard?.sdsUrl?.startsWith('/media/') ? 'Ανεβασμένο αρχείο. Σβήστε το πεδίο για να αφαιρεθεί.' : 'Η σελίδα ή το PDF του κατασκευαστή (https://…). Ή ανεβάστε το PDF δίπλα.'}>{/* keyed by the stored value: after a PDF upload the server replaces the link, and a box still showing the old one would send it back with the next save — undoing the upload */}
+                <input key={hazard?.sdsUrl ?? ''} name="sdsUrl" inputMode="url" autoCapitalize="none" spellCheck={false} defaultValue={hazard?.sdsUrl ?? ''} placeholder="https://…" className="field" /></Field>
               <Field label="…ή ανεβάστε το PDF" hint="Το PDF που σας δίνει ο κατασκευαστής ή ο αντιπρόσωπος, έως 10 MB. Αντικαθιστά τον σύνδεσμο.">
-                <input type="file" name="sds" accept="application/pdf,.pdf" className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-900 file:px-4 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-700" />
+                <FileInput name="sds" accept="application/pdf,.pdf" maxTotalMb={10} className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-900 file:px-4 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-700" />
               </Field>
             </div>
             {hazard?.sdsUrl && <p className="text-sm"><a href={hazard.sdsUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-petrol-500 underline underline-offset-2">Άνοιγμα του τρέχοντος δελτίου</a></p>}
@@ -133,7 +136,7 @@ export async function ProductEditor({ product, created }: Props) {
               <Check name="isActive" label="Ενεργό (εμφανίζεται στο κατάστημα)" defaultChecked={product?.isActive ?? true} />
               <Check name="isFeatured" label="Προτεινόμενο (αρχική σελίδα, πρώτο στις λίστες)" defaultChecked={product?.isFeatured ?? false} />
             </div>
-            <Field label="Διεύθυνση σελίδας (slug)" hint="Αφήστε το κενό για αυτόματη δημιουργία. Μην το αλλάζετε σε προϊόν που ήδη φαίνεται στο Google."><input name="slug" defaultValue={product?.slug ?? ''} className="field tabular" /></Field>
+            <Field label="Διεύθυνση σελίδας (slug)" hint={product ? 'Κενό = μένει όπως είναι. Μην το αλλάζετε σε προϊόν που ήδη φαίνεται στο Google.' : 'Αφήστε το κενό για αυτόματη δημιουργία από την ονομασία.'}><input key={product?.slug ?? ''} name="slug" defaultValue={product?.slug ?? ''} placeholder={product?.slug} className="field tabular" /></Field>
             <Field label="Επιπλέον λέξεις αναζήτησης" hint="Συνώνυμα με τα οποία το ψάχνουν οι πελάτες."><input name="keywords" defaultValue={product?.keywords ?? ''} maxLength={400} placeholder="π.χ. λαδι vw golf tdi" className="field" /></Field>
             <Field label="Τίτλος για Google (προαιρετικό)"><input name="metaTitle" defaultValue={product?.metaTitle ?? ''} className="field" /></Field>
             <Field label="Περιγραφή για Google (προαιρετικό)"><input name="metaDescription" defaultValue={product?.metaDescription ?? ''} className="field" /></Field>

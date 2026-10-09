@@ -202,6 +202,33 @@ async function main() {
   check('«valvolini» finds gear oil, «μοτουλ» finds Motul', (await total('valvolini')) > 0 && (await total('μοτουλ')) === (await total('motul')) && (await total('motul')) > 0);
   check('nonsense still finds nothing', (await total('zzzqqq')) === 0 && (await total('ζζζξξξ')) === 0);
 
+  console.log('Approximate spellings do not drown the exact ones');
+  const hits = async (q: string) => (await listProducts({ q, perPage: 500 })).products;
+  const brandTotal = async (slug: string) => (await listProducts({ brandSlug: slug, perPage: 1 })).total;
+  const valvoline = await hits('valvoline');
+  check('"valvoline" is the brand, not every gear oil («βαλβολίνες» spells "valvolines")', valvoline.length === (await brandTotal('valvoline')) && valvoline.every((p) => p.brand?.slug === 'valvoline'), { found: valvoline.length, brand: await brandTotal('valvoline'), others: [...new Set(valvoline.filter((p) => p.brand?.slug !== 'valvoline').map((p) => p.brand?.slug))] });
+  check('…and so is the half-typed "valvol"', (await hits('valvol')).every((p) => p.brand?.slug === 'valvoline'));
+  const gear = await hits('valvolini');
+  check('"valvolini" (Greek in Latin letters) still finds gear oils of every brand', gear.length > 0 && gear.some((p) => p.brand?.slug !== 'valvoline'), gear.length);
+  for (const b of ['motul', 'castrol', 'mobil', 'shell', 'aral']) check(`"${b}" finds exactly the ${b} products`, (await total(b)) === (await brandTotal(b)), [await total(b), await brandTotal(b)]);
+  const sel = await hits('σελ');
+  check('«σελ» finds Shell and Selenia, not accelerate (whose Greek spelling merely contains it)', sel.length > 0 && sel.every((p) => ['shell', 'selenia'].includes(p.brand?.slug ?? '')), [...new Set(sel.map((p) => p.brand?.slug))]);
+  const anti = await hits('anti');
+  check('"anti" does not match every «λιπαντικό» ("lipantiko")', anti.length > 0 && anti.length < (await total('λιπαντικ')) / 2 && anti.length <= (await total('αντιψυκτικ')) + (await total('antifreeze')) + 12, { anti: anti.length, lipantika: await total('λιπαντικ') });
+  const ownText = new Map((await db.select({ slug: products.slug, searchText: products.searchText }).from(products)).map((p) => [p.slug, p.searchText]));
+  const strayMotul = (await hits('moto')).filter((p) => p.brand?.slug === 'motul' && !/moto|μοτο/.test(ownText.get(p.slug) ?? '')).map((p) => p.slug);
+  check('"moto" does not pull in Motul products through the brand\'s Greek spelling', strayMotul.length === 0, strayMotul.slice(0, 5));
+
+  // a product that carries its grade in the name only (the viscosity field is optional in the admin)
+  const { buildSearchText } = await import('../src/lib/search-keywords');
+  const named = [...shown.values()].length ? (await db.select().from(products).where(eq(products.viscosity, '5W-30'))).find((p) => /5W-30/i.test(p.name)) : undefined;
+  if (named) {
+    await db.update(products).set({ viscosity: null, searchText: buildSearchText({ name: named.name, keywords: named.keywords }) }).where(eq(products.id, named.id));
+    const found = async (q: string) => (await hits(q)).some((p) => p.slug === named.slug);
+    check('a grade written only in the product name is found: "5w-30", "5w30", "5 w 30"', (await found('5w-30')) && (await found('5w30')) && (await found('5 w 30')), named.slug);
+    check('…and still not by "15w-30" or "5w-40"', !(await found('15w-30')) && !(await found('5w-40')));
+  } else check('there is a 5W-30 product named after its grade to test with', false);
+
   console.log('URL');
   check('?spec= is read as a list, lower-cased', parseListingParams({ spec: 'VW-504-00,mb-229.51' }).approvals?.join('|') === 'vw-504-00|mb-229.51');
   const parsed = parseListingParams({ cat: 'valvolines,atf-cvt-dct', visc: '5W-30' });

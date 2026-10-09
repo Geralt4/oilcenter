@@ -36,6 +36,12 @@ export const AVAILABILITY_HINTS: Record<Availability, string> = {
   unavailable: 'Καλέστε μας για ενημέρωση.',
 };
 
+/** The same lines while the site takes no online orders (catalogue mode): nothing is shipped, so nothing says so. */
+export const AVAILABILITY_HINTS_IN_STORE: Record<Availability, string> = {
+  ...AVAILABILITY_HINTS,
+  days_1_3: 'Το φέρνουμε από τον προμηθευτή μας σε 1–3 εργάσιμες ημέρες.',
+};
+
 /** Where there is room for two words: product cards, cart lines, and the choices in the admin. */
 export const AVAILABILITY_SHORT: Record<Availability, string> = {
   in_stock: 'Άμεσα διαθέσιμο',

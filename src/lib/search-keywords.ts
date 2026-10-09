@@ -101,16 +101,58 @@ export function greeklish(normalised: string): string {
     if (!/[α-ω]/.test(word)) continue;
     out.add(transliterate(word, 0));
     out.add(transliterate(word, 1));
-    // «η» is typed as "i" far more often than as "h", also by people who write «υ» as "y"
+    // «η» is typed as "i" far more often than as "h", also by people who write «υ» as "y"…
     out.add(transliterate(word, 0).replace(/h/g, 'i'));
+    // …and «υ» as "i" by people who still spell «ει» out: psigeio
+    out.add(transliterate(word, 0).replace(/[hy]/g, 'i'));
   }
   return [...out].join(' ');
 }
+
+const GRADE = /\b(\d{1,2}) ?w ?(\d{2,3})\b/g;
 
 /**
  * A query, as the tokens to look for. "5w-30", "5 w 30" and "5W30" are one question and become one token, spelled
  * the way every haystack spells a grade («5w30»).
  */
 export function searchTerms(q: string): string[] {
-  return normalizeText(q).replace(/\b(\d{1,2}) ?w ?(\d{2,3})\b/g, '$1w$2').split(' ').filter(Boolean);
+  return normalizeText(q).replace(GRADE, '$1w$2').split(' ').filter(Boolean);
+}
+
+/**
+ * Every grade written out in a (normalised) text, each as that one token. The stored haystack has it only for the
+ * product's viscosity FIELD; a product that carries its grade in the name alone must answer to it too.
+ */
+export function compactGrades(normalised: string): string {
+  return [...new Set([...normalised.matchAll(GRADE)].map((m) => `${m[1]}w${m[2]}`))].join(' ');
+}
+
+/**
+ * What a product is searched in.
+ * - `searchText`: its own words. A term matches anywhere in a word ("tronic" finds SuperTronic).
+ * - `prefixText`: spellings nobody stores — the brand in Greek letters («καστρολ») and the Greek words in Latin ones
+ *   («ladi», «valvolini»). These are approximations, so a term must START one of them: as substrings they matched
+ *   far too much («λιπαντικό» spells "lipantiko", which contains "anti"; «ακσελερέιτ» contains «σελ»).
+ */
+export type SearchDoc = { searchText: string; prefixText: string };
+
+/** The words brand names are made of («liqui», «moly», «valvoline»), for `matchesTerm`. */
+export function brandWords(names: Iterable<string>): Set<string> {
+  const words = new Set<string>();
+  for (const name of names) for (const w of normalizeText(name).split(' ')) if (w.length >= 3) words.add(w);
+  return words;
+}
+
+/**
+ * Does a product answer to one query term?
+ * - In its own words: anywhere, except that a term containing a digit must match from the start of a token —
+ *   otherwise "5w40" would also return every 15W-40, which is a different oil.
+ * - In the approximate spellings: from the start of a word, and never for a Latin term that is (the beginning of) a
+ *   brand name. «Βαλβολίνες» spells "valvolines", and somebody who types "valvoline" wants the brand, not every
+ *   gear oil in the shop; the brand's own name is in `searchText` anyway.
+ */
+export function matchesTerm(doc: SearchDoc, term: string, brands: ReadonlySet<string>): boolean {
+  if (/\d/.test(term) ? ` ${doc.searchText}`.includes(` ${term}`) : doc.searchText.includes(term)) return true;
+  if (/^[a-z]+$/.test(term) && term.length >= 3) for (const word of brands) if (word.startsWith(term)) return false;
+  return ` ${doc.prefixText}`.includes(` ${term}`);
 }

@@ -13,28 +13,22 @@ export function formatPrice(cents: number): string {
 }
 
 /**
- * "12,50" | "12.50" | "12" → 1250. Returns null when it is not a valid amount.
- * Thousands are read the way they are written here: "1.250" → 125000 and "1.234,56" → 123456; a file from an
- * English spreadsheet ("1,234.56") works too, because with both marks present the LAST one is the decimal.
+ * A typed amount, in cents: "12,90" | "12.90" | "12" → 1290 | 1290 | 1200. Returns null when it is not an amount —
+ * and also when it could be read two ways. Thousands must be unmistakable: "1.250,00" or "1,250.00" (both marks),
+ * or "1.250.000" (more than one group). A lone "1.250" or "12,500" is refused rather than guessed: it is 1 250 € to
+ * a Greek reader and 1,25 € to a spreadsheet, and a price saved a thousand times off is worse than one typed again.
  */
 export function parsePriceToCents(input: string | number | null | undefined): number | null {
   if (input === null || input === undefined) return null;
   if (typeof input === 'number') return Number.isFinite(input) ? Math.round(input * 100) : null;
-  const cleaned = input.trim().replace(/[€\s]/g, '');
-  if (!cleaned) return null;
-  let normalised: string;
-  if (cleaned.includes(',') && cleaned.includes('.')) {
-    const decimal = Math.max(cleaned.lastIndexOf(','), cleaned.lastIndexOf('.'));
-    normalised = `${cleaned.slice(0, decimal).replace(/[.,]/g, '')}.${cleaned.slice(decimal + 1)}`;
-  } else if (/^[1-9]\d{0,2}(\.\d{3})+$/.test(cleaned)) {
-    normalised = cleaned.replace(/\./g, '');
-  } else {
-    normalised = cleaned.replace(',', '.');
-  }
-  if (!/^(\d+\.?\d*|\.\d+)$/.test(normalised)) return null;
-  const value = Number(normalised);
-  if (!Number.isFinite(value) || value < 0) return null;
-  return Math.round(value * 100);
+  const typed = input.trim().replace(/[€\s]/g, '');
+  let plain: string;
+  if (/^\d+(\.\d{1,2})?$/.test(typed)) plain = typed; // 12 · 12.9 · 12.90
+  else if (/^\d+,\d{1,2}$/.test(typed)) plain = typed.replace(',', '.'); // 12,9 · 12,90
+  else if (/^\d{1,3}(\.\d{3})+,\d{1,2}$/.test(typed) || /^\d{1,3}(\.\d{3}){2,}$/.test(typed)) plain = typed.replace(/\./g, '').replace(',', '.'); // 1.250,00 · 1.250.000
+  else if (/^\d{1,3}(,\d{3})+\.\d{1,2}$/.test(typed) || /^\d{1,3}(,\d{3}){2,}$/.test(typed)) plain = typed.replace(/,/g, ''); // 1,250.00 · 1,250,000
+  else return null;
+  return Math.round(Number(plain) * 100);
 }
 
 /** cents → "12,50" for <input> default values */

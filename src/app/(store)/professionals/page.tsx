@@ -25,7 +25,10 @@ export default async function ProfessionalsPage() {
   const points = [
     { icon: Boxes, title: `${brands.length}+ μάρκες από ένα σημείο`, text: 'Λάδια κινητήρα, βαλβολίνες, ATF, αντιψυκτικά, υγρά φρένων, πρόσθετα και σπρέι.' },
     { icon: PackageSearch, title: 'Και ό,τι δεν βλέπετε στο site', text: 'Το ηλεκτρονικό κατάστημα δείχνει ένα μέρος της γκάμας. Ζητήστε μας συγκεκριμένο προϊόν, προδιαγραφή ή συσκευασία.' },
-    { icon: Truck, title: 'Παραλαβή ή αποστολή', text: `Από το κατάστημα στη ${shop.street}${shipping.courierEnabled ? ' ή με courier σε όλη την Ελλάδα' : ''}.` },
+    // delivery is promised only while the shop really takes online orders (catalogue mode otherwise)
+    storefront.ordersEnabled && shipping.courierEnabled
+      ? { icon: Truck, title: 'Παραλαβή ή αποστολή', text: `Από το κατάστημα στη ${shop.street} ή με courier σε όλη την Ελλάδα.` }
+      : { icon: Truck, title: 'Παραλαβή από το κατάστημα', text: `Στη ${shop.street}.` },
   ];
 
   return (

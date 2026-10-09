@@ -4,7 +4,7 @@ import { parseApprovals, type Approval, type ApprovalFacet } from '@/lib/approva
 import { bestAvailability, effectiveAvailability, type Availability } from '@/lib/availability';
 import { db } from '@/lib/db';
 import { brands, categories, productImages, products, variants, type BaseType, type Brand, type Category } from '@/lib/db/schema';
-import { brandAliases, greeklish, searchTerms } from '@/lib/search-keywords';
+import { brandAliases, brandWords, compactGrades, greeklish, matchesTerm, searchTerms } from '@/lib/search-keywords';
 import { normalizeText } from '@/lib/utils';
 
 /*
@@ -63,7 +63,7 @@ export type CatalogProduct = {
 };
 
 /** server-side extras of the index: never sent to the browser (see strip) */
-type IndexedProduct = CatalogProduct & { searchText: string; approvals: Approval[] };
+type IndexedProduct = CatalogProduct & { searchText: string; prefixText: string; approvals: Approval[] };
 
 export type CategoryNode = Category & { children: CategoryNode[]; productCount: number };
 
@@ -136,8 +136,11 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
       onSale: vs.some((v) => v.compareAtCents !== null),
       // Codes are added here, not into products.search_text: they are edited in places that never rebuild that column
       // (Admin → Skroutz codes, CSV import). Both spellings, so «MN7501-1» and «MN75011» find the same can.
-      // …and so are the spellings nobody stores: the brand in Greek letters («καστρολ») and Greek words in Latin ones («ladi»).
-      searchText: [p.searchText, brandAliases(brand?.name), greeklish(`${p.searchText} ${brandAliases(brand?.name)}`), ...vs.flatMap(codesOf).flatMap((c) => [normalizeText(c), compact(c)])].join(' '),
+      // So is the one-token spelling of any grade written out in the name («5w 30» → «5w30»).
+      searchText: [p.searchText, compactGrades(p.searchText), ...vs.flatMap(codesOf).flatMap((c) => [normalizeText(c), compact(c)])].join(' '),
+      // The spellings nobody stores — the brand in Greek letters, Greek words in Latin ones — are kept apart: they
+      // are matched by a stricter rule (search-keywords.ts → matchesTerm).
+      prefixText: `${brandAliases(brand?.name)} ${greeklish(p.searchText)}`,
       approvals: parseApprovals(p.specs ?? []),
     });
   }
@@ -158,16 +161,8 @@ export function matchCode(p: CatalogProduct, q: string): { code: string; label: 
   return null;
 }
 
-/**
- * Words match anywhere ("tronic" finds SuperTronic), but a term containing a digit must match from the
- * start of a token — otherwise "5w40" would also return every 15W-40, which is a different oil.
- */
-function matchesTerm(searchText: string, term: string): boolean {
-  return /\d/.test(term) ? ` ${searchText}`.includes(` ${term}`) : searchText.includes(term);
-}
-
 function strip(p: IndexedProduct): CatalogProduct {
-  const { searchText: _searchText, approvals: _approvals, ...rest } = p;
+  const { searchText: _searchText, prefixText: _prefixText, approvals: _approvals, ...rest } = p;
   return rest;
 }
 
@@ -335,7 +330,10 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
   if (filters.brandSlug) scope = scope.filter((p) => p.brand?.slug === filters.brandSlug);
   if (filters.viscosity) scope = scope.filter((p) => p.viscosity === filters.viscosity);
   const terms = filters.q ? searchTerms(filters.q) : [];
-  if (terms.length) scope = scope.filter((p) => terms.every((t) => matchesTerm(p.searchText, t)));
+  if (terms.length) {
+    const brandNames = brandWords(index.flatMap((p) => (p.brand ? [p.brand.name] : [])));
+    scope = scope.filter((p) => terms.every((t) => matchesTerm(p, t, brandNames)));
+  }
 
   // 2. Facet predicates. Each facet's counts are computed with every OTHER facet applied,
   //    so ticking "Castrol" never makes "Motul" read as 0.
@@ -526,8 +524,9 @@ export async function suggestProducts(q: string, limit = 6): Promise<CatalogProd
   const terms = searchTerms(q);
   if (!terms.length) return [];
   const index = await loadIndex();
+  const brandNames = brandWords(index.flatMap((p) => (p.brand ? [p.brand.name] : [])));
   return index
-    .filter((p) => terms.every((t) => matchesTerm(p.searchText, t)))
+    .filter((p) => terms.every((t) => matchesTerm(p, t, brandNames)))
     .sort((a, b) => Number(b.inStock) - Number(a.inStock) || Number(b.isFeatured) - Number(a.isFeatured))
     .slice(0, limit)
     .map(strip);
