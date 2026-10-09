@@ -1,0 +1,1 @@
+ALTER TABLE `products` ADD `keywords` text DEFAULT '' NOT NULL;

@@ -74,7 +74,8 @@ export async function ProductEditor({ product, created }: Props) {
         </Card>
 
         <Card title="Συσκευασίες, τιμές & απόθεμα" description="Κάθε συσκευασία (1L, 4L, 20L…) έχει δική της τιμή, βάρος αποστολής και απόθεμα.">
-          <VariantsEditor initial={rows} images={(product?.images ?? []).map((i) => i.url)} />
+          {/* remounts once a save has given new sizes their ids: sent back without one, a size would be deleted and created again */}
+          <VariantsEditor key={rows.map((r) => r.id ?? 'new').join('-')} initial={rows} images={(product?.images ?? []).map((i) => i.url)} />
         </Card>
 
         <Card title="Προσθήκη φωτογραφιών" description="Τραβήξτε το προϊόν σε ανοιχτόχρωμο φόντο. Το σύστημα καθαρίζει το φόντο, κεντράρει και φέρνει όλες τις φωτογραφίες στο ίδιο μέγεθος.">
@@ -133,7 +134,7 @@ export async function ProductEditor({ product, created }: Props) {
               <Check name="isFeatured" label="Προτεινόμενο (αρχική σελίδα, πρώτο στις λίστες)" defaultChecked={product?.isFeatured ?? false} />
             </div>
             <Field label="Διεύθυνση σελίδας (slug)" hint="Αφήστε το κενό για αυτόματη δημιουργία. Μην το αλλάζετε σε προϊόν που ήδη φαίνεται στο Google."><input name="slug" defaultValue={product?.slug ?? ''} className="field tabular" /></Field>
-            <Field label="Επιπλέον λέξεις αναζήτησης" hint="Συνώνυμα με τα οποία το ψάχνουν οι πελάτες."><input name="keywords" placeholder="π.χ. λαδι vw golf tdi" className="field" /></Field>
+            <Field label="Επιπλέον λέξεις αναζήτησης" hint="Συνώνυμα με τα οποία το ψάχνουν οι πελάτες."><input name="keywords" defaultValue={product?.keywords ?? ''} maxLength={400} placeholder="π.χ. λαδι vw golf tdi" className="field" /></Field>
             <Field label="Τίτλος για Google (προαιρετικό)"><input name="metaTitle" defaultValue={product?.metaTitle ?? ''} className="field" /></Field>
             <Field label="Περιγραφή για Google (προαιρετικό)"><input name="metaDescription" defaultValue={product?.metaDescription ?? ''} className="field" /></Field>
             <Field label="Εσωτερικές σημειώσεις" hint="Δεν εμφανίζονται στους πελάτες. Όσο υπάρχει κείμενο εδώ, το προϊόν μένει στη λίστα «προς έλεγχο»." className="md:col-span-2"><textarea name="internalNotes" rows={3} defaultValue={product?.internalNotes ?? ''} className="field resize-y" /></Field>

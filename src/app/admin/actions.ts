@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { and, eq, inArray, ne, notInArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { AVAILABILITY, isAvailability, type Availability } from '@/lib/availability';
+import { AVAILABILITY, type Availability } from '@/lib/availability';
 import { hashPassword, randomToken, verifyPassword } from '@/lib/auth/password';
 import { createSession, destroySession, requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
@@ -16,10 +16,12 @@ import { buildHazard } from '@/lib/ghs';
 import { isValidGtin, normalizeGtin } from '@/lib/gtin';
 import { normalizeProductPhoto } from '@/lib/images';
 import { addOrderEvent, cancelOrder, getOrderByNumber, ORDER_STATUS_LABELS } from '@/lib/orders';
+import { describePriceImport, MAX_PRICE_CENTS, parseCsv, planPriceImport } from '@/lib/price-csv';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours, type ShopSettings } from '@/lib/settings';
+import { buildSearchText } from '@/lib/search-keywords';
 import { getSettings, saveSettingsGroup } from '@/lib/settings.server';
-import { normalizeText, parsePriceToCents, parseVolumeMl, slugify } from '@/lib/utils';
+import { parsePriceToCents, parseVolumeMl, slugify } from '@/lib/utils';
 
 /* Every action below starts with requireAdmin(): page-level protection alone would not cover direct action calls. */
 
@@ -200,7 +202,8 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     metaTitle: str(fd, 'metaTitle') || null,
     metaDescription: str(fd, 'metaDescription') || null,
     internalNotes: String(fd.get('internalNotes') ?? '').trim() || null,
-    searchText: normalizeText([brand?.name ?? '', name, viscosity ?? '', viscosity?.replace('-', '') ?? '', specs.join(' '), category?.name ?? '', str(fd, 'keywords'), priced.map((v) => v.label).join(' ')].join(' ')),
+    keywords: str(fd, 'keywords').slice(0, 400),
+    searchText: buildSearchText({ brand: brand?.name, name, viscosity, specs, category: category?.name, keywords: str(fd, 'keywords').slice(0, 400), labels: priced.map((v) => v.label) }),
   };
 
   // Hazard labelling & safety data sheet (lib/ghs.ts). A newly uploaded PDF replaces whatever link was there.
@@ -226,13 +229,15 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     else pid = (await tx.insert(products).values({ ...values, hazard }).returning({ id: products.id }))[0].id;
 
     const keep = priced.flatMap((v) => (v.id ? [v.id] : []));
+    // a size may only point at one of this product's own photos
+    const ownImages = new Set([...(await tx.select({ url: productImages.url }).from(productImages).where(eq(productImages.productId, pid))).map((i) => i.url), ...uploads]);
     const before = new Map((await tx.select({ id: variants.id, priceCents: variants.priceCents }).from(variants).where(eq(variants.productId, pid))).map((v) => [v.id, v.priceCents]));
     await tx.delete(variants).where(keep.length ? and(eq(variants.productId, pid), notInArray(variants.id, keep)) : eq(variants.productId, pid));
 
     for (const [sort, v] of priced.entries()) {
       const row = {
         productId: pid, label: v.label, volumeMl: /\d\s*g$/i.test(v.label) ? null : parseVolumeMl(v.label), priceCents: v.priceCents!, compareAtCents: v.compareAtCents,
-        stock: v.stock, trackStock: v.trackStock, availability: v.availability ?? 'in_stock', weightGrams: v.weightGrams, barcode: v.barcode ? normalizeGtin(v.barcode) : null, mpn: v.mpn || null, imageUrl: v.imageUrl || null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
+        stock: v.stock, trackStock: v.trackStock, availability: v.availability ?? 'in_stock', weightGrams: v.weightGrams, barcode: v.barcode ? normalizeGtin(v.barcode) : null, mpn: v.mpn || null, imageUrl: v.imageUrl && ownImages.has(v.imageUrl) ? v.imageUrl : null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
         sku: v.sku || `${slug}-${slugify(v.label)}`.toUpperCase().slice(0, 60),
       };
       if (v.id) await tx.update(variants).set(row).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));
@@ -258,6 +263,7 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   // the data sheet that was replaced or removed is no longer linked from anywhere
   if (previous?.hazard?.sdsUrl && previous.hazard.sdsUrl !== hazard?.sdsUrl) await removeUpload(previous.hazard.sdsUrl);
   revalidatePath('/admin/products');
+  revalidatePath(`/admin/products/${productId}`);
   if (!id) redirect(`/admin/products/${productId}?created=1`);
   return { ok: true, message: 'Το προϊόν αποθηκεύτηκε.' };
 }
@@ -313,7 +319,6 @@ export type PriceUpdateResult = {
 };
 
 const PriceUpdates = z.array(z.object({ id: z.number().int().positive(), price: z.string().trim().max(20), verified: z.boolean().optional(), availability: z.enum(AVAILABILITY).optional() })).min(1).max(2000);
-const MAX_PRICE_CENTS = 5_000_000;
 
 /** The quick price editor sends only the rows the owner touched. Every real change is logged in price_changes. */
 export async function updatePrices(input: PriceUpdate[]): Promise<PriceUpdateResult> {
@@ -356,45 +361,29 @@ export async function updatePrices(input: PriceUpdate[]): Promise<PriceUpdateRes
   return { ok: true, message: saved.length ? `${count}. ${saved.length === 1 ? 'Ισχύει' : 'Ισχύουν'} ήδη στο κατάστημα.` : 'Καμία αλλαγή.', saved, failed };
 }
 
-/** CSV columns: sku;price[;stock][;availability]  — separator ; or , — decimal comma or point. Unknown SKUs are reported, never created. */
+/**
+ * CSV columns: sku;price[;stock][;verified][;availability] — separator ; or , — decimal comma or point (lib/price-csv.ts).
+ * Unknown SKUs are reported, never created. An empty cell changes nothing: the file that was just exported can be uploaded as it is.
+ */
 export async function importPricesCsv(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   await requireAdmin();
   const file = fd.get('file');
   if (!(file instanceof File) || !file.size) return { ok: false, message: 'Επιλέξτε αρχείο CSV.' };
   if (file.size > 2 * 1024 * 1024) return { ok: false, message: 'Το αρχείο είναι πολύ μεγάλο.' };
-  const lines = (await file.text()).replace(/^\uFEFF/, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const sep = (lines[0] ?? '').includes(';') ? ';' : ',';
-  const header = (lines[0] ?? '').toLowerCase().split(sep).map((h) => h.replace(/"/g, '').trim());
-  const col = { sku: header.indexOf('sku'), price: header.findIndex((h) => h.startsWith('price') || h.startsWith('τιμ')), stock: header.findIndex((h) => h.startsWith('stock') || h.startsWith('απόθ') || h.startsWith('αποθ')), availability: header.findIndex((h) => h.startsWith('availab') || h.startsWith('διαθεσ')) };
-  if (col.sku < 0 || col.price < 0) return { ok: false, message: 'Η πρώτη γραμμή πρέπει να έχει στήλες «sku» και «price».' };
 
-  const bySku = new Map((await db.select({ id: variants.id, sku: variants.sku, priceCents: variants.priceCents }).from(variants)).map((v) => [v.sku, v]));
-  let updated = 0;
-  const unknown: string[] = [];
-  for (const line of lines.slice(1)) {
-    const cells = line.split(sep).map((c) => c.replace(/^"|"$/g, '').trim());
-    const sku = cells[col.sku];
-    // with a comma separator a decimal comma would have split the cell: accept only point decimals there
-    const cents = parsePriceToCents(cells[col.price] ?? '');
-    if (!sku || cents === null || cents <= 0 || cents > MAX_PRICE_CENTS) continue;
-    const current = bySku.get(sku);
-    if (!current) {
-      unknown.push(sku);
-      continue;
+  const rows = await db.select({ id: variants.id, sku: variants.sku, priceCents: variants.priceCents, priceVerified: variants.priceVerified, stock: variants.stock, trackStock: variants.trackStock, availability: variants.availability }).from(variants);
+  const plan = planPriceImport(await file.text(), new Map(rows.map(({ sku, ...v }) => [sku, v])));
+  if (plan.error !== undefined) return { ok: false, message: plan.error };
+
+  // all or nothing: half a price list is worse than none
+  await db.transaction(async (tx) => {
+    for (const change of plan.changes) {
+      await tx.update(variants).set(change.patch).where(eq(variants.id, change.id));
+      if (change.patch.priceCents !== undefined) await tx.insert(priceChanges).values({ variantId: change.id, oldCents: change.oldCents, newCents: change.newCents, source: 'csv' });
     }
-    const patch: { priceCents: number; priceVerified: boolean; stock?: number; trackStock?: boolean; availability?: Availability } = { priceCents: cents, priceVerified: true };
-    const stock = col.stock >= 0 ? Number(cells[col.stock]) : NaN;
-    if (Number.isInteger(stock) && stock >= 0) Object.assign(patch, { stock, trackStock: true });
-    // the export writes the same keys (in_stock, days_1_3, on_order, unavailable); anything else leaves the size as it is
-    const availability = col.availability >= 0 ? (cells[col.availability] ?? '').toLowerCase() : '';
-    if (isAvailability(availability)) patch.availability = availability;
-    await db.update(variants).set(patch).where(eq(variants.id, current.id));
-    if (cents !== current.priceCents) await db.insert(priceChanges).values({ variantId: current.id, oldCents: current.priceCents, newCents: cents, source: 'csv' });
-    current.priceCents = cents;
-    updated++;
-  }
+  });
   revalidatePath('/admin/prices');
-  return { ok: unknown.length === 0, message: `${updated === 1 ? 'Ενημερώθηκε 1 κωδικός' : `Ενημερώθηκαν ${updated} κωδικοί`}.${unknown.length ? ` Άγνωστοι: ${unknown.slice(0, 8).join(', ')}${unknown.length > 8 ? '…' : ''}` : ''}` };
+  return { ok: plan.unknown.length + plan.skipped.length === 0, message: describePriceImport(plan) };
 }
 
 // ─── Brands, categories, coupons, messages ───────────────────────────────────
@@ -632,9 +621,7 @@ export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promi
   const file = fd.get('file');
   if (!(file instanceof File) || !file.size) return { ok: false, message: 'Επιλέξτε αρχείο CSV.' };
   if (file.size > 2 * 1024 * 1024) return { ok: false, message: 'Το αρχείο είναι πολύ μεγάλο.' };
-  const lines = (await file.text()).replace(/^\uFEFF/, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const sep = (lines[0] ?? '').includes(';') ? ';' : ',';
-  const header = (lines[0] ?? '').toLowerCase().split(sep).map((h) => h.replace(/"/g, '').trim());
+  const { header, rows: lines } = parseCsv(await file.text());
   const col = { sku: header.indexOf('sku'), ean: header.findIndex((h) => h === 'ean' || h.startsWith('barcode') || h === 'gtin'), mpn: header.findIndex((h) => h === 'mpn' || h.startsWith('κωδ')) };
   if (col.sku < 0 || (col.ean < 0 && col.mpn < 0)) return { ok: false, message: 'Η πρώτη γραμμή πρέπει να έχει στήλη «sku» και τουλάχιστον μία από τις «ean», «mpn».' };
 
@@ -644,8 +631,7 @@ export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promi
   let updated = 0;
   const unknown: string[] = [];
   const rejected: string[] = [];
-  for (const line of lines.slice(1)) {
-    const cells = line.split(sep).map((c) => c.replace(/^"|"$/g, '').trim());
+  for (const { cells } of lines) {
     const sku = (cells[col.sku] ?? '').toUpperCase();
     if (!sku) continue;
     const current = bySku.get(sku);

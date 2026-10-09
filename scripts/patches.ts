@@ -30,6 +30,7 @@ async function applyShopDetails(): Promise<string> {
   });
   return `ΑΦΜ ${d.vatNumber} · ΓΕΜΗ ${d.gemi} · ΔΟΥ ${d.taxOffice} · phone ${d.phone} only (fax, mobile, e-mail cleared) · hours confirmed`;
 }
+import { applySearchKeywords } from './search-keywords';
 import { applySkroutzPrices } from './skroutz-prices';
 
 /*
@@ -48,6 +49,8 @@ const PATCHES: Array<{ id: string; run: () => Promise<string> }> = [
   { id: '2026-09-22-hazard-labels', run: () => applyHazardLabels({ verbose: false }) },
   // Business details and contact channels as the owner gave them (questions B1–B5, H1).
   { id: '2026-09-22-shop-details', run: applyShopDetails },
+  // Search synonyms get their own column; search texts the product editor had stripped of them are rebuilt.
+  { id: '2026-10-09-search-keywords', run: applySearchKeywords },
 ];
 
 const KEY = 'dataPatches';

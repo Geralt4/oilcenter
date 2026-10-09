@@ -21,7 +21,8 @@
     "prices:skroutz": "tsx scripts/apply-skroutz-prices.ts",
     "test:orders": "tsx scripts/test-orders.ts",
     "test:feed": "tsx scripts/test-feed.ts",
-    "test:catalog": "tsx scripts/test-catalog.ts"
+    "test:catalog": "tsx scripts/test-catalog.ts",
+    "test:admin": "tsx scripts/test-admin.ts"
   },
   "engines": {
     "node": ">=20.9"
