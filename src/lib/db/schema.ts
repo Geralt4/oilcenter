@@ -84,6 +84,8 @@ export const products = sqliteTable(
     hazard: text('hazard', { mode: 'json' }).$type<HazardInfo>(),
     /** lower-cased, accent-stripped haystack. SQLite LIKE is not case-insensitive for Greek. */
     searchText: text('search_text').notNull().default(''),
+    /** the owner's extra search words (synonyms customers type); folded into searchText on every save */
+    keywords: text('keywords').notNull().default(''),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     isFeatured: integer('is_featured', { mode: 'boolean' }).notNull().default(false),
     metaTitle: text('meta_title'),

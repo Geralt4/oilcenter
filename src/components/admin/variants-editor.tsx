@@ -31,7 +31,8 @@ export function VariantsEditor({ initial, images }: { initial: VariantRow[]; ima
 
   return (
     <div>
-      <input type="hidden" name="variants" value={JSON.stringify(rows)} />
+      {/* a photo deleted since this row was loaded is no longer a choice: never send its dead link back */}
+      <input type="hidden" name="variants" value={JSON.stringify(rows.map((r) => (r.imageUrl && !images.includes(r.imageUrl) ? { ...r, imageUrl: '' } : r)))} />
       <div className="-mx-4 overflow-x-auto px-4 sm:-mx-6 sm:px-6">
         <table className="w-full min-w-[80rem] border-separate border-spacing-y-1.5 text-sm">
           <thead>
@@ -61,7 +62,7 @@ export function VariantsEditor({ initial, images }: { initial: VariantRow[]; ima
                 <td className="pr-2"><input value={r.barcode} onChange={(e) => patch(i, { barcode: e.target.value })} inputMode="numeric" aria-label="Barcode (EAN)" className={`${cell} tabular w-36`} /></td>
                 <td className="pr-2"><input value={r.mpn} onChange={(e) => patch(i, { mpn: e.target.value })} aria-label="Κωδικός κατασκευαστή (MPN)" className={`${cell} tabular w-28`} /></td>
                 <td className="pr-2">
-                  <select value={r.imageUrl} onChange={(e) => patch(i, { imageUrl: e.target.value })} aria-label="Φωτογραφία συσκευασίας" className={`${cell} w-28 cursor-pointer`}>
+                  <select value={images.includes(r.imageUrl) ? r.imageUrl : ''} onChange={(e) => patch(i, { imageUrl: e.target.value })} aria-label="Φωτογραφία συσκευασίας" className={`${cell} w-28 cursor-pointer`}>
                     <option value="">1η φωτό</option>
                     {images.map((url, n) => <option key={url} value={url}>Φωτό {n + 1}</option>)}
                   </select>

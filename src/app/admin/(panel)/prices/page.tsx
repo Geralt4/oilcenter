@@ -94,7 +94,7 @@ export default async function AdminPricesPage({ searchParams }: { searchParams: 
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="max-w-2xl">
             <h2 id="csv-title" className="text-base font-semibold text-ink-900">Μαζική ενημέρωση από Excel</h2>
-            <p className="mt-1 text-sm text-ink-600">Για πολλές αλλαγές μαζί (π.χ. νέος τιμοκατάλογος προμηθευτή): κατεβάστε το CSV, αλλάξτε τη στήλη price (και προαιρετικά stock) στο Excel, αποθηκεύστε ως CSV και ανεβάστε το εδώ.</p>
+            <p className="mt-1 text-sm text-ink-600">Για πολλές αλλαγές μαζί (π.χ. νέος τιμοκατάλογος προμηθευτή): κατεβάστε το CSV, αλλάξτε τη στήλη price (και προαιρετικά stock) στο Excel, αποθηκεύστε ως CSV και ανεβάστε το εδώ. Αλλάζουν μόνο όσα πειράξατε: ένα κενό κελί δεν σβήνει τίποτα.</p>
           </div>
           <a href="/admin/prices/export" className="flex h-10 items-center gap-2 rounded-xl border border-ink-200 bg-white px-3.5 text-sm font-semibold text-ink-900 hover:bg-ink-50"><Download className="h-4 w-4" />Εξαγωγή CSV</a>
         </div>

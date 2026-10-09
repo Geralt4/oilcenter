@@ -12,17 +12,26 @@ export function formatPrice(cents: number): string {
   return eur.format(cents / 100);
 }
 
-/** "12,50" | "12.50" | "12" → 1250. Returns null when it is not a valid amount. */
+/**
+ * "12,50" | "12.50" | "12" → 1250. Returns null when it is not a valid amount.
+ * Thousands are read the way they are written here: "1.250" → 125000 and "1.234,56" → 123456; a file from an
+ * English spreadsheet ("1,234.56") works too, because with both marks present the LAST one is the decimal.
+ */
 export function parsePriceToCents(input: string | number | null | undefined): number | null {
   if (input === null || input === undefined) return null;
   if (typeof input === 'number') return Number.isFinite(input) ? Math.round(input * 100) : null;
   const cleaned = input.trim().replace(/[€\s]/g, '');
   if (!cleaned) return null;
-  // "1.234,56" (Greek) → "1234.56";  "12,5" → "12.5"
-  const normalised =
-    cleaned.includes(',') && cleaned.includes('.')
-      ? cleaned.replace(/\./g, '').replace(',', '.')
-      : cleaned.replace(',', '.');
+  let normalised: string;
+  if (cleaned.includes(',') && cleaned.includes('.')) {
+    const decimal = Math.max(cleaned.lastIndexOf(','), cleaned.lastIndexOf('.'));
+    normalised = `${cleaned.slice(0, decimal).replace(/[.,]/g, '')}.${cleaned.slice(decimal + 1)}`;
+  } else if (/^[1-9]\d{0,2}(\.\d{3})+$/.test(cleaned)) {
+    normalised = cleaned.replace(/\./g, '');
+  } else {
+    normalised = cleaned.replace(',', '.');
+  }
+  if (!/^(\d+\.?\d*|\.\d+)$/.test(normalised)) return null;
   const value = Number(normalised);
   if (!Number.isFinite(value) || value < 0) return null;
   return Math.round(value * 100);

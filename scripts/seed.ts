@@ -5,6 +5,7 @@ import { count, eq } from 'drizzle-orm';
 import { db } from '../src/lib/db';
 import { adminUsers, brands, categories, coupons, productImages, products, variants, type BaseType } from '../src/lib/db/schema';
 import { hashPassword } from '../src/lib/auth/password';
+import { extraKeywords } from '../src/lib/search-keywords';
 import { applyHazardLabels, applyManufacturerSpecs } from './manufacturer-data';
 import { loadSkroutzPrices } from './skroutz-prices';
 
@@ -41,6 +42,8 @@ async function main() {
       await db.delete(brands);
     }
 
+    const brandName = new Map(catalog.brands.map((b) => [b.slug, b.name]));
+    const categoryName = new Map(catalog.categories.map((c) => [c.slug, c.name]));
     const brandId = new Map<string, number>();
     for (const b of catalog.brands) {
       const [row] = await db
@@ -78,6 +81,7 @@ async function main() {
             baseType: (p.baseType as BaseType | null) ?? null,
             specs: p.specs,
             searchText: p.searchText,
+            keywords: extraKeywords(p.searchText, { brand: brandName.get(p.brand), name: p.name, viscosity: p.viscosity, specs: p.specs, category: categoryName.get(p.category), labels: p.variants.map((v) => v.label) }),
             isFeatured: p.featured,
             internalNotes: p.internalNotes,
           })
