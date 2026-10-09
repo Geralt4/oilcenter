@@ -208,7 +208,7 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     return { ok: false, message: err instanceof z.ZodError ? (err.issues[0]?.message ?? 'Μη έγκυρες συσκευασίες') : 'Μη έγκυρες συσκευασίες.' };
   }
   const priced = variantRows.map((v) => ({ ...v, priceCents: parsePriceToCents(v.price), compareAtCents: v.compareAt ? parsePriceToCents(v.compareAt) : null }));
-  if (priced.some((v) => v.priceCents === null || v.priceCents <= 0)) return { ok: false, message: 'Κάθε συσκευασία χρειάζεται έγκυρη τιμή (π.χ. 12,90).' };
+  if (priced.some((v) => v.priceCents === null || v.priceCents <= 0 || v.priceCents > MAX_PRICE_CENTS)) return { ok: false, message: 'Κάθε συσκευασία χρειάζεται έγκυρη τιμή (π.χ. 12,90· για χιλιάδες γράψτε 1250 ή 1.250,00).' };
   const badBarcode = priced.find((v) => v.barcode && !isValidGtin(v.barcode));
   if (badBarcode) return { ok: false, message: `Το barcode «${badBarcode.barcode}» (${badBarcode.label}) δεν είναι έγκυρο: χρειάζονται 8, 12 ή 13 ψηφία — πιθανότατα ένα ψηφίο είναι λάθος.` };
 
@@ -217,7 +217,10 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   const [brand] = brandId ? await db.select().from(brands).where(eq(brands.id, brandId)) : [];
   const [category] = categoryId ? await db.select().from(categories).where(eq(categories.id, categoryId)) : [];
 
-  const slug = await uniqueSlug(slugify(str(fd, 'slug') || (name.toLowerCase().startsWith((brand?.name ?? '\u0000').toLowerCase()) ? name : `${brand?.name ?? ''} ${name}`)), id ?? undefined);
+  // An address is made up once, when the product is created. On an existing product an empty box means "leave it":
+  // a rename must never move a page that Google and the Skroutz feed already point at. To change it, type the new one.
+  const [current] = id ? await db.select({ slug: products.slug }).from(products).where(eq(products.id, id)) : [];
+  const slug = await uniqueSlug(slugify(str(fd, 'slug') || current?.slug || (name.toLowerCase().startsWith((brand?.name ?? '\u0000').toLowerCase()) ? name : `${brand?.name ?? ''} ${name}`)), id ?? undefined);
   // the grade becomes an address (/viscosity/5w-30): «SAE 30» is stored as 30, and «80W/90» would be a broken link
   const viscosity = str(fd, 'viscosity').toUpperCase().replace(/\s/g, '').replace(/^SAE(?=\d)/, '') || null;
   if (viscosity && !/^[0-9A-Z][0-9A-Z.-]{0,15}$/.test(viscosity)) return { ok: false, message: `Το ιξώδες «${viscosity}» γράφεται με γράμματα, αριθμούς και παύλα: 5W-30, 75W-90, 46.`, fieldErrors: { viscosity: 'Π.χ. 5W-30' } };
@@ -442,7 +445,9 @@ export async function saveBrand(_prev: AdminFormState, fd: FormData): Promise<Ad
   const id = int(fd, 'id') || null;
   const name = str(fd, 'name');
   if (!name) return { ok: false, message: 'Συμπληρώστε όνομα.' };
-  const values = { name, slug: slugify(str(fd, 'slug') || name), country: str(fd, 'country') || null, description: str(fd, 'description') || null, isFeatured: bool(fd, 'isFeatured'), sort: int(fd, 'sort') };
+  // on an existing brand an empty slug box means "leave the address as it is" (see saveProduct)
+  const [storedBrand] = id ? await db.select({ slug: brands.slug }).from(brands).where(eq(brands.id, id)) : [];
+  const values = { name, slug: slugify(str(fd, 'slug') || storedBrand?.slug || name), country: str(fd, 'country') || null, description: str(fd, 'description') || null, isFeatured: bool(fd, 'isFeatured'), sort: int(fd, 'sort') };
   try {
     if (id) await db.update(brands).set(values).where(eq(brands.id, id));
     else await db.insert(brands).values(values);
@@ -460,7 +465,9 @@ export async function saveCategory(_prev: AdminFormState, fd: FormData): Promise
   if (!name) return { ok: false, message: 'Συμπληρώστε όνομα.' };
   const parentId = int(fd, 'parentId') || null;
   if (id && parentId === id) return { ok: false, message: 'Μια κατηγορία δεν μπορεί να είναι γονέας του εαυτού της.' };
-  const values = { name, slug: slugify(str(fd, 'slug') || name), parentId, icon: str(fd, 'icon') || null, description: str(fd, 'description') || null, isActive: bool(fd, 'isActive'), sort: int(fd, 'sort') };
+  // on an existing category an empty slug box means "leave the address as it is" (see saveProduct)
+  const [storedCategory] = id ? await db.select({ slug: categories.slug }).from(categories).where(eq(categories.id, id)) : [];
+  const values = { name, slug: slugify(str(fd, 'slug') || storedCategory?.slug || name), parentId, icon: str(fd, 'icon') || null, description: str(fd, 'description') || null, isActive: bool(fd, 'isActive'), sort: int(fd, 'sort') };
   try {
     if (id) await db.update(categories).set(values).where(eq(categories.id, id));
     else await db.insert(categories).values(values);
@@ -561,11 +568,13 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
     if (cents === null) problems.push(`${label}: «${raw}» δεν είναι ποσό`);
     return cents ?? fallback;
   };
-  const num = (key: string, fallback: number) => {
-    const raw = str(fd, key).replace(',', '.');
+  const num = (key: string, fallback: number, label: string) => {
+    const raw = str(fd, key);
     if (!raw) return fallback;
-    const n = Number(raw);
-    return Number.isFinite(n) && n >= 0 ? n : fallback;
+    const n = Number(raw.replace(',', '.'));
+    if (Number.isFinite(n) && n >= 0) return n;
+    problems.push(`${label}: «${raw}» δεν είναι αριθμός (γράψτε μόνο ψηφία)`);
+    return fallback;
   };
   const link = (key: string, label: string, clean: (raw: string) => string = cleanUrl) => {
     const raw = str(fd, key);
@@ -603,24 +612,37 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
     ...current.shop,
     name: str(fd, 'name') || DEFAULT_SETTINGS.shop.name, legalName: str(fd, 'legalName'), tagline: str(fd, 'tagline'), phone: str(fd, 'phone'), mobile: str(fd, 'mobile'), fax: str(fd, 'fax'),
     email: str(fd, 'email'), street: str(fd, 'street'), city: str(fd, 'city'), postalCode: str(fd, 'postalCode'), region: str(fd, 'region'),
-    lat: num('lat', current.shop.lat), lng: num('lng', current.shop.lng),
+    lat: num('lat', current.shop.lat, 'Γεωγραφικό πλάτος'), lng: num('lng', current.shop.lng, 'Γεωγραφικό μήκος'),
     instagramUrl: link('instagramUrl', 'Instagram', instagramUrl), skroutzUrl: link('skroutzUrl', 'Skroutz'),
     vatNumber: str(fd, 'vatNumber'), taxOffice: str(fd, 'taxOffice'), gemi: str(fd, 'gemi'), hours, hoursVerified: bool(fd, 'hoursVerified'),
-    foundedYear: ((y) => (y >= 1900 && y <= new Date().getFullYear() ? y : 0))(int(fd, 'foundedYear')),
+    foundedYear: ((raw) => {
+      if (!raw) return 0;
+      const y = /^\d{4}$/.test(raw) ? Number(raw) : NaN;
+      if (y >= 1900 && y <= new Date().getFullYear()) return y;
+      problems.push(`Έτος ίδρυσης: «${raw}» — γράψτε το με τέσσερα ψηφία (π.χ. 1992)`);
+      return current.shop.foundedYear;
+    })(str(fd, 'foundedYear')),
     accelerateDealer: bool(fd, 'accelerateDealer'),
   };
   if (!shop.phone || !shop.street || !shop.city) return { ok: false, message: 'Τηλέφωνο, οδός και πόλη είναι υποχρεωτικά.' };
   if (shop.lat > 90 || shop.lng > 180) problems.push('Οι συντεταγμένες του χάρτη δεν είναι έγκυρες');
 
   // a rating is only worth showing if it is exactly what the platform shows: anything outside 1–5 is a typo, not a rating
-  const rating = (key: string) => ((n) => (n >= 1 && n <= 5 ? Math.round(n * 10) / 10 : 0))(num(key, 0));
-  const googleRating = rating('googleRating'), skroutzRating = rating('skroutzRating');
+  const rating = (key: string, label: string) => {
+    const raw = str(fd, key);
+    if (!raw) return 0;
+    const n = Number(raw.replace(',', '.'));
+    if (Number.isFinite(n) && n >= 1 && n <= 5) return Math.round(n * 10) / 10;
+    problems.push(`${label}: «${raw}» — γράψτε μόνο τον αριθμό, από 1 έως 5 (π.χ. 4,8)`);
+    return 0;
+  };
+  const googleRating = rating('googleRating', 'Βαθμολογία στο Google'), skroutzRating = rating('skroutzRating', 'Βαθμολογία στο Skroutz');
 
   const googleUrl = link('googleUrl', 'των κριτικών Google');
   const shipping = {
     courierEnabled: bool(fd, 'courierEnabled'), pickupEnabled: bool(fd, 'pickupEnabled'), carrierName: str(fd, 'carrierName') || 'Courier', deliveryEstimate: str(fd, 'deliveryEstimate'),
-    baseCents: euro('baseCents', current.shipping.baseCents, 'Βασικά μεταφορικά'), baseWeightKg: num('baseWeightKg', current.shipping.baseWeightKg), perExtraKgCents: euro('perExtraKgCents', current.shipping.perExtraKgCents, 'Χρέωση ανά επιπλέον κιλό'),
-    freeOverCents: euro('freeOverCents', 0, 'Όριο δωρεάν μεταφορικών'), freeMaxWeightKg: num('freeMaxWeightKg', 0), codFeeCents: euro('codFeeCents', 0, 'Χρέωση αντικαταβολής'),
+    baseCents: euro('baseCents', current.shipping.baseCents, 'Βασικά μεταφορικά'), baseWeightKg: num('baseWeightKg', current.shipping.baseWeightKg, 'Βάρος που καλύπτει η βασική χρέωση (kg)'), perExtraKgCents: euro('perExtraKgCents', current.shipping.perExtraKgCents, 'Χρέωση ανά επιπλέον κιλό'),
+    freeOverCents: euro('freeOverCents', 0, 'Όριο δωρεάν μεταφορικών'), freeMaxWeightKg: num('freeMaxWeightKg', 0, 'Όριο βάρους για δωρεάν μεταφορικά (kg)'), codFeeCents: euro('codFeeCents', 0, 'Χρέωση αντικαταβολής'),
   };
   const vatRaw = str(fd, 'vatRate');
   const vatRate = int(fd, 'vatRate', current.tax.vatRate);

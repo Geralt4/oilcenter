@@ -10,6 +10,7 @@ import { customers } from '@/lib/db/schema';
 import { passwordResetMail, sendMail } from '@/lib/email';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 import { getSettings } from '@/lib/settings.server';
+import { accountsAvailable, canOrderNow } from '@/lib/catalogue-mode';
 
 export type FormState = { ok: boolean; message: string; fieldErrors?: Record<string, string> } | null;
 
@@ -37,6 +38,8 @@ function safeNext(value: FormDataEntryValue | null): string {
 }
 
 export async function registerCustomer(_prev: FormState, formData: FormData): Promise<FormState> {
+  // the pages are hidden in catalogue mode (lib/catalogue-mode.ts); the action must not be a way around that
+  if (!(await canOrderNow())) return { ok: false, message: 'Οι λογαριασμοί πελατών θα ανοίξουν μαζί με τις online παραγγελίες.' };
   const limited = rateLimit(`register:${await clientIp()}`, 6, 30 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.' };
 
@@ -60,6 +63,8 @@ export async function registerCustomer(_prev: FormState, formData: FormData): Pr
 }
 
 export async function loginCustomer(_prev: FormState, formData: FormData): Promise<FormState> {
+  // the pages are hidden in catalogue mode (lib/catalogue-mode.ts); the action must not be a way around that
+  if (!(await accountsAvailable())) return { ok: false, message: 'Οι λογαριασμοί πελατών θα ανοίξουν μαζί με τις online παραγγελίες.' };
   const parsed = z.object({ email, password: z.string().min(1).max(200) }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { ok: false, message: 'Συμπληρώστε e-mail και κωδικό.' };
 
@@ -81,6 +86,8 @@ export async function logoutCustomer(): Promise<void> {
 }
 
 export async function requestPasswordReset(_prev: FormState, formData: FormData): Promise<FormState> {
+  // the pages are hidden in catalogue mode (lib/catalogue-mode.ts); the action must not be a way around that
+  if (!(await accountsAvailable())) return { ok: false, message: 'Οι λογαριασμοί πελατών θα ανοίξουν μαζί με τις online παραγγελίες.' };
   const done: FormState = { ok: true, message: 'Αν υπάρχει λογαριασμός με αυτό το e-mail, σας στείλαμε οδηγίες επαναφοράς.' };
   const limited = rateLimit(`reset:${await clientIp()}`, 5, 30 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.' };
@@ -97,6 +104,8 @@ export async function requestPasswordReset(_prev: FormState, formData: FormData)
 }
 
 export async function resetPassword(_prev: FormState, formData: FormData): Promise<FormState> {
+  // the pages are hidden in catalogue mode (lib/catalogue-mode.ts); the action must not be a way around that
+  if (!(await accountsAvailable())) return { ok: false, message: 'Οι λογαριασμοί πελατών θα ανοίξουν μαζί με τις online παραγγελίες.' };
   const parsed = z.object({ token: z.string().min(20).max(200), password }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { ok: false, message: 'Ελέγξτε τον κωδικό.', fieldErrors: fieldErrors(parsed.error) };
 

@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { ArrowRight, Check, Heart, Phone, ShieldCheck, ShoppingCart, Store, Truck } from 'lucide-react';
 import { QuantityStepper } from '@/components/store/quantity-stepper';
 import { useStoreConfig } from '@/components/store/store-context';
-import { AVAILABILITY_HINTS, AVAILABILITY_LABELS, AVAILABILITY_TONE, type Availability } from '@/lib/availability';
+import { AVAILABILITY_HINTS, AVAILABILITY_HINTS_IN_STORE, AVAILABILITY_LABELS, AVAILABILITY_TONE, type Availability } from '@/lib/availability';
 import { useCart, useHydrated, useWishlist } from '@/lib/cart-store';
 import { courierRateCents } from '@/lib/pricing';
 import { cn, formatPrice, formatWeight, telHref } from '@/lib/utils';
@@ -58,6 +58,7 @@ export function ProductView({ product, images, variants, initialVariantId }: Pro
   const lineTotal = variant.priceCents * quantity;
   const lineWeight = variant.weightGrams * quantity;
   const { shipping } = config;
+  const hints = config.canOrder ? AVAILABILITY_HINTS : AVAILABILITY_HINTS_IN_STORE;
   const freeShipping = shipping.freeOverCents > 0 && lineTotal >= shipping.freeOverCents && (shipping.freeMaxWeightKg <= 0 || lineWeight <= shipping.freeMaxWeightKg * 1000);
 
   const selectVariant = (v: ViewVariant) => {
@@ -202,7 +203,7 @@ export function ProductView({ product, images, variants, initialVariantId }: Pro
             <span className={cn('h-2 w-2 shrink-0 rounded-full', lowStock ? 'bg-amber-500' : AVAILABILITY_TONE[variant.availability].dot)} />
             {lowStock ? `Τελευταία ${variant.stockLeft} τεμάχια` : AVAILABILITY_LABELS[variant.availability]}
           </p>
-          {!lowStock && AVAILABILITY_HINTS[variant.availability] && <p className="mt-1 pl-4 text-ink-600">{AVAILABILITY_HINTS[variant.availability]}</p>}
+          {!lowStock && hints[variant.availability] && <p className="mt-1 pl-4 text-ink-600">{hints[variant.availability]}</p>}
         </div>
 
         <ul className="mt-7 divide-y divide-line rounded-2xl border border-line bg-white text-sm">

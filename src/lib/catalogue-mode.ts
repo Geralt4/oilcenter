@@ -30,7 +30,12 @@ export async function requireOrdering(): Promise<void> {
  * the owner closes ordering for a while (holidays, stock-taking), so nobody is locked out of an order in progress.
  */
 export async function requireOrderingOrHistory(): Promise<void> {
-  if (await canOrderNow()) return;
+  if (!(await accountsAvailable())) redirect('/');
+}
+
+/** The same answer for server actions, which reply with a message instead of redirecting. */
+export async function accountsAvailable(): Promise<boolean> {
+  if (await canOrderNow()) return true;
   const [real] = await db.select({ id: orders.id }).from(orders).where(eq(orders.isTest, false)).limit(1);
-  if (!real) redirect('/');
+  return Boolean(real);
 }

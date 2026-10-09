@@ -19,7 +19,7 @@ function CategoryFields({ category, parents }: { category?: Category; parents: C
       <Field label="Εικονίδιο"><select name="icon" defaultValue={category?.icon ?? 'engine'} className="field cursor-pointer">{Object.entries(CATEGORY_ICONS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></Field>
       <Field label="Σειρά εμφάνισης"><input name="sort" inputMode="numeric" defaultValue={category?.sort ?? 0} className="field tabular" /></Field>
       <Field label="Περιγραφή (εμφανίζεται στη σελίδα της κατηγορίας και στο Google)" className="md:col-span-2"><textarea name="description" rows={2} defaultValue={category?.description ?? ''} className="field resize-y" /></Field>
-      <Field label="Slug" hint="Κενό = αυτόματα από το όνομα."><input name="slug" defaultValue={category?.slug ?? ''} className="field tabular" /></Field>
+      <Field label="Slug" hint={category ? 'Κενό = μένει όπως είναι.' : 'Κενό = αυτόματα από το όνομα.'}><input key={category?.slug ?? ''} name="slug" defaultValue={category?.slug ?? ''} placeholder={category?.slug} className="field tabular" /></Field>
       <div className="flex items-end pb-2"><Check name="isActive" label="Ενεργή" defaultChecked={category?.isActive ?? true} /></div>
     </div>
   );

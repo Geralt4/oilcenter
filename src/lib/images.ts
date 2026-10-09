@@ -1,5 +1,10 @@
 import sharp from 'sharp';
 
+// Product photos are raster images: nothing in the shop ever needs to decode an SVG. The image library's SVG
+// decoder (librsvg) is where its last memory-safety advisory was (GHSA-wq5f-xc86-pv6w), so the format is refused
+// outright — an uploaded SVG then fails like any other unreadable photo, with the same message to the owner.
+sharp.block({ operation: ['VipsForeignLoadSvg'] });
+
 /*
  * Product-photo normaliser.
  *

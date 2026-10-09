@@ -71,10 +71,18 @@ function canonicalHostRedirect(request: NextRequest): NextResponse | null {
   const forwarded = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? '';
   const hostname = forwarded.split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
   if (!hostname || hostname === canonical.hostname || LOCAL_HOSTS.has(hostname)) return null;
-  const target = new URL(request.nextUrl.pathname + request.nextUrl.search, canonical);
+  // Built from the canonical origin and filled in piece by piece: a path such as //other.example/x must stay a path
+  // on OUR host, never become the host.
+  const target = new URL(canonical.origin);
+  target.pathname = request.nextUrl.pathname;
+  target.search = request.nextUrl.search;
   // 301 for GET/HEAD; 308 keeps the method and body for anything else (a form posted to the wrong host).
   const status = request.method === 'GET' || request.method === 'HEAD' ? 301 : 308;
-  return NextResponse.redirect(target, status);
+  const response = NextResponse.redirect(target, status);
+  // A browser keeps a permanent redirect indefinitely unless told otherwise. One hour saves the repeat visits and
+  // still lets a mistaken or rolled-back SITE_URL heal by itself, instead of stranding people on a dead address.
+  response.headers.set('Cache-Control', 'public, max-age=3600');
+  return response;
 }
 
 export async function proxy(request: NextRequest) {

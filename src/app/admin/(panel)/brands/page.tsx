@@ -16,7 +16,7 @@ function BrandFields({ brand }: { brand?: Brand }) {
       <Field label="Όνομα"><input name="name" required defaultValue={brand?.name} className="field" /></Field>
       <Field label="Χώρα"><input name="country" defaultValue={brand?.country ?? ''} className="field" /></Field>
       <Field label="Περιγραφή" className="md:col-span-2"><textarea name="description" rows={2} defaultValue={brand?.description ?? ''} className="field resize-y" /></Field>
-      <Field label="Slug" hint="Κενό = αυτόματα από το όνομα."><input name="slug" defaultValue={brand?.slug ?? ''} className="field tabular" /></Field>
+      <Field label="Slug" hint={brand ? 'Κενό = μένει όπως είναι.' : 'Κενό = αυτόματα από το όνομα.'}><input key={brand?.slug ?? ''} name="slug" defaultValue={brand?.slug ?? ''} placeholder={brand?.slug} className="field tabular" /></Field>
       <Field label="Σειρά εμφάνισης"><input name="sort" inputMode="numeric" defaultValue={brand?.sort ?? 0} className="field tabular" /></Field>
       <div className="md:col-span-2"><Check name="isFeatured" label="Εμφάνιση στην αρχική σελίδα" defaultChecked={brand?.isFeatured ?? false} /></div>
     </div>
