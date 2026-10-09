@@ -11,6 +11,7 @@ import { releaseAbandonedCardOrders } from '@/lib/orders';
 import { cardProvider } from '@/lib/payments';
 import { getSettings } from '@/lib/settings.server';
 import { cn, formatDateTime, formatPrice } from '@/lib/utils';
+import { backupStatus } from '@/lib/backup';
 
 const DAY = 24 * 60 * 60 * 1000;
 const daysAgo = (days: number) => new Date(Date.now() - days * DAY);
@@ -40,6 +41,8 @@ export default async function AdminDashboard() {
   const hazardTodo = hazardRows.filter((p) => needsHazardCheck(p, hazardIds)).length;
 
   const { shop, payments, storefront } = settings;
+  // a snapshot is written once a day (lib/backup.ts); if the newest one is older than yesterday, something is failing quietly
+  const { newest: newestBackup, fresh: backupFresh } = await backupStatus();
   const checklist = [
     { done: unverified.n === 0, label: 'Επιβεβαίωση τιμών', detail: unverified.n ? `${unverified.n} συσκευασίες δεν έχουν επιβεβαιωμένη τιμή: στο site γράφουν «Καλέστε για τιμή».` : 'Όλες οι τιμές είναι επιβεβαιωμένες.', href: '/admin/prices?filter=unverified' },
     { done: flagged.n === 0, label: 'Έλεγχος στοιχείων προϊόντων', detail: flagged.n ? `${flagged.n} προϊόντα έχουν σημείωση προς έλεγχο (π.χ. συσκευασία που δεν φαινόταν στη φωτογραφία).` : 'Κανένα προϊόν δεν περιμένει έλεγχο.', href: '/admin/products?filter=review' },
@@ -49,6 +52,7 @@ export default async function AdminDashboard() {
     { done: Boolean(shop.instagramUrl && shop.skroutzUrl), label: 'Σύνδεσμοι Instagram & Skroutz', detail: shop.instagramUrl && shop.skroutzUrl ? 'Εμφανίζονται στην κεφαλίδα, στο μενού, στο υποσέλιδο και δίπλα στον χάρτη.' : `Λείπει: ${[!shop.instagramUrl && 'Instagram', !shop.skroutzUrl && 'Skroutz'].filter(Boolean).join(' και ')}. Επικολλήστε τον σύνδεσμο και θα εμφανιστεί αμέσως στο κατάστημα.`, href: '/admin/settings#social' },
     { forOrders: true, done: !payments.bankTransfer || payments.bankAccounts.length > 0, label: 'Τραπεζικός λογαριασμός (IBAN)', detail: 'Χρειάζεται για την πληρωμή με κατάθεση — αλλιώς απενεργοποιήστε την.', href: '/admin/settings#payments' },
     { done: Boolean(shop.email || process.env.ORDERS_NOTIFY_EMAIL), label: 'E-mail καταστήματος', detail: shop.email || process.env.ORDERS_NOTIFY_EMAIL ? 'Εκεί έρχονται τα μηνύματα από τις φόρμες του site.' : 'Δεν έχει οριστεί: τα μηνύματα από τις φόρμες («Επικοινωνία», «Ποιο λάδι;») φαίνονται μόνο εδώ, στα Μηνύματα — δεν σας ειδοποιεί κανείς.', href: '/admin/settings#company' },
+    { done: backupFresh, label: 'Αντίγραφο ασφαλείας', detail: backupFresh ? (newestBackup ? `Τελευταίο αυτόματο αντίγραφο: ${newestBackup}. Κατεβάστε ένα πού και πού από τις Ρυθμίσεις — τα αντίγραφα μένουν στον ίδιο δίσκο με το site.` : 'Δεν χρειάζεται για αυτή τη βάση.') : `Το καθημερινό αντίγραφο δεν γράφτηκε${newestBackup ? ` από τις ${newestBackup}` : ' ποτέ'}. Ενημερώστε τον προγραμματιστή.`, href: null },
     { done: Boolean(process.env.SMTP_HOST), label: 'Αποστολή e-mail (SMTP)', detail: process.env.SMTP_HOST ? 'Ρυθμισμένο.' : 'Δεν έχει ρυθμιστεί: τα e-mail γράφονται σε αρχεία αντί να στέλνονται. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
     { forOrders: true, done: cardProvider() !== null, label: 'Πληρωμές με κάρτα', detail: cardProvider() ? `Ενεργός πάροχος: ${cardProvider()}.` : 'Δεν έχει συνδεθεί πάροχος (Viva ή Stripe): η επιλογή «κάρτα» δεν εμφανίζεται στο ταμείο. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
     { forOrders: true, done: storefront.ordersEnabled, label: 'Άνοιγμα online παραγγελιών', detail: storefront.ordersEnabled ? 'Οι επισκέπτες μπορούν να παραγγείλουν.' : 'Κλειστές: το site λειτουργεί ως ιστοσελίδα-κατάλογος — προϊόντα, τιμές και επικοινωνία, χωρίς καλάθι, ταμείο και λογαριασμούς. Εσείς, όσο είστε συνδεδεμένος, βλέπετε ολόκληρο το κατάστημα και μπορείτε να κάνετε δοκιμαστικές παραγγελίες. Ανοίξτε τες όταν είναι όλα έτοιμα.', href: '/admin/settings#storefront' },

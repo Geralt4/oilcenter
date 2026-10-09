@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
@@ -32,10 +32,15 @@ export async function writeSnapshot(target: string): Promise<number> {
   await rm(raw, { force: true }); // VACUUM INTO refuses to overwrite
   // The path is built by this module, never from user input; quotes are doubled for the SQL literal anyway.
   await client.execute(`VACUUM INTO '${raw.replace(/'/g, "''")}'`);
+  // Compress next to the final name and rename at the end: a snapshot cut short (full disk, a deploy killing the
+  // process) must never be left looking like today's finished backup.
+  const partial = `${target}.partial`;
   try {
-    await pipeline(createReadStream(raw), createGzip({ level: 9 }), createWriteStream(target));
+    await pipeline(createReadStream(raw), createGzip({ level: 9 }), createWriteStream(partial));
+    await rename(partial, target);
   } finally {
     await rm(raw, { force: true });
+    await rm(partial, { force: true });
   }
   return (await stat(target)).size;
 }
@@ -57,9 +62,20 @@ export async function listBackups(): Promise<BackupFile[]> {
 export async function ensureDailyBackup(): Promise<'created' | 'exists' | 'unsupported'> {
   if (!backupsSupported()) return 'unsupported';
   const today = athensDay();
+  // leftovers of a run that was interrupted: an uncompressed copy or a half-written archive
+  for (const name of await readdir(backupsDir()).catch(() => [] as string[])) {
+    if (/^shop-\d{4}-\d{2}-\d{2}\.db(\.gz\.partial)?$/.test(name)) await rm(path.join(backupsDir(), name), { force: true });
+  }
   const existing = await listBackups();
   if (existing.some((f) => f.day === today)) return 'exists';
   await writeSnapshot(path.join(backupsDir(), `shop-${today}.db.gz`));
   for (const old of (await listBackups()).slice(KEEP)) await rm(path.join(backupsDir(), old.name), { force: true });
   return 'created';
+}
+
+/** For the dashboard: the day of the newest snapshot, and whether the daily run is keeping up (today or yesterday). */
+export async function backupStatus(): Promise<{ newest: string | null; fresh: boolean }> {
+  if (!backupsSupported()) return { newest: null, fresh: true };
+  const newest = (await listBackups())[0]?.day ?? null;
+  return { newest, fresh: newest !== null && newest >= athensDay(new Date(Date.now() - 36 * 3600 * 1000)) };
 }
