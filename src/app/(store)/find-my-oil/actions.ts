@@ -30,8 +30,11 @@ const Schema = z.object({
 export type OilFinderState = { ok: boolean; message: string; fieldErrors?: Record<string, string>; values?: Record<string, string> } | null;
 
 export async function sendVehicleEnquiry(_prev: OilFinderState, formData: FormData): Promise<OilFinderState> {
-  const limited = rateLimit(`oil-finder:${await clientIp()}`, 4, 15 * 60 * 1000);
-  if (!limited.ok) return { ok: false, message: 'Λάβαμε ήδη αρκετά μηνύματα από εσάς. Δοκιμάστε ξανά αργότερα ή καλέστε μας.' };
+  // A mistake is not a message: attempts get a loose budget here, and only a message that is about to be stored
+  // counts against the strict one below — four typos used to lock a visitor out with nothing sent.
+  const ip = await clientIp();
+  const tooMany = { ok: false, message: 'Λάβαμε ήδη αρκετά μηνύματα από εσάς. Δοκιμάστε ξανά αργότερα ή καλέστε μας.' };
+  if (!rateLimit(`oil-finder-try:${ip}`, 20, 15 * 60 * 1000).ok) return tooMany;
 
   const thanks = 'Ευχαριστούμε! Θα σας καλέσουμε με το λιπαντικό που ζητά ο κατασκευαστής του οχήματός σας.';
   const parsed = Schema.safeParse(Object.fromEntries(formData));
@@ -48,6 +51,7 @@ export async function sendVehicleEnquiry(_prev: OilFinderState, formData: FormDa
   const product = d.product ? await getProductBySlug(d.product) : null;
   const productName = product ? [product.brand?.name, product.name].filter(Boolean).join(' ') : null;
 
+  if (!rateLimit(`oil-finder:${ip}`, 4, 15 * 60 * 1000).ok) return tooMany;
   await saveEnquiry({
     kind: 'oil-finder',
     name: d.name,

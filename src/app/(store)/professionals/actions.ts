@@ -27,8 +27,11 @@ export async function sendQuoteRequest(_prev: QuoteState, formData: FormData): P
   // the page can be switched off (Admin → Ρυθμίσεις): its action goes with it
   if (!(await getSettings()).storefront.b2bPage) return { ok: false, message: 'Η φόρμα δεν είναι διαθέσιμη. Καλέστε μας.' };
 
-  const limited = rateLimit(`quote:${await clientIp()}`, 4, 15 * 60 * 1000);
-  if (!limited.ok) return { ok: false, message: 'Λάβαμε ήδη αρκετά μηνύματα από εσάς. Δοκιμάστε ξανά αργότερα ή καλέστε μας.' };
+  // A mistake is not a message: attempts get a loose budget here, and only a message that is about to be stored
+  // counts against the strict one below — four typos used to lock a visitor out with nothing sent.
+  const ip = await clientIp();
+  const tooMany = { ok: false, message: 'Λάβαμε ήδη αρκετά μηνύματα από εσάς. Δοκιμάστε ξανά αργότερα ή καλέστε μας.' };
+  if (!rateLimit(`quote-try:${ip}`, 20, 15 * 60 * 1000).ok) return tooMany;
 
   const thanks = 'Ευχαριστούμε! Λάβαμε το αίτημά σας και θα επικοινωνήσουμε μαζί σας με προσφορά.';
   const parsed = Schema.safeParse(Object.fromEntries(formData));
@@ -41,6 +44,7 @@ export async function sendQuoteRequest(_prev: QuoteState, formData: FormData): P
   }
 
   const d = parsed.data;
+  if (!rateLimit(`quote:${ip}`, 4, 15 * 60 * 1000).ok) return tooMany;
   await saveEnquiry({
     kind: 'quote',
     name: d.name,

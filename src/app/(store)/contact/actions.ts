@@ -17,8 +17,11 @@ const Schema = z.object({
 export type ContactState = { ok: boolean; message: string; fieldErrors?: Record<string, string> } | null;
 
 export async function sendContactMessage(_prev: ContactState, formData: FormData): Promise<ContactState> {
-  const limited = rateLimit(`contact:${await clientIp()}`, 4, 15 * 60 * 1000);
-  if (!limited.ok) return { ok: false, message: 'Λάβαμε ήδη αρκετά μηνύματα από εσάς. Δοκιμάστε ξανά αργότερα ή καλέστε μας.' };
+  // A mistake is not a message: attempts get a loose budget here, and only a message that is about to be stored
+  // counts against the strict one below — four typos used to lock a visitor out with nothing sent.
+  const ip = await clientIp();
+  const tooMany = { ok: false, message: 'Λάβαμε ήδη αρκετά μηνύματα από εσάς. Δοκιμάστε ξανά αργότερα ή καλέστε μας.' };
+  if (!rateLimit(`contact-try:${ip}`, 20, 15 * 60 * 1000).ok) return tooMany;
 
   const parsed = Schema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
@@ -29,6 +32,7 @@ export async function sendContactMessage(_prev: ContactState, formData: FormData
   }
 
   const { website: _w, ...data } = parsed.data;
+  if (!rateLimit(`contact:${ip}`, 4, 15 * 60 * 1000).ok) return tooMany;
   await saveEnquiry({ kind: 'contact', ...data });
   return { ok: true, message: 'Ευχαριστούμε! Λάβαμε το μήνυμά σας και θα επικοινωνήσουμε σύντομα μαζί σας.' };
 }

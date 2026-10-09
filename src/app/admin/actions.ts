@@ -30,7 +30,10 @@ export type AdminFormState = { ok: boolean; message: string; fieldErrors?: Recor
 const str = (fd: FormData, key: string) => String(fd.get(key) ?? '').trim();
 const bool = (fd: FormData, key: string) => fd.get(key) === 'on' || fd.get(key) === 'true';
 const int = (fd: FormData, key: string, fallback = 0) => {
-  const n = Math.round(Number(str(fd, key).replace(',', '.')));
+  const raw = str(fd, key).replace(',', '.');
+  // an emptied field means "the default", not zero: Number('') is 0, and a cleared ΦΠΑ box used to save 0 %
+  if (!raw) return fallback;
+  const n = Math.round(Number(raw));
   return Number.isFinite(n) ? n : fallback;
 };
 
@@ -59,6 +62,7 @@ export async function changeAdminPassword(_prev: AdminFormState, fd: FormData): 
   const me = await requireAdmin();
   const next = String(fd.get('newPassword') ?? '');
   if (next.length < 10) return { ok: false, message: 'Ο νέος κωδικός πρέπει να έχει τουλάχιστον 10 χαρακτήρες.' };
+  if (next !== String(fd.get('newPasswordRepeat') ?? '')) return { ok: false, message: 'Οι δύο νέοι κωδικοί δεν είναι ίδιοι.' };
   const [row] = await db.select().from(adminUsers).where(eq(adminUsers.id, me.id));
   if (!row || !(await verifyPassword(String(fd.get('currentPassword') ?? ''), row.passwordHash))) return { ok: false, message: 'Ο τρέχων κωδικός δεν είναι σωστός.' };
   // Bump the session version so other sessions are signed out; re-issue this one so the admin stays logged in here.
@@ -139,19 +143,44 @@ async function uniqueSlug(base: string, ignoreId?: number): Promise<string> {
   }
 }
 
-async function storeUploads(files: File[], slug: string): Promise<string[]> {
+const MAX_PHOTOS = 12;
+const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Photos for a product. Every file is decoded BEFORE anything is written: one photo that cannot be read refuses the
+ * whole save with a message naming it, instead of crashing the editor or being dropped without a word.
+ */
+async function storeUploads(files: File[], slug: string): Promise<{ urls: string[] } | { error: string }> {
+  const chosen = files.filter((f) => f.size > 0);
+  if (chosen.length > MAX_PHOTOS) return { error: `Έως ${MAX_PHOTOS} φωτογραφίες τη φορά (επιλέξατε ${chosen.length}).` };
+  const encoded: Buffer[] = [];
+  for (const file of chosen) {
+    if (file.size > MAX_PHOTO_BYTES) return { error: `Η φωτογραφία «${file.name}» ξεπερνά τα 20 MB.` };
+    try {
+      // Re-encoding through sharp both normalises the photo and guarantees the stored bytes really are an image.
+      encoded.push((await normalizeProductPhoto(Buffer.from(await file.arrayBuffer()))).data);
+    } catch {
+      return { error: `Η φωτογραφία «${file.name}» δεν διαβάζεται. Ανεβάστε την ως JPG ή PNG (τα αρχεία HEIC του iPhone δεν υποστηρίζονται).` };
+    }
+  }
   const dir = path.resolve(process.env.DATA_DIR || './data', 'uploads', 'products');
   await mkdir(dir, { recursive: true });
   const urls: string[] = [];
-  for (const file of files.slice(0, 12)) {
-    if (!file.size || file.size > 20 * 1024 * 1024 || !file.type.startsWith('image/')) continue;
-    // Re-encoding through sharp both normalises the photo and guarantees the stored bytes really are an image.
-    const { data } = await normalizeProductPhoto(Buffer.from(await file.arrayBuffer()));
+  for (const data of encoded) {
     const name = `${slug.slice(0, 60)}-${randomToken(5).toLowerCase()}.webp`;
     await writeFile(path.join(dir, name), data);
     urls.push(`/media/products/${name}`);
   }
-  return urls;
+  return { urls };
+}
+
+/** drizzle wraps the driver's error: SQLite's own message («UNIQUE constraint failed: variants.sku») sits on `.cause` */
+function isUniqueViolation(err: unknown, column: string): boolean {
+  for (let e: unknown = err, depth = 0; e && depth < 5; e = (e as { cause?: unknown }).cause, depth++) {
+    const text = e instanceof Error ? e.message : String(e);
+    if (text.includes('UNIQUE') && text.includes(column)) return true;
+  }
+  return false;
 }
 
 /** A safety data sheet. Stored only if it really is a PDF (by signature, not by what the browser claims) and of a sane size. */
@@ -221,7 +250,28 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   });
   const [previous] = id ? await db.select({ hazard: products.hazard }).from(products).where(eq(products.id, id)) : [];
 
-  const uploads = await storeUploads(fd.getAll('images').filter((f): f is File => f instanceof File), slug);
+  const stored = await storeUploads(fd.getAll('images').filter((f): f is File => f instanceof File), slug);
+  if ('error' in stored) {
+    if (sdsUpload) await removeUpload(sdsUpload);
+    return { ok: false, message: stored.error };
+  }
+  const uploads = stored.urls;
+  // files written for a save that then fails must not stay behind
+  const discardUploads = async () => {
+    for (const url of uploads) await removeUpload(url);
+    if (sdsUpload) await removeUpload(sdsUpload);
+  };
+
+  // a size without a code gets one from the product and its label; two sizes must never end up with the same one
+  const taken = new Set(priced.map((v) => v.sku.toUpperCase()).filter(Boolean));
+  const skus = priced.map((v) => {
+    if (v.sku) return v.sku;
+    const base = `${slug}-${slugify(v.label)}`.toUpperCase().slice(0, 60);
+    let sku = base;
+    for (let n = 2; taken.has(sku); n++) sku = `${base.slice(0, 56)}-${n}`;
+    taken.add(sku);
+    return sku;
+  });
 
   const productId = await db.transaction(async (tx) => {
     let pid = id;
@@ -238,7 +288,7 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
       const row = {
         productId: pid, label: v.label, volumeMl: /\d\s*g$/i.test(v.label) ? null : parseVolumeMl(v.label), priceCents: v.priceCents!, compareAtCents: v.compareAtCents,
         stock: v.stock, trackStock: v.trackStock, availability: v.availability ?? 'in_stock', weightGrams: v.weightGrams, barcode: v.barcode ? normalizeGtin(v.barcode) : null, mpn: v.mpn || null, imageUrl: v.imageUrl && ownImages.has(v.imageUrl) ? v.imageUrl : null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
-        sku: v.sku || `${slug}-${slugify(v.label)}`.toUpperCase().slice(0, 60),
+        sku: skus[sort],
       };
       if (v.id) await tx.update(variants).set(row).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));
       else await tx.insert(variants).values(row);
@@ -251,15 +301,13 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
       await tx.insert(productImages).values(uploads.map((url, i) => ({ productId: pid!, url, alt: name, sort: existing.length + i })));
     }
     return pid;
-  }).catch((err: unknown) => {
-    if (String(err).includes('UNIQUE') && String(err).includes('sku')) return null;
+  }).catch(async (err: unknown) => {
+    await discardUploads();
+    if (isUniqueViolation(err, 'sku')) return null;
     throw err;
   });
 
-  if (productId === null) {
-    if (sdsUpload) await removeUpload(sdsUpload);
-    return { ok: false, message: 'Κάποιος κωδικός (SKU) χρησιμοποιείται ήδη από άλλο προϊόν.' };
-  }
+  if (productId === null) return { ok: false, message: 'Κάποιος κωδικός (SKU) χρησιμοποιείται ήδη — σε άλλο προϊόν ή δύο φορές εδώ.' };
   // the data sheet that was replaced or removed is no longer linked from anywhere
   if (previous?.hazard?.sdsUrl && previous.hazard.sdsUrl !== hazard?.sdsUrl) await removeUpload(previous.hazard.sdsUrl);
   revalidatePath('/admin/products');
@@ -501,51 +549,91 @@ function instagramUrl(raw: string): string {
 export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   await requireAdmin();
   const current = await getSettings();
-  const euro = (key: string, fallback: number) => parsePriceToCents(str(fd, key)) ?? fallback;
+  // Whatever cannot be saved as typed is refused with a reason (the form keeps what was typed) — never quietly turned
+  // into "closed", zero or an empty link while the screen says «αποθηκεύτηκαν».
+  const problems: string[] = [];
+  const euro = (key: string, fallback: number, label: string) => {
+    const raw = str(fd, key);
+    if (!raw) return fallback;
+    const cents = parsePriceToCents(raw);
+    if (cents === null) problems.push(`${label}: «${raw}» δεν είναι ποσό`);
+    return cents ?? fallback;
+  };
   const num = (key: string, fallback: number) => {
-    const n = Number(str(fd, key).replace(',', '.'));
+    const raw = str(fd, key).replace(',', '.');
+    if (!raw) return fallback;
+    const n = Number(raw);
     return Number.isFinite(n) && n >= 0 ? n : fallback;
   };
+  const link = (key: string, label: string, clean: (raw: string) => string = cleanUrl) => {
+    const raw = str(fd, key);
+    const url = clean(raw);
+    if (raw && !url) problems.push(`Ο σύνδεσμος ${label} δεν είναι έγκυρος`);
+    return url;
+  };
 
+  const DAY_NAMES = ['Δευτέρα', 'Τρίτη', 'Τετάρτη', 'Πέμπτη', 'Παρασκευή', 'Σάββατο', 'Κυριακή'];
   const hours: DayHours[] = [1, 2, 3, 4, 5, 6, 7].map((day) => {
-    const t = (k: string) => (TIME.test(str(fd, `h${day}-${k}`)) ? str(fd, `h${day}-${k}`) : '');
-    const open = t('open'), close = t('close'), open2 = t('open2'), close2 = t('close2');
-    return { day, closed: bool(fd, `h${day}-closed`) || !open || !close, open, close, ...(open2 && close2 ? { open2, close2 } : {}) };
+    const raw = (k: string) => str(fd, `h${day}-${k}`);
+    const open = raw('open'), close = raw('close'), open2 = raw('open2'), close2 = raw('close2');
+    const closed = bool(fd, `h${day}-closed`) || (!open && !close);
+    if (closed) return { day, closed: true, open: TIME.test(open) ? open : '', close: TIME.test(close) ? close : '' };
+    const name = DAY_NAMES[day - 1];
+    if (!open || !close) problems.push(`${name}: συμπληρώστε και άνοιγμα και κλείσιμο, ή σημειώστε «κλειστά»`);
+    else if (!TIME.test(open) || !TIME.test(close)) problems.push(`${name}: οι ώρες γράφονται ως 08:30`);
+    else if (close <= open) problems.push(`${name}: το κλείσιμο (${close}) είναι πριν το άνοιγμα (${open})`);
+    else if (open2 || close2) {
+      if (!TIME.test(open2) || !TIME.test(close2)) problems.push(`${name}: συμπληρώστε και τις δύο ώρες του απογεύματος, ή αφήστε τες κενές`);
+      else if (open2 < close || close2 <= open2) problems.push(`${name}: το απογευματινό ωράριο πρέπει να ξεκινά μετά το πρωινό και να κλείνει μετά το άνοιγμά του`);
+    }
+    return { day, closed: false, open, close, ...(open2 && close2 ? { open2, close2 } : {}) };
   });
 
   const bankAccounts: BankAccount[] = [0, 1, 2, 3]
     .map((i) => ({ bank: str(fd, `bank${i}-name`), iban: str(fd, `bank${i}-iban`).toUpperCase().replace(/\s+/g, ' '), holder: str(fd, `bank${i}-holder`) }))
-    .filter((a) => a.bank && a.iban);
+    .filter((a, i) => {
+      if (a.iban && !a.bank) problems.push(`Τραπεζικός λογαριασμός ${i + 1}: συμπληρώστε και το όνομα της τράπεζας`);
+      if (a.bank && !a.iban) problems.push(`Τραπεζικός λογαριασμός ${i + 1}: λείπει το IBAN`);
+      return a.bank && a.iban;
+    });
 
   const shop: ShopSettings['shop'] = {
     ...current.shop,
     name: str(fd, 'name') || DEFAULT_SETTINGS.shop.name, legalName: str(fd, 'legalName'), tagline: str(fd, 'tagline'), phone: str(fd, 'phone'), mobile: str(fd, 'mobile'), fax: str(fd, 'fax'),
     email: str(fd, 'email'), street: str(fd, 'street'), city: str(fd, 'city'), postalCode: str(fd, 'postalCode'), region: str(fd, 'region'),
     lat: num('lat', current.shop.lat), lng: num('lng', current.shop.lng),
-    facebookUrl: cleanUrl(str(fd, 'facebookUrl')), instagramUrl: instagramUrl(str(fd, 'instagramUrl')), skroutzUrl: cleanUrl(str(fd, 'skroutzUrl')),
+    facebookUrl: link('facebookUrl', 'Facebook'), instagramUrl: link('instagramUrl', 'Instagram', instagramUrl), skroutzUrl: link('skroutzUrl', 'Skroutz'),
     vatNumber: str(fd, 'vatNumber'), taxOffice: str(fd, 'taxOffice'), gemi: str(fd, 'gemi'), hours, hoursVerified: bool(fd, 'hoursVerified'),
     foundedYear: ((y) => (y >= 1900 && y <= new Date().getFullYear() ? y : 0))(int(fd, 'foundedYear')),
   };
   if (!shop.phone || !shop.street || !shop.city) return { ok: false, message: 'Τηλέφωνο, οδός και πόλη είναι υποχρεωτικά.' };
+  if (shop.lat > 90 || shop.lng > 180) problems.push('Οι συντεταγμένες του χάρτη δεν είναι έγκυρες');
 
   // a rating is only worth showing if it is exactly what the platform shows: anything outside 1–5 is a typo, not a rating
   const rating = (key: string) => ((n) => (n >= 1 && n <= 5 ? Math.round(n * 10) / 10 : 0))(num(key, 0));
   const googleRating = rating('googleRating'), skroutzRating = rating('skroutzRating');
 
+  const googleUrl = link('googleUrl', 'των κριτικών Google');
+  const shipping = {
+    courierEnabled: bool(fd, 'courierEnabled'), pickupEnabled: bool(fd, 'pickupEnabled'), carrierName: str(fd, 'carrierName') || 'Courier', deliveryEstimate: str(fd, 'deliveryEstimate'),
+    baseCents: euro('baseCents', current.shipping.baseCents, 'Βασικά μεταφορικά'), baseWeightKg: num('baseWeightKg', current.shipping.baseWeightKg), perExtraKgCents: euro('perExtraKgCents', current.shipping.perExtraKgCents, 'Χρέωση ανά επιπλέον κιλό'),
+    freeOverCents: euro('freeOverCents', 0, 'Όριο δωρεάν μεταφορικών'), freeMaxWeightKg: num('freeMaxWeightKg', 0), codFeeCents: euro('codFeeCents', 0, 'Χρέωση αντικαταβολής'),
+  };
+  const vatRaw = str(fd, 'vatRate');
+  const vatRate = int(fd, 'vatRate', current.tax.vatRate);
+  if (vatRaw && (!/^\d{1,2}([.,]\d+)?$/.test(vatRaw) || vatRate > 50)) problems.push(`ΦΠΑ: «${vatRaw}» δεν είναι ποσοστό`);
+  if (problems.length) return { ok: false, message: `Δεν αποθηκεύτηκε τίποτα. ${problems.slice(0, 3).join(' · ')}${problems.length > 3 ? ` · και ${problems.length - 3} ακόμη` : ''}.` };
+
   await saveSettingsGroup('shop', shop);
   await saveSettingsGroup('storefront', { demoMode: bool(fd, 'demoMode'), ordersEnabled: bool(fd, 'ordersEnabled'), launchSignup: bool(fd, 'launchSignup'), announcement: str(fd, 'announcement'), lowStockThreshold: int(fd, 'lowStockThreshold', 3), b2bPage: bool(fd, 'b2bPage') });
   await saveSettingsGroup('reviews', {
-    googleUrl: cleanUrl(str(fd, 'googleUrl')),
+    googleUrl,
     googleRating, googleCount: googleRating ? int(fd, 'googleCount') : 0,
     skroutzRating, skroutzCount: skroutzRating ? int(fd, 'skroutzCount') : 0,
   });
-  await saveSettingsGroup('shipping', {
-    courierEnabled: bool(fd, 'courierEnabled'), pickupEnabled: bool(fd, 'pickupEnabled'), carrierName: str(fd, 'carrierName') || 'Courier', deliveryEstimate: str(fd, 'deliveryEstimate'),
-    baseCents: euro('baseCents', current.shipping.baseCents), baseWeightKg: num('baseWeightKg', current.shipping.baseWeightKg), perExtraKgCents: euro('perExtraKgCents', current.shipping.perExtraKgCents),
-    freeOverCents: euro('freeOverCents', 0), freeMaxWeightKg: num('freeMaxWeightKg', 0), codFeeCents: euro('codFeeCents', 0),
-  });
+  await saveSettingsGroup('shipping', shipping);
   await saveSettingsGroup('payments', { cod: bool(fd, 'cod'), bankTransfer: bool(fd, 'bankTransfer'), payInStore: bool(fd, 'payInStore'), card: bool(fd, 'card'), bankAccounts });
-  await saveSettingsGroup('tax', { vatRate: Math.min(50, Math.max(0, int(fd, 'vatRate', 24))) });
+  await saveSettingsGroup('tax', { vatRate });
 
   revalidatePath('/', 'layout');
   return { ok: true, message: 'Οι ρυθμίσεις αποθηκεύτηκαν.' };

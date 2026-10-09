@@ -1,8 +1,9 @@
 'use client';
 
-import { useActionState, useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { LoaderCircle, Save } from 'lucide-react';
 import { buttonClass } from '@/components/ui/button';
+import { useKeptForm } from '@/components/ui/use-kept-form';
 import { cn } from '@/lib/utils';
 
 export type AdminFormState = { ok: boolean; message: string; fieldErrors?: Record<string, string> } | null;
@@ -22,15 +23,14 @@ type Props = {
 
 /** Wraps server-rendered fields with pending / success / error feedback for a server action. */
 export function AdminForm({ action, children, submitLabel = 'Αποθήκευση', className, resetOnSuccess, stickyBar, variant = 'primary', size = 'md' }: Props) {
-  const [state, formAction, pending] = useActionState<AdminFormState, FormData>(action, null);
-  const ref = useRef<HTMLFormElement>(null);
-
+  // the fields keep what the owner typed when a save is refused (useKeptForm); "add new …" forms empty themselves on success
+  const { state, pending, formRef, formAction, onSubmit } = useKeptForm<AdminFormState>(action, null);
   useEffect(() => {
-    if (state?.ok && resetOnSuccess) ref.current?.reset();
-  }, [state, resetOnSuccess]);
+    if (state?.ok && resetOnSuccess) formRef.current?.reset();
+  }, [state, resetOnSuccess, formRef]);
 
   return (
-    <form ref={ref} action={formAction} className={className}>
+    <form ref={formRef} action={formAction} onSubmit={onSubmit} className={className}>
       {children}
       <div className={cn('flex flex-wrap items-center gap-3', stickyBar ? 'sticky bottom-0 z-10 -mx-4 mt-6 border-t border-line bg-white/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6' : 'mt-4')}>
         <button type="submit" disabled={pending} className={buttonClass({ variant, size })}>
@@ -44,12 +44,14 @@ export function AdminForm({ action, children, submitLabel = 'Αποθήκευσ�
 }
 
 /** A submit button that asks first. For destructive plain-form actions. */
-export function ConfirmButton({ message, children, className, name, value }: { message: string; children: React.ReactNode; className?: string; name?: string; value?: string }) {
+export function ConfirmButton({ message, children, className, name, value, title }: { message: string; children: React.ReactNode; className?: string; name?: string; value?: string; title?: string }) {
   return (
     <button
       type="submit"
       name={name}
       value={value}
+      title={title}
+      aria-label={title}
       className={className}
       onClick={(e) => {
         if (!window.confirm(message)) e.preventDefault();

@@ -30,6 +30,9 @@ const nextConfig: NextConfig = {
       // further bounded by their zod field limits and per-IP rate limiting, so the practical exposure is small.
       bodySizeLimit: '25mb',
     },
+    // src/proxy.ts runs in front of /admin too, and Next buffers a request body for the proxy only up to this size
+    // (10 MB by default): without it a save with a few phone photos reached the action cut short.
+    proxyClientMaxBodySize: '25mb',
   },
   images: {
     formats: ['image/avif', 'image/webp'],

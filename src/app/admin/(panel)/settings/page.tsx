@@ -147,6 +147,7 @@ export default async function AdminSettingsPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Τρέχων κωδικός"><input type="password" name="currentPassword" autoComplete="current-password" required className="field" /></Field>
             <Field label="Νέος κωδικός" hint="Τουλάχιστον 10 χαρακτήρες."><input type="password" name="newPassword" autoComplete="new-password" required minLength={10} className="field" /></Field>
+            <Field label="Νέος κωδικός, ξανά" hint="Για να μην κλειδωθείτε έξω από ένα λάθος πλήκτρο."><input type="password" name="newPasswordRepeat" autoComplete="new-password" required minLength={10} className="field" /></Field>
           </div>
         </AdminForm>
       </Card>

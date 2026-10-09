@@ -48,7 +48,7 @@ export async function ProductEditor({ product, created }: Props) {
                 <form action={imageAction} className="mt-1.5 flex justify-between gap-1">
                   <input type="hidden" name="imageId" value={img.id} />
                   <button type="submit" name="op" value="primary" disabled={i === 0} title="Ορισμός ως κύρια" className="flex h-8 flex-1 cursor-pointer items-center justify-center rounded-lg text-ink-500 hover:bg-ink-100 disabled:cursor-default disabled:opacity-30"><Star className="h-4 w-4" /></button>
-                  <button type="submit" name="op" value="delete" title="Διαγραφή φωτογραφίας" className="flex h-8 flex-1 cursor-pointer items-center justify-center rounded-lg text-ink-500 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
+                  <ConfirmButton message="Διαγραφή αυτής της φωτογραφίας; Δεν αναιρείται." name="op" value="delete" title="Διαγραφή φωτογραφίας" className="flex h-8 flex-1 cursor-pointer items-center justify-center rounded-lg text-ink-500 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></ConfirmButton>
                 </form>
                 <p className="text-center text-xs text-ink-400">Φωτό {i + 1}</p>
               </li>
@@ -79,7 +79,7 @@ export async function ProductEditor({ product, created }: Props) {
         </Card>
 
         <Card title="Προσθήκη φωτογραφιών" description="Τραβήξτε το προϊόν σε ανοιχτόχρωμο φόντο. Το σύστημα καθαρίζει το φόντο, κεντράρει και φέρνει όλες τις φωτογραφίες στο ίδιο μέγεθος.">
-          <input type="file" name="images" accept="image/*" multiple className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-900 file:px-4 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-700" />
+          <input type="file" name="images" accept="image/jpeg,image/png,image/webp" multiple className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-900 file:px-4 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-700" />
         </Card>
 
         <Card
