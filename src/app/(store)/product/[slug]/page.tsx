@@ -16,13 +16,13 @@ type Props = { params: Promise<{ slug: string }>; searchParams: Promise<{ v?: st
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const product = await getProductBySlug(slug);
+  const [product, { storefront }] = await Promise.all([getProductBySlug(slug), getSettings()]);
   if (!product) return {};
   const fullName = [product.brand?.name, product.name].filter(Boolean).join(' ');
   const sizes = product.variants.map((v) => v.label).join(', ');
   return {
     title: product.metaTitle || `${fullName}${sizes ? ` (${sizes})` : ''}`,
-    description: product.metaDescription || `${fullName}: ${product.shortDescription ?? ''} Αγορά online ή παραλαβή από το Oil Center στη Θεσσαλονίκη.`.trim(),
+    description: product.metaDescription || `${fullName}: ${product.shortDescription ?? ''} ${storefront.ordersEnabled ? 'Αγορά online ή παραλαβή από το Oil Center στη Θεσσαλονίκη.' : 'Στο Oil Center, Θεσσαλονίκη.'}`.trim(),
     alternates: { canonical: `/product/${product.slug}` },
     openGraph: { title: fullName, images: product.images[0] ? [{ url: product.images[0].url, width: 1000, height: 1000 }] : undefined },
   };
@@ -71,7 +71,7 @@ export default async function ProductPage({ params, searchParams }: Props) {
   const eans = perSize((v) => v.barcode);
   if (mpns) rows.push(['Κωδικός κατασκευαστή', mpns]);
   if (eans) rows.push(['Barcode (EAN)', eans]);
-  rows.push(['Βάρος αποστολής', product.variants.map((v) => `${v.label}: ${formatWeight(v.weightGrams)}`).join(' · ')]);
+  rows.push([settings.storefront.ordersEnabled ? 'Βάρος αποστολής' : 'Βάρος συσκευασίας', product.variants.map((v) => `${v.label}: ${formatWeight(v.weightGrams)}`).join(' · ')]);
   if (product.brand?.country) rows.push(['Χώρα προέλευσης μάρκας', product.brand.country]);
 
   return (

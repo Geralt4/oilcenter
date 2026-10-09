@@ -2,10 +2,12 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { resetPassword } from '@/app/(store)/account/actions';
 import { ActionForm } from '@/components/ui/action-form';
+import { requireOrderingOrHistory } from '@/lib/catalogue-mode';
 
 export const metadata: Metadata = { title: 'Νέος κωδικός', robots: { index: false, follow: false }, referrer: 'no-referrer' };
 
 export default async function ResetPasswordPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
+  await requireOrderingOrHistory();
   const { token } = await searchParams;
   return (
     <div className="container-page max-w-md py-10 sm:py-14">

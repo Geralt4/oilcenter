@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState, useSyncExternalStore } from 'react';
+import { useStoreConfig } from '@/components/store/store-context';
 
 /*
  * The shop sets only strictly-necessary first-party storage (cart, login). No analytics or ad
@@ -19,6 +20,7 @@ const readSeen = () => {
 };
 
 export function CookieNotice() {
+  const { canOrder } = useStoreConfig();
   // server + hydration render "seen" (nothing), the client then reads the real value
   const seen = useSyncExternalStore(subscribe, readSeen, () => true);
   const [dismissed, setDismissed] = useState(false);
@@ -27,7 +29,7 @@ export function CookieNotice() {
   return (
     <div role="region" aria-label="Ενημέρωση για cookies" className="animate-slide-up fixed inset-x-3 bottom-20 z-30 mx-auto max-w-xl rounded-2xl border border-line bg-white p-4 shadow-lift md:right-auto md:bottom-4 md:left-4 md:mx-0 md:max-w-sm">
       <p className="text-sm text-ink-700">
-        Χρησιμοποιούμε μόνο τα απολύτως απαραίτητα cookies για τη λειτουργία του καλαθιού και της σύνδεσής σας. Ο χάρτης της σελίδας επικοινωνίας φορτώνεται από την Google.{' '}
+        Χρησιμοποιούμε μόνο τα απολύτως απαραίτητα cookies{canOrder ? ' για τη λειτουργία του καλαθιού και της σύνδεσής σας' : ''}. Ο χάρτης της σελίδας επικοινωνίας φορτώνεται από την Google.{' '}
         <Link href="/cookies" className="font-semibold text-petrol-500 underline underline-offset-2">Μάθετε περισσότερα</Link>
       </p>
       <button

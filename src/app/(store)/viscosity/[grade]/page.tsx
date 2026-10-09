@@ -30,12 +30,12 @@ function brandPhrase(v: ViscosityInfo): string {
 
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const [{ grade }, sp] = await Promise.all([params, searchParams]);
-  const v = await getViscosityBySlug(grade);
+  const [v, { storefront }] = await Promise.all([getViscosityBySlug(grade), getSettings()]);
   if (!v) return {};
   return {
     title: heading(v),
     // no price here: prices move every few days and a search-result snippet outlives them
-    description: `${v.count === 1 ? '1 λιπαντικό' : `${v.count} λιπαντικά`} ${viscosityLabel(v.grade)}${brandPhrase(v)}. Παραλαβή από το κατάστημα στη Θεσσαλονίκη ή αποστολή σε όλη την Ελλάδα.`,
+    description: `${v.count === 1 ? '1 λιπαντικό' : `${v.count} λιπαντικά`} ${viscosityLabel(v.grade)}${brandPhrase(v)}. ${storefront.ordersEnabled ? 'Παραλαβή από το κατάστημα στη Θεσσαλονίκη ή αποστολή σε όλη την Ελλάδα.' : 'Στο Oil Center, Θεσσαλονίκη.'}`,
     alternates: { canonical: `/viscosity/${v.slug}` },
     robots: Object.keys(sp).length > 0 ? { index: false, follow: true } : undefined,
   };

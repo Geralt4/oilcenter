@@ -2,13 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { House, LayoutGrid, Navigation, Phone, ShoppingCart } from 'lucide-react';
+import { Heart, House, LayoutGrid, Navigation, Phone, ShoppingCart } from 'lucide-react';
+import { useStoreConfig } from '@/components/store/store-context';
 import { cartCount, useCart, useHydrated } from '@/lib/cart-store';
 import { cn } from '@/lib/utils';
 
 /** Phone-only tab bar. Calling the shop and getting directions are one thumb away on every page. */
 export function BottomBar({ phoneHref, directionsHref }: { phoneHref: string; directionsHref: string }) {
   const pathname = usePathname();
+  const { canOrder } = useStoreConfig();
   const hydrated = useHydrated();
   const lines = useCart((s) => s.lines);
   const openCart = useCart((s) => s.open);
@@ -39,6 +41,13 @@ export function BottomBar({ phoneHref, directionsHref }: { phoneHref: string; di
           <Navigation className="h-5 w-5" />
           Οδηγίες
         </a>
+        {/* catalogue mode has no cart: the fifth tab is the visitor's saved products instead */}
+        {!canOrder ? (
+          <Link href="/wishlist" className={cn(item, pathname.startsWith('/wishlist') ? 'text-ink-950' : 'text-ink-500')}>
+            <Heart className="h-5 w-5" />
+            Αγαπημένα
+          </Link>
+        ) : (
         <button type="button" onClick={openCart} className={cn(item, 'relative text-ink-500')}>
           <span className="relative">
             <ShoppingCart className="h-5 w-5" />
@@ -48,6 +57,7 @@ export function BottomBar({ phoneHref, directionsHref }: { phoneHref: string; di
           </span>
           Καλάθι
         </button>
+        )}
       </div>
     </nav>
   );

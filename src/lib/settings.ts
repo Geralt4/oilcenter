@@ -47,6 +47,8 @@ export type ShopSettings = {
     hoursVerified: boolean;
     /** «Από το 19xx». 0 = not known yet: nothing is shown */
     foundedYear: number;
+    /** the owner has confirmed the shop is accelerate's authorised dealer; until then the site does not say so */
+    accelerateDealer: boolean;
   };
   storefront: {
     /** shows a site-wide "demo / indicative prices" ribbon and flags orders as test orders */
@@ -144,6 +146,7 @@ export const DEFAULT_SETTINGS: ShopSettings = {
     ],
     hoursVerified: true,
     foundedYear: 0,
+    accelerateDealer: false,
   },
   storefront: {
     demoMode: true,

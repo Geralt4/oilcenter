@@ -2,10 +2,12 @@ import type { Metadata } from 'next';
 import { LegalShell } from '@/components/store/legal-shell';
 import { fullAddress } from '@/lib/settings';
 import { getSettings } from '@/lib/settings.server';
+import { requireOrdering } from '@/lib/catalogue-mode';
 
 export const metadata: Metadata = { title: 'Επιστροφές & δικαίωμα υπαναχώρησης', description: 'Πώς επιστρέφετε ένα προϊόν στο Oil Center και πώς ασκείτε το δικαίωμα υπαναχώρησης 14 ημερών.', alternates: { canonical: '/returns' } };
 
 export default async function ReturnsPage() {
+  await requireOrdering();
   const { shop } = await getSettings();
   return (
     <LegalShell href="/returns" title="Επιστροφές & υπαναχώρηση" updated="Σεπτέμβριος 2026">

@@ -41,19 +41,24 @@ export default async function AdminDashboard() {
 
   const { shop, payments, storefront } = settings;
   const checklist = [
-    { done: unverified.n === 0, label: 'Επιβεβαίωση τιμών', detail: unverified.n ? `${unverified.n} συσκευασίες δεν έχουν επιβεβαιωμένη τιμή: στο κατάστημα γράφουν «Καλέστε για τιμή» και δεν μπαίνουν στο καλάθι.` : 'Όλες οι τιμές είναι επιβεβαιωμένες.', href: '/admin/prices?filter=unverified' },
+    { done: unverified.n === 0, label: 'Επιβεβαίωση τιμών', detail: unverified.n ? `${unverified.n} συσκευασίες δεν έχουν επιβεβαιωμένη τιμή: στο site γράφουν «Καλέστε για τιμή».` : 'Όλες οι τιμές είναι επιβεβαιωμένες.', href: '/admin/prices?filter=unverified' },
     { done: flagged.n === 0, label: 'Έλεγχος στοιχείων προϊόντων', detail: flagged.n ? `${flagged.n} προϊόντα έχουν σημείωση προς έλεγχο (π.χ. συσκευασία που δεν φαινόταν στη φωτογραφία).` : 'Κανένα προϊόν δεν περιμένει έλεγχο.', href: '/admin/products?filter=review' },
     { done: hazardTodo === 0, label: 'Σήμανση κινδύνου στα χημικά', detail: hazardTodo ? `${hazardTodo} αντιψυκτικά, υγρά, πρόσθετα, σπρέι και δίχρονα δεν έχουν ακόμη τη σήμανση της ετικέτας τους (εικονογράμματα, «Κίνδυνος/Προσοχή», δηλώσεις). Ο ευρωπαϊκός κανονισμός για τα χημικά (CLP) ζητά να τη βλέπει ο πελάτης πριν αγοράσει online — επιβεβαιώστε το και με τον νομικό σας. Ανοίξτε κάθε προϊόν → «Σήμανση κινδύνου & SDS».` : 'Όλα τα χημικά έχουν ελεγμένη σήμανση.', href: '/admin/products?filter=hazard' },
     { done: shop.hoursVerified, label: 'Ωράριο λειτουργίας', detail: shop.hoursVerified ? 'Επιβεβαιωμένο.' : 'Το ωράριο είναι ενδεικτικό. Διορθώστε το και σημειώστε το ως επιβεβαιωμένο.', href: '/admin/settings#hours' },
     { done: Boolean(shop.vatNumber && shop.gemi), label: 'ΑΦΜ & Αρ. ΓΕΜΗ', detail: 'Ο νόμος απαιτεί να φαίνεται στο ηλεκτρονικό κατάστημα ποιος είναι ο πωλητής (εμφανίζονται στο υποσέλιδο). Η ΔΟΥ είναι προαιρετική.', href: '/admin/settings#company' },
     { done: Boolean(shop.instagramUrl && shop.skroutzUrl), label: 'Σύνδεσμοι Instagram & Skroutz', detail: shop.instagramUrl && shop.skroutzUrl ? 'Εμφανίζονται στην κεφαλίδα, στο μενού, στο υποσέλιδο και δίπλα στον χάρτη.' : `Λείπει: ${[!shop.instagramUrl && 'Instagram', !shop.skroutzUrl && 'Skroutz'].filter(Boolean).join(' και ')}. Επικολλήστε τον σύνδεσμο και θα εμφανιστεί αμέσως στο κατάστημα.`, href: '/admin/settings#social' },
-    { done: !payments.bankTransfer || payments.bankAccounts.length > 0, label: 'Τραπεζικός λογαριασμός (IBAN)', detail: 'Χρειάζεται για την πληρωμή με κατάθεση — αλλιώς απενεργοποιήστε την.', href: '/admin/settings#payments' },
+    { forOrders: true, done: !payments.bankTransfer || payments.bankAccounts.length > 0, label: 'Τραπεζικός λογαριασμός (IBAN)', detail: 'Χρειάζεται για την πληρωμή με κατάθεση — αλλιώς απενεργοποιήστε την.', href: '/admin/settings#payments' },
+    { done: Boolean(shop.email || process.env.ORDERS_NOTIFY_EMAIL), label: 'E-mail καταστήματος', detail: shop.email || process.env.ORDERS_NOTIFY_EMAIL ? 'Εκεί έρχονται τα μηνύματα από τις φόρμες του site.' : 'Δεν έχει οριστεί: τα μηνύματα από τις φόρμες («Επικοινωνία», «Ποιο λάδι;») φαίνονται μόνο εδώ, στα Μηνύματα — δεν σας ειδοποιεί κανείς.', href: '/admin/settings#company' },
     { done: Boolean(process.env.SMTP_HOST), label: 'Αποστολή e-mail (SMTP)', detail: process.env.SMTP_HOST ? 'Ρυθμισμένο.' : 'Δεν έχει ρυθμιστεί: τα e-mail γράφονται σε αρχεία αντί να στέλνονται. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
-    { done: cardProvider() !== null, label: 'Πληρωμές με κάρτα', detail: cardProvider() ? `Ενεργός πάροχος: ${cardProvider()}.` : 'Δεν έχει συνδεθεί πάροχος (Viva ή Stripe): η επιλογή «κάρτα» δεν εμφανίζεται στο ταμείο. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
-    { done: storefront.ordersEnabled, label: 'Άνοιγμα online παραγγελιών', detail: storefront.ordersEnabled ? 'Οι επισκέπτες μπορούν να παραγγείλουν.' : 'Κλειστές: οι επισκέπτες βλέπουν προϊόντα και τιμές αλλά όχι ταμείο. Εσείς, όσο είστε συνδεδεμένος, μπορείτε να κάνετε δοκιμαστικές παραγγελίες. Ανοίξτε τες όταν είναι όλα έτοιμα.', href: '/admin/settings#storefront' },
+    { forOrders: true, done: cardProvider() !== null, label: 'Πληρωμές με κάρτα', detail: cardProvider() ? `Ενεργός πάροχος: ${cardProvider()}.` : 'Δεν έχει συνδεθεί πάροχος (Viva ή Stripe): η επιλογή «κάρτα» δεν εμφανίζεται στο ταμείο. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
+    { forOrders: true, done: storefront.ordersEnabled, label: 'Άνοιγμα online παραγγελιών', detail: storefront.ordersEnabled ? 'Οι επισκέπτες μπορούν να παραγγείλουν.' : 'Κλειστές: το site λειτουργεί ως ιστοσελίδα-κατάλογος — προϊόντα, τιμές και επικοινωνία, χωρίς καλάθι, ταμείο και λογαριασμούς. Εσείς, όσο είστε συνδεδεμένος, βλέπετε ολόκληρο το κατάστημα και μπορείτε να κάνετε δοκιμαστικές παραγγελίες. Ανοίξτε τες όταν είναι όλα έτοιμα.', href: '/admin/settings#storefront' },
     { done: !storefront.demoMode, label: 'Απενεργοποίηση δοκιμαστικής λειτουργίας', detail: storefront.demoMode ? 'Όσο είναι ενεργή, το site μένει κρυφό από το Google και οι παραγγελίες σημειώνονται ως δοκιμαστικές. Κλείστε την όταν το site είναι έτοιμο να το δει ο κόσμος — γίνεται και με τις online παραγγελίες ακόμη κλειστές.' : 'Το site είναι δημόσιο και ορατό στο Google.', href: '/admin/settings#storefront' },
   ];
-  const remaining = checklist.filter((c) => !c.done).length;
+  // two finish lines: the site can be published as a website (catalogue mode) long before it takes orders
+  const forSite = checklist.filter((c) => !('forOrders' in c));
+  const forOrders = checklist.filter((c) => 'forOrders' in c);
+  const remaining = forSite.filter((c) => !c.done).length;
+  const remainingOrders = forOrders.filter((c) => !c.done).length;
 
   const stats = [
     { label: 'Σήμερα', orders: today.n, total: today.total },
@@ -79,9 +84,12 @@ export default async function AdminDashboard() {
       <p className="mt-2 text-xs text-ink-500">Στα ποσά δεν περιλαμβάνονται δοκιμαστικές και ακυρωμένες παραγγελίες.</p>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_1.1fr]">
-        <Card title={remaining ? `Πριν ανοίξει το κατάστημα — απομένουν ${remaining}` : 'Το κατάστημα είναι έτοιμο'} description="Η λίστα ενημερώνεται αυτόματα καθώς ολοκληρώνετε κάθε βήμα.">
+        <Card title={remaining ? `Για να δημοσιευτεί η ιστοσελίδα — απομένουν ${remaining}` : 'Η ιστοσελίδα είναι έτοιμη να δημοσιευτεί'} description="Η λίστα ενημερώνεται αυτόματα καθώς ολοκληρώνετε κάθε βήμα.">
+          {[forSite, forOrders].map((list, group) => (
+          <div key={group}>
+          {group === 1 && <h3 className="mt-5 border-t border-line pt-5 text-sm font-semibold text-ink-950">{remainingOrders ? `Αργότερα, για να ανοίξουν οι online παραγγελίες — απομένουν ${remainingOrders}` : 'Online παραγγελίες: όλα έτοιμα'}</h3>}
           <ul className="divide-y divide-line">
-            {checklist.map((c) => {
+            {list.map((c) => {
               const body = (
                 <>
                   {c.done ? <CircleCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" /> : <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />}
@@ -98,6 +106,8 @@ export default async function AdminDashboard() {
               );
             })}
           </ul>
+          </div>
+          ))}
         </Card>
 
         <Card title="Τελευταίες παραγγελίες">

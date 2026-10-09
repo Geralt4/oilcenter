@@ -4,10 +4,12 @@ import { redirect } from 'next/navigation';
 import { loginCustomer } from '@/app/(store)/account/actions';
 import { ActionForm } from '@/components/ui/action-form';
 import { getCustomer } from '@/lib/auth/session';
+import { requireOrderingOrHistory } from '@/lib/catalogue-mode';
 
 export const metadata: Metadata = { title: 'Σύνδεση', robots: { index: false, follow: true } };
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+  await requireOrderingOrHistory();
   const [{ next }, customer] = await Promise.all([searchParams, getCustomer()]);
   if (customer) redirect('/account');
   return (

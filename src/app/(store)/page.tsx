@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ArrowRight, Headset, Phone, ShieldCheck, Store, Truck } from 'lucide-react';
 import { CategoryIcon } from '@/components/category-icon';
 import { ProductGrid } from '@/components/store/product-card';
+import { LaunchSignupForm } from '@/components/store/launch-signup-form';
 import { StoreLocation } from '@/components/store/store-location';
 import { TrustBadges } from '@/components/store/trust-badges';
 import { buttonClass } from '@/components/ui/button';
@@ -24,13 +25,19 @@ export default async function HomePage() {
     getPopularViscosities(8),
     listProducts({ brandSlug: 'accelerate', perPage: 4, sort: 'featured' }),
   ]);
-  const { shop, shipping } = settings;
+  const { shop, shipping, storefront } = settings;
+  // catalogue mode (lib/catalogue-mode.ts): nothing on this page may promise an online order or a delivery
+  const selling = storefront.ordersEnabled;
   const totalProducts = tree.reduce((n, c) => n + c.productCount, 0);
 
   const usps: Array<{ icon: typeof Truck; title: string; text: string; href?: string; more?: string }> = [
     { icon: Headset, title: 'Το σωστό λάδι για το όχημά σας', text: 'Πείτε μας μάρκα, μοντέλο και έτος — τηλεφωνικά ή με τη φόρμα οχήματος.', href: '/find-my-oil', more: 'Ποιο λάδι θέλω; →' },
-    { icon: Truck, title: 'Αποστολή σε όλη την Ελλάδα', text: shipping.freeOverCents > 0 ? `Δωρεάν για αγορές άνω των ${formatPrice(shipping.freeOverCents)}.` : `Παράδοση σε ${shipping.deliveryEstimate}.` },
-    { icon: Store, title: 'Παραλαβή από το κατάστημα', text: `${shop.street}, ${shop.city} — χωρίς χρέωση.` },
+    selling
+      ? { icon: Truck, title: 'Αποστολή σε όλη την Ελλάδα', text: shipping.freeOverCents > 0 ? `Δωρεάν για αγορές άνω των ${formatPrice(shipping.freeOverCents)}.` : `Παράδοση σε ${shipping.deliveryEstimate}.` }
+      : { icon: ShieldCheck, title: `${brands.length}+ μάρκες στο ράφι`, text: 'Λάδια κινητήρα, βαλβολίνες, αντιψυκτικά και χημικά, άμεσα διαθέσιμα.', href: '/brands', more: 'Δείτε τις μάρκες →' },
+    selling
+      ? { icon: Store, title: 'Παραλαβή από το κατάστημα', text: `${shop.street}, ${shop.city} — χωρίς χρέωση.` }
+      : { icon: Store, title: 'Ελάτε στο κατάστημα', text: `${shop.street}, ${shop.city}.`, href: '/contact', more: 'Ωράριο & χάρτης →' },
     { icon: Headset, title: 'Δεν είστε σίγουροι;', text: 'Πάρτε μας τηλέφωνο: βρίσκουμε το σωστό λάδι για το όχημά σας.' },
   ];
 
@@ -44,7 +51,7 @@ export default async function HomePage() {
           <div>
             <p className="eyebrow inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-oil-300">
               <ShieldCheck className="h-3.5 w-3.5" />
-              Εξουσιοδοτημένος αντιπρόσωπος accelerate
+              {shop.accelerateDealer ? 'Εξουσιοδοτημένος αντιπρόσωπος accelerate' : `Κατάστημα λιπαντικών · ${shop.city}`}
             </p>
             <h1 className="display mt-5 text-[2.75rem] sm:text-6xl lg:text-7xl">
               Το σωστό λάδι
@@ -52,7 +59,7 @@ export default async function HomePage() {
               <span className="text-oil-400">για κάθε κινητήρα.</span>
             </h1>
             <p className="mt-5 max-w-xl text-lg leading-relaxed text-ink-200">
-              Λιπαντικά, βαλβολίνες, αντιψυκτικά και χημικά από τις κορυφαίες μάρκες — και συμβουλή για το σωστό λάδι. Παραγγείλετε online ή περάστε από το κατάστημά μας στη {shop.city}.
+              Λιπαντικά, βαλβολίνες, αντιψυκτικά και χημικά από τις κορυφαίες μάρκες — και συμβουλή για το σωστό λάδι. {selling ? 'Παραγγείλετε online ή περάστε' : 'Καλέστε μας ή περάστε'} από το κατάστημά μας στη {shop.city}.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/products" className={buttonClass({ size: 'lg' })}>
@@ -205,7 +212,7 @@ export default async function HomePage() {
                 <p className="eyebrow text-oil-300">Made in Germany</p>
                 <h2 className="display mt-2 text-4xl sm:text-5xl">accelerate</h2>
                 <p className="mt-4 leading-relaxed text-ink-200">
-                  Γερμανική ποιότητα και τεχνολογία, με επίσημες εγκρίσεις κατασκευαστών (VW, Mercedes-Benz, BMW). Είμαστε ο εξουσιοδοτημένος αντιπρόσωπος της accelerate — γι&apos; αυτό θα τη βρείτε εδώ στην καλύτερη τιμή.
+                  Γερμανική ποιότητα και τεχνολογία, με επίσημες εγκρίσεις κατασκευαστών (VW, Mercedes-Benz, BMW).{shop.accelerateDealer ? ' Είμαστε ο εξουσιοδοτημένος αντιπρόσωπος της accelerate.' : ' Θα βρείτε όλη τη γκάμα στο κατάστημά μας.'}
                 </p>
                 <Link href="/brand/accelerate" className={buttonClass({ className: 'mt-6' })}>
                   Όλη η γκάμα accelerate
@@ -249,6 +256,19 @@ export default async function HomePage() {
           <Link href="/brands" className="font-semibold text-ink-800 underline underline-offset-4 hover:text-ink-950">Δείτε και τις {brands.length} μάρκες</Link>
         </p>
       </section>
+
+      {/* ── Online orders: not yet — leave an e-mail (Admin → Ρυθμίσεις → «Ειδοποιήστε με…») ── */}
+      {!selling && storefront.launchSignup && (
+        <section className="container-page pt-16">
+          <div className="rounded-3xl border border-petrol-100 bg-petrol-50 p-6 sm:p-8">
+            <h2 className="display text-2xl sm:text-3xl">Σύντομα και online παραγγελίες</h2>
+            <p className="mt-1.5 max-w-xl text-ink-700">Ετοιμάζουμε το ηλεκτρονικό μας κατάστημα. Μέχρι τότε θα μας βρείτε στο τηλέφωνο και στο κατάστημα.</p>
+            <div className="max-w-xl">
+              <LaunchSignupForm />
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ── Visit us ─────────────────────────────────────────────────────── */}
       <section className="container-page pt-16">

@@ -8,6 +8,7 @@ import { ChevronDown, Heart, Menu, Navigation, Phone, User, X } from 'lucide-rea
 import { CategoryIcon } from '@/components/category-icon';
 import { Logo } from '@/components/logo';
 import { SocialLinks } from '@/components/store/social-links';
+import { useStoreConfig } from '@/components/store/store-context';
 import type { BrandWithCount, CategoryNode } from '@/lib/catalog';
 import { mapsDirectionsUrl, type ShopSettings } from '@/lib/settings';
 import { cn, telHref } from '@/lib/utils';
@@ -15,6 +16,7 @@ import { cn, telHref } from '@/lib/utils';
 type Props = { tree: CategoryNode[]; brands: BrandWithCount[]; shop: ShopSettings['shop']; customerName: string | null };
 
 export function MobileNav({ tree, brands, shop, customerName }: Props) {
+  const { canOrder } = useStoreConfig();
   const pathname = usePathname();
   // Remember WHERE the drawer was opened: navigating away closes it with no effect / extra render.
   const [openedAt, setOpenedAt] = useState<string | null>(null);
@@ -122,12 +124,12 @@ export function MobileNav({ tree, brands, shop, customerName }: Props) {
 
               <ul className="mt-3 grid grid-cols-2 gap-2 border-t border-line pt-4 text-sm font-medium text-ink-700">
                 <li className="col-span-2"><Link href="/find-my-oil" className="block rounded-xl bg-oil-100 px-3 py-3 font-semibold text-ink-950">Ποιο λάδι θέλει το όχημά μου;</Link></li>
-                <li><Link href={customerName ? '/account' : '/login'} className="flex items-center gap-2 rounded-xl bg-ink-50 px-3 py-3"><User className="h-4 w-4" />{customerName ? 'Λογαριασμός' : 'Σύνδεση'}</Link></li>
+                {canOrder && <li><Link href={customerName ? '/account' : '/login'} className="flex items-center gap-2 rounded-xl bg-ink-50 px-3 py-3"><User className="h-4 w-4" />{customerName ? 'Λογαριασμός' : 'Σύνδεση'}</Link></li>}
                 <li><Link href="/wishlist" className="flex items-center gap-2 rounded-xl bg-ink-50 px-3 py-3"><Heart className="h-4 w-4" />Αγαπημένα</Link></li>
                 <li><Link href="/about" className="block rounded-xl bg-ink-50 px-3 py-3">Το κατάστημα</Link></li>
                 <li><Link href="/contact" className="block rounded-xl bg-ink-50 px-3 py-3">Επικοινωνία</Link></li>
-                <li><Link href="/order-status" className="block rounded-xl bg-ink-50 px-3 py-3">Η παραγγελία μου</Link></li>
-                <li><Link href="/shipping-payments" className="block rounded-xl bg-ink-50 px-3 py-3">Αποστολές</Link></li>
+                {canOrder && <li><Link href="/order-status" className="block rounded-xl bg-ink-50 px-3 py-3">Η παραγγελία μου</Link></li>}
+                {canOrder && <li><Link href="/shipping-payments" className="block rounded-xl bg-ink-50 px-3 py-3">Αποστολές</Link></li>}
               </ul>
               <SocialLinks shop={shop} className="mt-4 border-t border-line pt-4" />
             </nav>

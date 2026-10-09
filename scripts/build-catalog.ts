@@ -86,7 +86,7 @@ const KIND: Record<string, { category: string; short: (v: string) => string; key
 })();
 
 const BRANDS: Record<string, { name: string; slug: string; country: string; featured?: boolean; sort: number; description: string }> = {
-  accelerate: { name: 'accelerate', slug: 'accelerate', country: 'Γερμανία', featured: true, sort: 1, description: 'Γερμανικής παραγωγής λιπαντικά με επίσημες εγκρίσεις κατασκευαστών. Το Oil Center είναι εξουσιοδοτημένος αντιπρόσωπος της accelerate.' },
+  accelerate: { name: 'accelerate', slug: 'accelerate', country: 'Γερμανία', featured: true, sort: 1, description: 'Γερμανικής παραγωγής λιπαντικά με επίσημες εγκρίσεις κατασκευαστών.' },
   Castrol: { name: 'Castrol', slug: 'castrol', country: 'Ηνωμένο Βασίλειο', featured: true, sort: 2, description: 'EDGE, MAGNATEC, POWER1 και TRANSMAX: από τα πιο αναγνωρίσιμα λιπαντικά παγκοσμίως.' },
   Motul: { name: 'Motul', slug: 'motul', country: 'Γαλλία', featured: true, sort: 3, description: 'Γαλλική εξειδίκευση σε συνθετικά λιπαντικά για αυτοκίνητα και μοτοσυκλέτες: σειρές 8100, 4100, 7100, 5100.' },
   Mobil: { name: 'Mobil', slug: 'mobil', country: 'ΗΠΑ', featured: true, sort: 4, description: 'Mobil 1 και Mobil Super 3000: συνθετικά λιπαντικά κορυφαίας προστασίας.' },

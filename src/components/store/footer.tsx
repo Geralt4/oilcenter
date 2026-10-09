@@ -7,7 +7,8 @@ import type { CategoryNode } from '@/lib/catalog';
 import { fullAddress, groupedHours, mapsDirectionsUrl, mapsPlaceUrl, type ShopSettings } from '@/lib/settings';
 import { telHref } from '@/lib/utils';
 
-export function Footer({ settings, tree }: { settings: ShopSettings; tree: CategoryNode[] }) {
+/** `canOrder` false = catalogue mode: nothing about orders, shipping, returns or accounts (see store-context.tsx) */
+export function Footer({ settings, tree, canOrder }: { settings: ShopSettings; tree: CategoryNode[]; canOrder: boolean }) {
   const { shop } = settings;
   return (
     <footer className="steel mt-20 text-ink-300">
@@ -71,12 +72,12 @@ export function Footer({ settings, tree }: { settings: ShopSettings; tree: Categ
           <ul className="mt-4 space-y-2.5 text-sm">
             <li><Link href="/find-my-oil" className="hover:text-white">Ποιο λάδι θέλει το όχημά μου;</Link></li>
             {settings.storefront.b2bPage && <li><Link href="/professionals" className="hover:text-white">Για συνεργεία & επαγγελματίες</Link></li>}
-            <li><Link href="/order-status" className="hover:text-white">Η παραγγελία μου</Link></li>
-            <li><Link href="/shipping-payments" className="hover:text-white">Αποστολές & πληρωμές</Link></li>
-            <li><Link href="/returns" className="hover:text-white">Επιστροφές & υπαναχώρηση</Link></li>
+            {canOrder && <li><Link href="/order-status" className="hover:text-white">Η παραγγελία μου</Link></li>}
+            {canOrder && <li><Link href="/shipping-payments" className="hover:text-white">Αποστολές & πληρωμές</Link></li>}
+            {canOrder && <li><Link href="/returns" className="hover:text-white">Επιστροφές & υπαναχώρηση</Link></li>}
             <li><Link href="/about" className="hover:text-white">Το κατάστημα</Link></li>
             <li><Link href="/contact" className="hover:text-white">Επικοινωνία</Link></li>
-            <li><Link href="/account" className="hover:text-white">Ο λογαριασμός μου</Link></li>
+            {canOrder && <li><Link href="/account" className="hover:text-white">Ο λογαριασμός μου</Link></li>}
           </ul>
         </nav>
 
@@ -103,6 +104,7 @@ export function Footer({ settings, tree }: { settings: ShopSettings; tree: Categ
         </div>
       </div>
 
+      {canOrder && (
       <div className="border-t border-white/10">
         <div className="container-page flex flex-col gap-4 py-6 text-xs md:flex-row md:items-center md:justify-between">
           <ul className="flex flex-wrap items-center gap-x-5 gap-y-2 text-ink-300">
@@ -114,6 +116,7 @@ export function Footer({ settings, tree }: { settings: ShopSettings; tree: Categ
           </ul>
         </div>
       </div>
+      )}
 
       <div className="border-t border-white/10 bg-ink-950/60">
         <div className="container-page flex flex-col gap-3 py-5 text-xs text-ink-400 md:flex-row md:items-center md:justify-between">

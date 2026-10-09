@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
-import { Check, Heart, Phone, ShoppingCart } from 'lucide-react';
+import { ArrowRight, Check, Heart, Phone, ShoppingCart } from 'lucide-react';
 import { AvailabilityTag } from '@/components/store/availability';
 import { useStoreConfig } from '@/components/store/store-context';
 import type { CatalogProduct } from '@/lib/catalog';
@@ -20,7 +20,7 @@ const GRID_IMAGE_SIZES = '(min-width: 1280px) 320px, (min-width: 640px) 33vw, 50
 export function ProductCard({ product, priority = false, sizes = GRID_IMAGE_SIZES }: { product: CatalogProduct; priority?: boolean; sizes?: string }) {
   // open on a size that can actually be bought — on the shelf if possible — and with a confirmed price
   const firstAvailable = product.variants.find((v) => v.availability === 'in_stock' && v.priced) ?? product.variants.find((v) => v.inStock && v.priced) ?? product.variants.find((v) => v.inStock) ?? product.variants[0];
-  const { phone } = useStoreConfig();
+  const { phone, canOrder } = useStoreConfig();
   const [variantId, setVariantId] = useState(firstAvailable.id);
   const [justAdded, setJustAdded] = useState(false);
   const variant = product.variants.find((v) => v.id === variantId) ?? firstAvailable;
@@ -149,6 +149,16 @@ export function ProductCard({ product, priority = false, sizes = GRID_IMAGE_SIZE
               <Phone className="h-5 w-5" />
               <span className="hidden text-sm font-semibold @min-[14rem]:inline">Κλήση</span>
             </a>
+          ) : !canOrder ? (
+            // catalogue mode: nothing to add to — the card leads to the product, where the phone and the shop's address are
+            <Link
+              href={href}
+              aria-label={`Δείτε το προϊόν: ${product.name}`}
+              className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-ink-900 text-white hover:bg-ink-700 @min-[14rem]:w-auto @min-[14rem]:gap-2 @min-[14rem]:px-4"
+            >
+              <span className="hidden text-sm font-semibold @min-[14rem]:inline">Δείτε το</span>
+              <ArrowRight className="h-5 w-5" />
+            </Link>
           ) : (
           <button
             type="button"
