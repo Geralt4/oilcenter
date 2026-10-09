@@ -21,12 +21,15 @@ function createDbClient(): Client {
   const client = createClient({
     url: DATABASE_URL,
     authToken: process.env.DATABASE_AUTH_TOKEN || undefined,
+    // Busy timeout for a local file: a write that meets a lock waits up to 5 s instead of failing at once with
+    // SQLITE_BUSY (two containers share the volume for a moment on every deploy). It has to be set here: the client
+    // keeps a POOL of connections, and a `PRAGMA busy_timeout` reaches only the one connection that happens to run it.
+    timeout: 5000,
   });
   if (DATABASE_URL.startsWith('file:')) {
-    // Fire-and-forget: statements are queued on the same connection, so these land before any query.
+    // WAL is a property of the database file, so setting it once on any connection is enough.
+    // Foreign keys are on by default in libSQL (every pooled connection reports foreign_keys = 1).
     void client.execute('PRAGMA journal_mode = WAL');
-    void client.execute('PRAGMA busy_timeout = 5000');
-    void client.execute('PRAGMA foreign_keys = ON');
   }
   return client;
 }
