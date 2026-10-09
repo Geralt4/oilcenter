@@ -4,6 +4,7 @@ import { parseApprovals, type Approval, type ApprovalFacet } from '@/lib/approva
 import { bestAvailability, effectiveAvailability, type Availability } from '@/lib/availability';
 import { db } from '@/lib/db';
 import { brands, categories, productImages, products, variants, type BaseType, type Brand, type Category } from '@/lib/db/schema';
+import { brandAliases, greeklish, searchTerms } from '@/lib/search-keywords';
 import { normalizeText } from '@/lib/utils';
 
 /*
@@ -135,7 +136,8 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
       onSale: vs.some((v) => v.compareAtCents !== null),
       // Codes are added here, not into products.search_text: they are edited in places that never rebuild that column
       // (Admin → Skroutz codes, CSV import). Both spellings, so «MN7501-1» and «MN75011» find the same can.
-      searchText: [p.searchText, ...vs.flatMap(codesOf).flatMap((c) => [normalizeText(c), compact(c)])].join(' '),
+      // …and so are the spellings nobody stores: the brand in Greek letters («καστρολ») and Greek words in Latin ones («ladi»).
+      searchText: [p.searchText, brandAliases(brand?.name), greeklish(`${p.searchText} ${brandAliases(brand?.name)}`), ...vs.flatMap(codesOf).flatMap((c) => [normalizeText(c), compact(c)])].join(' '),
       approvals: parseApprovals(p.specs ?? []),
     });
   }
@@ -332,7 +334,7 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
   }
   if (filters.brandSlug) scope = scope.filter((p) => p.brand?.slug === filters.brandSlug);
   if (filters.viscosity) scope = scope.filter((p) => p.viscosity === filters.viscosity);
-  const terms = filters.q ? normalizeText(filters.q).split(' ').filter(Boolean) : [];
+  const terms = filters.q ? searchTerms(filters.q) : [];
   if (terms.length) scope = scope.filter((p) => terms.every((t) => matchesTerm(p.searchText, t)));
 
   // 2. Facet predicates. Each facet's counts are computed with every OTHER facet applied,
@@ -521,7 +523,7 @@ export async function getViscosityBySlug(slug: string): Promise<ViscosityInfo | 
 }
 
 export async function suggestProducts(q: string, limit = 6): Promise<CatalogProduct[]> {
-  const terms = normalizeText(q).split(' ').filter(Boolean);
+  const terms = searchTerms(q);
   if (!terms.length) return [];
   const index = await loadIndex();
   return index

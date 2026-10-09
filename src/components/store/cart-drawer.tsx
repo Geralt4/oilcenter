@@ -96,7 +96,7 @@ export function CartDrawer() {
       <div ref={panelRef} tabIndex={-1} className="animate-slide-in-right absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-white shadow-lift outline-none">
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-line px-5">
           <h2 className="display text-2xl">
-            Καλάθι {count > 0 && <span className="text-ink-400">({count})</span>}
+            Καλάθι {count > 0 && <span className="text-ink-500">({count})</span>}
           </h2>
           <button type="button" onClick={close} aria-label="Κλείσιμο" className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl text-ink-600 hover:bg-ink-100">
             <X className="h-5 w-5" />
@@ -105,7 +105,7 @@ export function CartDrawer() {
 
         {lines.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
-            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-ink-100 text-ink-400">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-ink-100 text-ink-500">
               <ShoppingCart className="h-7 w-7" />
             </span>
             <p className="text-ink-600">Το καλάθι σας είναι άδειο.</p>
@@ -122,7 +122,7 @@ export function CartDrawer() {
                     {line.snapshot.imageUrl && <Image src={line.snapshot.imageUrl} alt="" fill sizes="80px" className="object-contain p-1.5" />}
                   </Link>
                   <div className="min-w-0 flex-1">
-                    {line.snapshot.brandName && <p className="eyebrow text-[0.6875rem] text-ink-400">{line.snapshot.brandName}</p>}
+                    {line.snapshot.brandName && <p className="eyebrow text-[0.6875rem] text-ink-500">{line.snapshot.brandName}</p>}
                     <Link href={`/product/${line.snapshot.slug}`} onClick={close} className="line-clamp-2 text-sm leading-snug font-semibold text-ink-900 hover:text-oil-700">
                       {line.snapshot.name}
                     </Link>
@@ -135,7 +135,7 @@ export function CartDrawer() {
                       <span className="tabular text-sm font-bold text-ink-900">{formatPrice(line.quantity * line.snapshot.unitPriceCents)}</span>
                     </div>
                   </div>
-                  <button type="button" onClick={() => remove(line.variantId)} aria-label={`Αφαίρεση ${line.snapshot.name}`} className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center self-start rounded-lg text-ink-400 hover:bg-red-50 hover:text-red-600">
+                  <button type="button" onClick={() => remove(line.variantId)} aria-label={`Αφαίρεση ${line.snapshot.name}`} className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center self-start rounded-lg text-ink-500 hover:bg-red-50 hover:text-red-600">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </li>

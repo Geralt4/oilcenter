@@ -27,9 +27,10 @@ export function CookieNotice() {
 
   if (seen || dismissed) return null;
   return (
-    <div role="region" aria-label="Ενημέρωση για cookies" className="animate-slide-up fixed inset-x-3 bottom-20 z-30 mx-auto max-w-xl rounded-2xl border border-line bg-white p-4 shadow-lift md:right-auto md:bottom-4 md:left-4 md:mx-0 md:max-w-sm">
-      <p className="text-sm text-ink-700">
-        Χρησιμοποιούμε μόνο τα απολύτως απαραίτητα cookies{canOrder ? ' για τη λειτουργία του καλαθιού και της σύνδεσής σας' : ''}. Ο χάρτης της σελίδας επικοινωνίας φορτώνεται από την Google.{' '}
+    <div role="region" aria-label="Ενημέρωση για cookies" className="animate-slide-up fixed inset-x-3 bottom-20 z-30 mx-auto flex max-w-xl items-center gap-3 rounded-2xl border border-line bg-white p-3 shadow-lift sm:p-4 md:right-auto md:bottom-4 md:left-4 md:mx-0 md:max-w-sm">
+      {/* the Google map is no longer mentioned here: it loads only when the visitor asks for it (map-embed.tsx) */}
+      <p className="text-[0.8125rem] leading-snug text-ink-700 sm:text-sm">
+        Χρησιμοποιούμε μόνο τα απολύτως απαραίτητα cookies{canOrder ? ' για τη λειτουργία του καλαθιού και της σύνδεσής σας' : ''}.{' '}
         <Link href="/cookies" className="font-semibold text-petrol-500 underline underline-offset-2">Μάθετε περισσότερα</Link>
       </p>
       <button
@@ -42,7 +43,7 @@ export function CookieNotice() {
           }
           setDismissed(true);
         }}
-        className="mt-3 h-10 cursor-pointer rounded-xl bg-ink-900 px-5 text-sm font-semibold text-white hover:bg-ink-700"
+        className="h-10 shrink-0 cursor-pointer rounded-xl bg-ink-900 px-4 text-sm font-semibold text-white hover:bg-ink-700"
       >
         Εντάξει
       </button>

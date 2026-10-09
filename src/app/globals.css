@@ -30,7 +30,7 @@
   --color-oil-400: #fbb71c;
   --color-oil-500: #f2a30b;
   --color-oil-600: #d48306;
-  --color-oil-700: #a96108;
+  --color-oil-700: #9e5a08;
   --color-oil-800: #8a4c0e;
   --color-oil-900: #733f12;
 
@@ -227,7 +227,10 @@
   .prose-oc a { color: var(--color-petrol-500); text-decoration: underline; text-underline-offset: 3px; }
   .prose-oc a:hover { color: var(--color-petrol-700); }
   .prose-oc strong { color: var(--color-ink-900); font-weight: 650; }
-  .prose-oc table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
+  /* a table wider than a phone scrolls inside its own box instead of widening the page; long links may break */
+  .prose-oc { overflow-wrap: anywhere; }
+  .prose-oc table { display: block; width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 0.9375rem; }
+  .prose-oc th, .prose-oc td { overflow-wrap: normal; }
   .prose-oc th, .prose-oc td { border-bottom: 1px solid var(--color-line); padding: 0.6rem 0.5rem; text-align: left; }
   .prose-oc th { font-weight: 650; color: var(--color-ink-900); }
 }

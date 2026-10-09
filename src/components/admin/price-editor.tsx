@@ -89,7 +89,7 @@ const PriceLine = memo(function PriceLine({ row, draft, verifiedDraft, availabil
   return (
     <li className={cn('flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2 sm:flex-nowrap', (changed || availabilityChanged) && 'bg-oil-50', (invalid || failed) && 'bg-red-50')}>
       <span className="w-14 shrink-0 text-[0.9375rem] font-semibold text-ink-900 tabular">{row.label}</span>
-      <span className="hidden w-44 shrink-0 truncate text-xs text-ink-400 tabular lg:block" title={row.sku}>{row.sku}</span>
+      <span className="hidden w-44 shrink-0 truncate text-xs text-ink-500 tabular lg:block" title={row.sku}>{row.sku}</span>
 
       <label className="relative ml-auto shrink-0 sm:ml-0">
         <span className="sr-only">Τιμή {row.product} {row.label} σε ευρώ, με ΦΠΑ</span>
@@ -118,7 +118,7 @@ const PriceLine = memo(function PriceLine({ row, draft, verifiedDraft, availabil
             (invalid || failed) && 'border-red-400 ring-2 ring-red-100',
           )}
         />
-        <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-ink-400">€</span>
+        <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-ink-500">€</span>
       </label>
 
       <div className="flex min-w-0 basis-full items-center gap-3 sm:basis-auto sm:flex-1">
@@ -147,10 +147,10 @@ const PriceLine = memo(function PriceLine({ row, draft, verifiedDraft, availabil
         ) : verifiedDraft === true && !row.verified ? (
           <span className="inline-flex items-center gap-2 font-medium text-ink-700">
             θα σημειωθεί ως σωστή
-            <button type="button" onClick={() => onVerify(row.id, false)} aria-label="Αναίρεση" className="cursor-pointer text-ink-400 hover:text-ink-900"><X className="h-3.5 w-3.5" /></button>
+            <button type="button" onClick={() => onVerify(row.id, false)} aria-label="Αναίρεση" className="cursor-pointer text-ink-500 hover:text-ink-900"><X className="h-3.5 w-3.5" /></button>
           </span>
         ) : row.changedAt && row.previousCents !== null ? (
-          <span className="text-ink-400">άλλαξε {shortDate.format(row.changedAt)} · ήταν {formatPrice(row.previousCents)}</span>
+          <span className="text-ink-500">άλλαξε {shortDate.format(row.changedAt)} · ήταν {formatPrice(row.previousCents)}</span>
         ) : null}
       </span>
       </div>
@@ -328,7 +328,7 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
       <div className="sticky top-[4.375rem] z-10 -mx-4 border-b border-line bg-ink-50/95 px-4 py-2.5 backdrop-blur sm:-mx-6 sm:px-6 lg:top-0">
         <label className="relative block">
           <span className="sr-only">Αναζήτηση προϊόντος</span>
-          <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-ink-400" />
+          <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-ink-500" />
           <input
             ref={searchRef}
             type="search"
@@ -405,7 +405,7 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
           {groups.map((g) => (
             <li key={g.productId} className="overflow-hidden rounded-2xl border border-line bg-white shadow-tile md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
               <Link href={`/admin/products/${g.productId}`} className="block border-b border-line bg-ink-50/60 px-4 py-2.5 hover:bg-ink-100 md:border-r md:border-b-0 md:py-3.5" title="Άνοιγμα προϊόντος">
-                <span className="block text-[0.6875rem] font-semibold tracking-wide text-ink-400 uppercase">{g.brand ?? '—'}</span>
+                <span className="block text-[0.6875rem] font-semibold tracking-wide text-ink-500 uppercase">{g.brand ?? '—'}</span>
                 <span className="block font-medium text-ink-900">{g.product}</span>
               </Link>
               <ul className="divide-y divide-line">

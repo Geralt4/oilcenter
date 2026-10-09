@@ -93,7 +93,7 @@ export function SearchBox({ autoFocus = false, onNavigate }: { autoFocus?: boole
   return (
     <div ref={wrapRef} className="relative">
       <form role="search" onSubmit={submit} className="relative">
-        <Search className="pointer-events-none absolute top-1/2 left-4 h-[1.125rem] w-[1.125rem] -translate-y-1/2 text-ink-400" />
+        <Search className="pointer-events-none absolute top-1/2 left-4 h-[1.125rem] w-[1.125rem] -translate-y-1/2 text-ink-500" />
         <input
           type="search"
           name="q"
@@ -114,12 +114,12 @@ export function SearchBox({ autoFocus = false, onNavigate }: { autoFocus?: boole
           aria-controls={listId}
           aria-autocomplete="list"
           aria-label="Αναζήτηση προϊόντων"
-          className="h-11 w-full rounded-xl border border-ink-200 bg-ink-50 pr-24 pl-11 text-ink-900 placeholder:text-ink-400 hover:border-ink-300 focus:border-oil-500 focus:bg-white focus:shadow-[0_0_0_3px_rgb(242_163_11/0.22)] focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+          className="h-11 w-full rounded-xl border border-ink-200 bg-ink-50 pr-24 pl-11 text-ink-900 placeholder:text-ink-500 hover:border-ink-300 focus:border-oil-500 focus:bg-white focus:shadow-[0_0_0_3px_rgb(242_163_11/0.22)] focus:outline-none [&::-webkit-search-cancel-button]:hidden"
         />
         <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-1">
-          {busy && <LoaderCircle className="h-4 w-4 animate-spin text-ink-400" />}
+          {busy && <LoaderCircle className="h-4 w-4 animate-spin text-ink-500" />}
           {query && !busy && (
-            <button type="button" onClick={() => setQuery('')} aria-label="Καθαρισμός" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700">
+            <button type="button" onClick={() => setQuery('')} aria-label="Καθαρισμός" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-500 hover:bg-ink-100 hover:text-ink-700">
               <X className="h-4 w-4" />
             </button>
           )}
@@ -149,7 +149,7 @@ export function SearchBox({ autoFocus = false, onNavigate }: { autoFocus?: boole
                         {item.imageUrl && <Image src={item.imageUrl} alt="" fill sizes="48px" className="object-contain p-1" />}
                       </span>
                       <span className="min-w-0 flex-1">
-                        {item.brandName && <span className="eyebrow block text-[0.6875rem] text-ink-400">{item.brandName}</span>}
+                        {item.brandName && <span className="eyebrow block text-[0.6875rem] text-ink-500">{item.brandName}</span>}
                         <span className="block truncate text-sm font-semibold text-ink-900">{item.name}</span>
                         {item.code && <span className="tabular block truncate text-xs text-ink-500">Κωδ. {item.code.code} · {item.code.label}</span>}
                       </span>
@@ -157,7 +157,7 @@ export function SearchBox({ autoFocus = false, onNavigate }: { autoFocus?: boole
                         <span className="shrink-0 text-xs font-semibold text-petrol-500">Καλέστε για τιμή</span>
                       ) : (
                         <span className="tabular shrink-0 text-sm font-bold text-ink-900">
-                          {item.multiplePrices && <span className="mr-1 text-xs font-medium text-ink-400">από</span>}
+                          {item.multiplePrices && <span className="mr-1 text-xs font-medium text-ink-500">από</span>}
                           {formatPrice(item.minPriceCents)}
                         </span>
                       )}

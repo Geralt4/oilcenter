@@ -130,7 +130,6 @@ export function Footer({ settings, tree, canOrder }: { settings: ShopSettings; t
             <li><Link href="/terms" className="hover:text-white">Όροι χρήσης</Link></li>
             <li><Link href="/privacy" className="hover:text-white">Απόρρητο</Link></li>
             <li><Link href="/cookies" className="hover:text-white">Cookies</Link></li>
-            <li><a href="https://ec.europa.eu/consumers/odr" target="_blank" rel="noopener noreferrer" className="hover:text-white">Ηλεκτρονική επίλυση διαφορών</a></li>
           </ul>
         </div>
       </div>

@@ -39,7 +39,7 @@ export default async function AdminCategoriesPage() {
       <details className="group rounded-xl border border-line bg-white open:shadow-tile">
         <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-ink-100 text-ink-700"><CategoryIcon name={c.icon} className="h-4 w-4" /></span>
-          <span className="flex-1 font-semibold text-ink-900">{c.name}{!c.isActive && <span className="ml-2 text-xs font-normal text-ink-400">(ανενεργή)</span>}</span>
+          <span className="flex-1 font-semibold text-ink-900">{c.name}{!c.isActive && <span className="ml-2 text-xs font-normal text-ink-500">(ανενεργή)</span>}</span>
           <span className="tabular text-sm text-ink-500">{n.get(c.id) ?? 0} προϊόντα</span>
           <span className="text-sm font-semibold text-petrol-500 group-open:hidden">Επεξεργασία</span>
         </summary>

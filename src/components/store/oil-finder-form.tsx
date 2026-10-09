@@ -6,7 +6,7 @@ import { buttonClass } from '@/components/ui/button';
 import { useKeptForm } from '@/components/ui/use-kept-form';
 import { COMMON_MAKES, FUELS, NEEDS, VEHICLE_TYPES } from '@/lib/oil-finder';
 
-const optional = <span className="font-normal text-ink-400">(προαιρετικό)</span>;
+const optional = <span className="font-normal text-ink-500">(προαιρετικό)</span>;
 
 /** `product`: set when the visitor came from a product page asking «ταιριάζει αυτό στο όχημά μου;» */
 export function OilFinderForm({ product }: { product?: { slug: string; name: string } | null }) {

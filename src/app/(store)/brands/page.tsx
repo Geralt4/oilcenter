@@ -24,7 +24,7 @@ export default async function BrandsPage() {
             <Link href={`/brand/${b.slug}`} className="group flex h-full items-start justify-between gap-4 rounded-2xl border border-line bg-white p-5 shadow-tile transition-[box-shadow,border-color] hover:border-oil-400 hover:shadow-lift">
               <span>
                 <span className="font-display text-2xl font-extrabold tracking-tight text-ink-900">{b.name}</span>
-                {b.country && <span className="eyebrow ml-2 text-[0.6875rem] text-ink-400">{b.country}</span>}
+                {b.country && <span className="eyebrow ml-2 text-[0.6875rem] text-ink-500">{b.country}</span>}
                 {b.description && <span className="mt-1.5 block text-sm leading-relaxed text-ink-600">{b.description}</span>}
                 <span className="mt-2 block text-sm font-semibold text-ink-800">{b.productCount} προϊόντα</span>
               </span>

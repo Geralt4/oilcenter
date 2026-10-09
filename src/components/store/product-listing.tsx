@@ -53,7 +53,7 @@ function Pagination({ page, pageCount, pathname, searchParams }: { page: number;
       )}
       {pages.map((p, i) => (
         <span key={p} className="flex items-center gap-1.5">
-          {i > 0 && p - pages[i - 1] > 1 && <span className="px-1 text-ink-400">…</span>}
+          {i > 0 && p - pages[i - 1] > 1 && <span className="px-1 text-ink-500">…</span>}
           <Link href={href(p)} aria-current={p === page ? 'page' : undefined} className={cn(item, p === page ? 'border-ink-900 bg-ink-900 text-white' : 'border-ink-200 bg-white text-ink-700 hover:border-ink-400')}>
             {p}
           </Link>
@@ -86,7 +86,7 @@ type Props = {
 export async function ProductListing({ pathname, searchParams, scope, title, eyebrow, description, crumbs, children, footer }: Props) {
   // a facet the page hides must not filter behind the visitor's back (?cat= on a category page, ?visc= on a viscosity page)
   const hidden = { hideBrands: Boolean(scope?.brandSlug), hideViscosities: Boolean(scope?.viscosity), hideCategories: Boolean(scope?.categorySlug) };
-  const filters = { ...parseListingParams(searchParams), ...(hidden.hideCategories && { categories: [] }), ...(hidden.hideViscosities && { viscosities: [] }), ...scope };
+  const filters = { ...parseListingParams(searchParams), ...(hidden.hideCategories && { categories: [] }), ...(hidden.hideViscosities && { viscosities: [] }), ...(hidden.hideBrands && { brands: [] }), ...scope };
   const listing = await listProducts(filters);
   const active = activeFilterCount(filters);
 

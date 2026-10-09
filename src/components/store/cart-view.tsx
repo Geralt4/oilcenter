@@ -50,14 +50,14 @@ export function CartView() {
                 {line.snapshot.imageUrl && <Image src={line.snapshot.imageUrl} alt="" fill sizes="112px" className="object-contain p-2" />}
               </Link>
               <div className="flex min-w-0 flex-1 flex-col">
-                {line.snapshot.brandName && <p className="eyebrow text-[0.6875rem] text-ink-400">{line.snapshot.brandName}</p>}
+                {line.snapshot.brandName && <p className="eyebrow text-[0.6875rem] text-ink-500">{line.snapshot.brandName}</p>}
                 <Link href={`/product/${line.snapshot.slug}`} className="font-semibold text-ink-950 hover:text-oil-700">{line.snapshot.name}</Link>
                 <p className="mt-0.5 text-sm text-ink-500">Συσκευασία {line.snapshot.variantLabel} · <span className="tabular">{formatPrice(line.snapshot.unitPriceCents)}</span> / τεμ.</p>
                 <AvailabilityTag availability={line.snapshot.availability} className="mt-1" />
                 <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-3">
                   <div className="flex items-center gap-2">
                     <QuantityStepper size="sm" value={line.quantity} max={line.snapshot.maxQuantity} onChange={(q) => setQuantity(line.variantId, q)} />
-                    <button type="button" onClick={() => remove(line.variantId)} aria-label={`Αφαίρεση ${line.snapshot.name}`} className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl text-ink-400 hover:bg-red-50 hover:text-red-600">
+                    <button type="button" onClick={() => remove(line.variantId)} aria-label={`Αφαίρεση ${line.snapshot.name}`} className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl text-ink-500 hover:bg-red-50 hover:text-red-600">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>

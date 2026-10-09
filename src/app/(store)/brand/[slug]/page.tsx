@@ -14,7 +14,8 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
     title: `${brand.name} — λιπαντικά & προϊόντα`,
     description: brand.description ?? `Όλα τα προϊόντα ${brand.name} στο Oil Center.`,
     alternates: { canonical: `/brand/${brand.slug}` },
-    robots: Object.keys(sp).length > 0 ? { index: false, follow: true } : undefined,
+    // spread, not `robots: undefined`: an explicit undefined would erase the store layout's demo-mode noindex
+    ...(Object.keys(sp).length > 0 ? { robots: { index: false, follow: true } } : {}),
   };
 }
 

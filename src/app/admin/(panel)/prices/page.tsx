@@ -75,14 +75,14 @@ export default async function AdminPricesPage({ searchParams }: { searchParams: 
               return (
                 <li key={c.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-2.5">
                   <Link href={`/admin/products/${productId}`} className="min-w-0 flex-1 basis-56 hover:underline">
-                    <span className="text-xs font-semibold tracking-wide text-ink-400 uppercase">{brandName ?? '—'}</span>{' '}
+                    <span className="text-xs font-semibold tracking-wide text-ink-500 uppercase">{brandName ?? '—'}</span>{' '}
                     <span className="font-medium text-ink-900">{productName}</span> <span className="tabular text-ink-600">{label}</span>
                   </Link>
                   <span className="tabular whitespace-nowrap">
-                    <span className="text-ink-400 line-through">{formatPrice(c.oldCents)}</span> → <span className="font-semibold text-ink-900">{formatPrice(c.newCents)}</span>{' '}
+                    <span className="text-ink-500 line-through">{formatPrice(c.oldCents)}</span> → <span className="font-semibold text-ink-900">{formatPrice(c.newCents)}</span>{' '}
                     <span className={cn('text-xs', pct > 0 ? 'text-red-700' : 'text-emerald-700')}>{pct > 0 ? '+' : ''}{pct.toFixed(1).replace('.', ',')}%</span>
                   </span>
-                  <span className="w-full text-xs whitespace-nowrap text-ink-400 sm:w-52 sm:text-right">{formatDateTime(c.createdAt)} · {SOURCE_LABELS[c.source] ?? c.source}</span>
+                  <span className="w-full text-xs whitespace-nowrap text-ink-500 sm:w-52 sm:text-right">{formatDateTime(c.createdAt)} · {SOURCE_LABELS[c.source] ?? c.source}</span>
                 </li>
               );
             })}

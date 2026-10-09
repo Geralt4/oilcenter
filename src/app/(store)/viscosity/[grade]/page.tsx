@@ -37,7 +37,8 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
     // no price here: prices move every few days and a search-result snippet outlives them
     description: `${v.count === 1 ? '1 λιπαντικό' : `${v.count} λιπαντικά`} ${viscosityLabel(v.grade)}${brandPhrase(v)}. ${storefront.ordersEnabled ? 'Παραλαβή από το κατάστημα στη Θεσσαλονίκη ή αποστολή σε όλη την Ελλάδα.' : 'Στο Oil Center, Θεσσαλονίκη.'}`,
     alternates: { canonical: `/viscosity/${v.slug}` },
-    robots: Object.keys(sp).length > 0 ? { index: false, follow: true } : undefined,
+    // spread, not `robots: undefined`: an explicit undefined would erase the store layout's demo-mode noindex
+    ...(Object.keys(sp).length > 0 ? { robots: { index: false, follow: true } } : {}),
   };
 }
 
@@ -100,7 +101,7 @@ export default async function ViscosityPage({ params, searchParams }: Props) {
                 }
               >
                 {o.grade}
-                <span className="text-xs font-medium opacity-60">{o.count}</span>
+                <span className="text-xs font-medium opacity-80">{o.count}</span>
               </Link>
             </li>
           ))}

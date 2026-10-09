@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: 'Όροι χρήσης', alternates: 
 export default async function TermsPage() {
   const { shop, storefront } = await getSettings();
   return (
-    <LegalShell href="/terms" title="Όροι χρήσης" updated="Σεπτέμβριος 2026">
+    <LegalShell href="/terms" title="Όροι χρήσης" updated="Οκτώβριος 2026">
       {!storefront.ordersEnabled && (
         <p>
           <strong>Οι online παραγγελίες δεν έχουν ανοίξει ακόμη.</strong> Προς το παρόν ο ιστότοπος λειτουργεί ως κατάλογος: παρουσιάζει τα προϊόντα και τις τιμές του καταστήματος, και οι αγορές γίνονται στο κατάστημα ή τηλεφωνικά στο <span className="tabular">{shop.phone}</span>. Όσα ακολουθούν για την παραγγελία, την πληρωμή, την αποστολή και τις επιστροφές (ενότητες 4 και 5) θα ισχύουν από τη στιγμή που θα ανοίξουν οι online παραγγελίες.
@@ -49,7 +49,7 @@ export default async function TermsPage() {
       <p>Η επεξεργασία των προσωπικών σας δεδομένων περιγράφεται στην <Link href="/privacy">Πολιτική απορρήτου</Link>.</p>
 
       <h2>9. Εφαρμοστέο δίκαιο και επίλυση διαφορών</h2>
-      <p>Οι παρόντες όροι διέπονται από το ελληνικό δίκαιο. Ως καταναλωτής μπορείτε να απευθυνθείτε στον Συνήγορο του Καταναλωτή ή να χρησιμοποιήσετε την ευρωπαϊκή πλατφόρμα ηλεκτρονικής επίλυσης διαφορών (ODR): <a href="https://ec.europa.eu/consumers/odr" target="_blank" rel="noopener noreferrer">ec.europa.eu/consumers/odr</a>.</p>
+      <p>Οι παρόντες όροι διέπονται από το ελληνικό δίκαιο. Ως καταναλωτής μπορείτε να απευθυνθείτε για εξωδικαστική επίλυση διαφοράς στον <a href="https://www.synigoroskatanaloti.gr" target="_blank" rel="noopener noreferrer">Συνήγορο του Καταναλωτή</a>.</p>
     </LegalShell>
   );
 }

@@ -123,7 +123,7 @@ export function ProductView({ product, images, variants, initialVariantId }: Pro
         {variant.priceVerified ? (
           <div className="mt-6 flex flex-wrap items-end gap-x-3 gap-y-1">
             <p className="tabular text-4xl font-bold text-ink-950">{formatPrice(variant.priceCents)}</p>
-            {variant.compareAtCents && <p className="tabular pb-1 text-lg text-ink-400 line-through">{formatPrice(variant.compareAtCents)}</p>}
+            {variant.compareAtCents && <p className="tabular pb-1 text-lg text-ink-500 line-through">{formatPrice(variant.compareAtCents)}</p>}
             <p className="pb-1.5 text-sm text-ink-500">
               με ΦΠΑ{perLitre && variant.volumeMl !== 1000 ? <> · <span className="tabular">{formatPrice(perLitre)}</span> / λίτρο</> : null}
             </p>
@@ -171,7 +171,7 @@ export function ProductView({ product, images, variants, initialVariantId }: Pro
                 onClick={onAdd}
                 disabled={!variant.inStock}
                 className={cn(
-                  'flex h-12 min-w-52 flex-1 cursor-pointer items-center justify-center gap-2.5 rounded-xl px-6 text-base font-semibold transition-colors disabled:cursor-not-allowed disabled:bg-ink-100 disabled:text-ink-400',
+                  'flex h-12 min-w-52 flex-1 cursor-pointer items-center justify-center gap-2.5 rounded-xl px-6 text-base font-semibold transition-colors disabled:cursor-not-allowed disabled:bg-ink-100 disabled:text-ink-500',
                   justAdded ? 'bg-emerald-600 text-white' : 'bg-oil-500 text-ink-950 shadow-[0_8px_20px_-8px_rgb(242_163_11/0.8)] hover:bg-oil-400',
                 )}
               >
@@ -261,7 +261,7 @@ export function ProductView({ product, images, variants, initialVariantId }: Pro
           </Link>
         </div>
 
-        <p className="tabular mt-4 text-xs text-ink-400">Κωδικός: {variant.sku}</p>
+        <p className="tabular mt-4 text-xs text-ink-500">Κωδικός: {variant.sku}</p>
       </div>
     </div>
   );

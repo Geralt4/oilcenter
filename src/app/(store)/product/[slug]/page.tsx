@@ -8,7 +8,7 @@ import { ProductView } from '@/components/store/product-view';
 import { parseSpecLine } from '@/lib/approvals';
 import { effectiveAvailability } from '@/lib/availability';
 import { BASE_TYPE_LABELS, getCategoryTrailById, getProductBySlug, getRelatedProducts, viscositySlug, type ProductDetail } from '@/lib/catalog';
-import { jsonLdString, productJsonLd } from '@/lib/seo';
+import { jsonLdString, OG_BASE, OG_IMAGE, productJsonLd } from '@/lib/seo';
 import { getSettings } from '@/lib/settings.server';
 import { formatWeight } from '@/lib/utils';
 
@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: product.metaTitle || `${fullName}${sizes ? ` (${sizes})` : ''}`,
     description: product.metaDescription || `${fullName}: ${product.shortDescription ?? ''} ${storefront.ordersEnabled ? 'Αγορά online ή παραλαβή από το Oil Center στη Θεσσαλονίκη.' : 'Στο Oil Center, Θεσσαλονίκη.'}`.trim(),
     alternates: { canonical: `/product/${product.slug}` },
-    openGraph: { title: fullName, images: product.images[0] ? [{ url: product.images[0].url, width: 1000, height: 1000 }] : undefined },
+    openGraph: { ...OG_BASE, title: fullName, url: `/product/${product.slug}`, images: [product.images[0] ? { url: product.images[0].url, width: 1000, height: 1000, alt: fullName } : OG_IMAGE] },
   };
 }
 
@@ -58,7 +58,9 @@ export default async function ProductPage({ params, searchParams }: Props) {
   if (product.brand) rows.push(['Μάρκα', <Link key="b" href={`/brand/${product.brand.slug}`} className="font-medium text-petrol-500 underline underline-offset-2 hover:text-petrol-700">{product.brand.name}</Link>]);
   if (product.viscosity) rows.push(['Ιξώδες (SAE)', <Link key="v" href={`/viscosity/${viscositySlug(product.viscosity)}`} className="tabular font-semibold text-petrol-500 underline underline-offset-2 hover:text-petrol-700">{product.viscosity}</Link>]);
   if (product.baseType) rows.push(['Τύπος', BASE_TYPE_LABELS[product.baseType]]);
-  if (product.category) rows.push(['Κατηγορία', <Link key="c" href={`/category/${product.category.slug}`} className="font-medium text-petrol-500 underline underline-offset-2 hover:text-petrol-700">{product.category.name}</Link>]);
+  // a category the owner has switched off has no page: name it, do not link to a 404
+  if (product.category && trail.length === 0) rows.push(['Κατηγορία', product.category.name]);
+  else if (product.category) rows.push(['Κατηγορία', <Link key="c" href={`/category/${product.category.slug}`} className="font-medium text-petrol-500 underline underline-offset-2 hover:text-petrol-700">{product.category.name}</Link>]);
   rows.push(['Συσκευασίες', product.variants.map((v) => v.label).join(' · ')]);
   for (const [k, v] of Object.entries(product.attributes ?? {})) rows.push([k, v]);
   // professionals search and order by these; shown per size once the owner has entered them (Admin → Skroutz)

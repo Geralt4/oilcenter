@@ -23,7 +23,7 @@ export function parseListingParams(sp: RawSearchParams): ListingFilters {
     return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : undefined;
   };
   return {
-    q: first(sp.q).slice(0, 80) || undefined,
+    q: first(sp.q).trim().slice(0, 80) || undefined,
     brands: list(sp.brand),
     categories: list(sp.cat),
     viscosities: list(sp.visc),

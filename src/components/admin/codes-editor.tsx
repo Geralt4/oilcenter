@@ -108,7 +108,7 @@ const CodeLine = memo(function CodeLine({ row, draft, problem, justSaved, onDraf
         ) : justSaved && !changed ? (
           <span className="inline-flex items-center gap-1 font-medium text-emerald-700"><Check className="h-3.5 w-3.5" />Αποθηκεύτηκε</span>
         ) : !row.inFeed ? (
-          <span className="text-ink-400">εκτός αρχείου προς το παρόν</span>
+          <span className="text-ink-500">εκτός αρχείου προς το παρόν</span>
         ) : null}
       </span>
     </li>
@@ -236,7 +236,7 @@ export function CodesEditor({ rows: serverRows }: { rows: CodeRow[] }) {
       <div className="flex flex-wrap items-center gap-2">
         <label className="relative min-w-0 flex-1 basis-64">
           <span className="sr-only">Αναζήτηση προϊόντος</span>
-          <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-ink-400" />
+          <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-ink-500" />
           <input value={query} onChange={(e) => setQuery(e.target.value)} type="search" placeholder="Αναζήτηση: μάρκα, προϊόν, 5w40, barcode…" autoComplete="off" className="field h-11 pl-10" />
         </label>
         <button type="button" onClick={() => setOnlyMissing((v) => !v)} aria-pressed={onlyMissing} className={cn('flex h-11 cursor-pointer items-center gap-2 rounded-xl border px-3.5 text-sm font-semibold', onlyMissing ? 'border-ink-900 bg-ink-900 text-white' : 'border-ink-200 bg-white text-ink-800 hover:bg-ink-50')}>

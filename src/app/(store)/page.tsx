@@ -247,7 +247,7 @@ export default async function HomePage() {
             <li key={b.id}>
               <Link href={`/brand/${b.slug}`} className="flex h-20 flex-col items-center justify-center rounded-2xl border border-line bg-white px-3 text-center shadow-tile transition-[box-shadow,border-color,transform] hover:-translate-y-0.5 hover:border-oil-400 hover:shadow-lift">
                 <span className="font-display text-xl font-extrabold tracking-tight text-ink-900">{b.name}</span>
-                <span className="text-xs text-ink-400">{b.productCount} προϊόντα</span>
+                <span className="text-xs text-ink-500">{b.productCount} προϊόντα</span>
               </Link>
             </li>
           ))}
