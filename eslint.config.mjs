@@ -5,7 +5,7 @@ import nextTs from 'eslint-config-next/typescript';
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
-  globalIgnores(['.next/**', 'node_modules/**', 'data/**', '.cache/**', 'public/**', 'drizzle/**', 'next-env.d.ts', 'Tsakiridis */**']),
+  globalIgnores(['.next/**', 'node_modules/**', 'data/**', '.cache/**', 'public/**', 'drizzle/**', 'next-env.d.ts', 'Tsakiridis */**', '.*/**']),
   {
     rules: {
       // `_name` marks a value that is destructured only to be left out of the rest object

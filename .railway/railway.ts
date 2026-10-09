@@ -32,6 +32,13 @@ export default defineRailway(() => {
     deploy: { restartPolicyType: "ON_FAILURE", restartPolicyMaxRetries: 5 },
     replicas: { sfo: 1 },
     volumeMounts: { "/app/data": webVolume },
+    // The public hostnames (DOMAIN.md). The port is mandatory: a bare string defaults to 8080 in the SDK, and the
+    // app listens on 3000. The generated *.up.railway.app address is never listed here. A custom domain added in
+    // the dashboard or with `railway domain` but missing from this list is DELETED by the next apply.
+    domains: [
+      { domain: "www.oilcenter.gr", port: 3000 },
+      { domain: "oilcenter.gr", port: 3000 },
+    ],
     // Every variable of .env.example that can be set on Railway, whether or not it is set today.
     // A variable that is set there but missing here is DELETED by the next apply — losing
     // SITE_PASSWORD that way would silently open the pre-launch password gate.

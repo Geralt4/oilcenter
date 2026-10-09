@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowRight, Headset, Phone, ShieldCheck, Store, Truck } from 'lucide-react';
@@ -10,6 +11,9 @@ import { getBrands, getCategoryTree, getFeaturedProducts, getPopularViscosities,
 import { jsonLdString, localBusinessJsonLd } from '@/lib/seo';
 import { getSettings } from '@/lib/settings.server';
 import { formatPrice, telHref } from '@/lib/utils';
+
+// The root layout deliberately sets no canonical; the home page declares its own like every indexable page.
+export const metadata: Metadata = { alternates: { canonical: '/' } };
 
 export default async function HomePage() {
   const [settings, tree, brands, featured, viscosities, accelerate] = await Promise.all([

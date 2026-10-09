@@ -17,7 +17,18 @@ import { formatDateTime, formatPrice } from '@/lib/utils';
 
 type Mail = { to: string; subject: string; html: string; replyTo?: string };
 
-const from =() => process.env.MAIL_FROM || 'Oil Center <no-reply@oilcenter.gr>';
+/*
+ * Sender. MAIL_FROM wins. Without it, and when the SMTP login is itself an address (Gmail, most mailbox providers),
+ * that address is used — Gmail rewrites any other From to the login anyway. The last fallback only matters for the
+ * outbox files: nothing is really sent without SMTP_HOST.
+ */
+const from = () => {
+  const explicit = process.env.MAIL_FROM?.trim();
+  if (explicit) return explicit;
+  const login = process.env.SMTP_USER?.trim();
+  if (login && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(login)) return `Oil Center <${login}>`;
+  return 'Oil Center <no-reply@oilcenter.gr>';
+};
 
 let transport: Transporter | null = null;
 function smtp(): Transporter | null {
