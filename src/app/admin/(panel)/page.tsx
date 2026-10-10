@@ -5,6 +5,7 @@ import { Card, PageHeader, PaymentBadge, StatusBadge, td, th } from '@/component
 import { buttonClass } from '@/components/ui/button';
 import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
+import { mailConfigured } from '@/lib/email';
 import { categories, orders, products, variants } from '@/lib/db/schema';
 import { hazardPriorityCategoryIds, needsHazardCheck } from '@/lib/ghs';
 import { releaseAbandonedCardOrders } from '@/lib/orders';
@@ -54,7 +55,7 @@ export default async function AdminDashboard() {
     // having an address is one thing, the site being able to SEND to it (SMTP, next line) is another: say which is true
     { done: Boolean(shop.email || process.env.ORDERS_NOTIFY_EMAIL), label: 'E-mail καταστήματος', detail: !(shop.email || process.env.ORDERS_NOTIFY_EMAIL) ? 'Δεν έχει οριστεί: τα μηνύματα από τις φόρμες («Επικοινωνία», «Ποιο λάδι;») φαίνονται μόνο εδώ, στα Μηνύματα — δεν σας ειδοποιεί κανείς.' : process.env.SMTP_HOST ? 'Εκεί έρχονται τα μηνύματα από τις φόρμες του site.' : 'Η διεύθυνση έχει οριστεί και φαίνεται στο site, αλλά το site δεν στέλνει ακόμη e-mail (επόμενη γραμμή): μέχρι τότε τα μηνύματα των φορμών φαίνονται μόνο εδώ, στα Μηνύματα.', href: '/admin/settings' },
     { done: backupFresh, label: 'Αντίγραφο ασφαλείας', detail: backupFresh ? (newestBackup ? `Τελευταίο αυτόματο αντίγραφο: ${newestBackup}. Κατεβάστε ένα πού και πού από τις Ρυθμίσεις — τα αντίγραφα μένουν στον ίδιο δίσκο με το site.` : 'Δεν χρειάζεται για αυτή τη βάση.') : `Το καθημερινό αντίγραφο δεν γράφτηκε${newestBackup ? ` από τις ${newestBackup}` : ' ποτέ'}. Ενημερώστε τον προγραμματιστή.`, href: null },
-    { done: Boolean(process.env.SMTP_HOST), label: 'Αποστολή e-mail (SMTP)', detail: process.env.SMTP_HOST ? 'Ρυθμισμένο.' : 'Δεν έχει ρυθμιστεί: τα e-mail γράφονται σε αρχεία αντί να στέλνονται. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
+    { done: mailConfigured(), label: 'Αποστολή e-mail', detail: mailConfigured() ? 'Ρυθμισμένο.' : 'Δεν έχει ρυθμιστεί: τα e-mail γράφονται σε αρχεία αντί να στέλνονται. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
     { forOrders: true, done: cardProvider() !== null, label: 'Πληρωμές με κάρτα', detail: cardProvider() ? `Ενεργός πάροχος: ${cardProvider()}.` : 'Δεν έχει συνδεθεί πάροχος (Viva ή Stripe): η επιλογή «κάρτα» δεν εμφανίζεται στο ταμείο. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
     { forOrders: true, done: storefront.ordersEnabled, label: 'Άνοιγμα online παραγγελιών', detail: storefront.ordersEnabled ? 'Οι επισκέπτες μπορούν να παραγγείλουν.' : 'Κλειστές: το site λειτουργεί ως ιστοσελίδα-κατάλογος — προϊόντα, τιμές και επικοινωνία, χωρίς καλάθι, ταμείο και λογαριασμούς. Εσείς, όσο είστε συνδεδεμένος, βλέπετε ολόκληρο το κατάστημα και μπορείτε να κάνετε δοκιμαστικές παραγγελίες. Ανοίξτε τες όταν είναι όλα έτοιμα.', href: '/admin/settings#storefront' },
     { done: !storefront.demoMode, label: 'Απενεργοποίηση δοκιμαστικής λειτουργίας', detail: storefront.demoMode ? 'Όσο είναι ενεργή, το site μένει κρυφό από το Google και οι παραγγελίες σημειώνονται ως δοκιμαστικές. Κλείστε την όταν το site είναι έτοιμο να το δει ο κόσμος — γίνεται και με τις online παραγγελίες ακόμη κλειστές.' : 'Το site είναι δημόσιο και ορατό στο Google.', href: '/admin/settings#storefront' },

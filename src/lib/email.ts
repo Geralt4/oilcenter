@@ -10,25 +10,44 @@ import { siteUrl } from '@/lib/site-url';
 import { formatDateTime, formatPrice } from '@/lib/utils';
 
 /*
- * SMTP when SMTP_HOST is set; otherwise every message is written to DATA_DIR/outbox/*.html so the
- * whole order flow can be exercised locally. Sending never throws into the caller: a mail hiccup
- * must not fail a checkout. Failures are logged and the order timeline records what was sent.
+ * Three ways out, first match wins: the Resend HTTPS API when RESEND_API_KEY is set (hosts that block
+ * outgoing SMTP, e.g. Railway below its Pro plan), SMTP when SMTP_HOST is set, otherwise every message
+ * is written to DATA_DIR/outbox/*.html so the whole order flow can be exercised locally. Sending never
+ * throws into the caller: a mail hiccup must not fail a checkout. Failures are logged and the order
+ * timeline records what was sent.
  */
 
 type Mail = { to: string; subject: string; html: string; replyTo?: string };
 
 /*
  * Sender. MAIL_FROM wins. Without it, and when the SMTP login is itself an address (Gmail, most mailbox providers),
- * that address is used — Gmail rewrites any other From to the login anyway. The last fallback only matters for the
- * outbox files: nothing is really sent without SMTP_HOST.
+ * that address is used — Gmail rewrites any other From to the login anyway. With Resend and no MAIL_FROM the sender is
+ * Resend's shared test address: it needs no DNS records, but Resend then delivers only to the account's own mailbox,
+ * which is enough for the shop's notifications. The last fallback only matters for the outbox files.
  */
 const from = () => {
   const explicit = process.env.MAIL_FROM?.trim();
   if (explicit) return explicit;
+  if (resendKey()) return 'Oil Center <onboarding@resend.dev>';
   const login = process.env.SMTP_USER?.trim();
   if (login && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(login)) return `Oil Center <${login}>`;
   return 'Oil Center <no-reply@oilcenter.gr>';
 };
+
+const resendKey = () => process.env.RESEND_API_KEY?.trim() || '';
+export const mailConfigured = () => Boolean(resendKey() || process.env.SMTP_HOST);
+
+const plainText = (html: string) => html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+async function sendWithResend(mail: Mail): Promise<void> {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${resendKey()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: from(), to: [mail.to], subject: mail.subject, html: mail.html, text: plainText(mail.html), ...(mail.replyTo ? { reply_to: mail.replyTo } : {}) }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`Resend answered ${res.status}: ${(await res.text()).slice(0, 300)}`);
+}
 
 let transport: Transporter | null = null;
 function smtp(): Transporter | null {
@@ -49,16 +68,20 @@ export async function sendMail(mail: Mail): Promise<boolean> {
     return false;
   }
   try {
+    if (resendKey()) {
+      await sendWithResend(mail);
+      return true;
+    }
     const t = smtp();
     if (t) {
-      await t.sendMail({ from: from(), to: mail.to, subject: mail.subject, html: mail.html, replyTo: mail.replyTo, text: mail.html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() });
+      await t.sendMail({ from: from(), to: mail.to, subject: mail.subject, html: mail.html, replyTo: mail.replyTo, text: plainText(mail.html) });
       return true;
     }
     const dir = path.resolve(process.env.DATA_DIR || './data', 'outbox');
     await mkdir(dir, { recursive: true });
     const file = `${new Date().toISOString().replace(/[:.]/g, '-')}__${mail.to.replace(/[^a-z0-9@.]+/gi, '_')}.html`;
     await writeFile(path.join(dir, file), `<!-- to: ${mail.to} | subject: ${mail.subject} -->\n${mail.html}`);
-    console.log(`[mail] SMTP not configured → wrote ${path.join('outbox', file)} ("${mail.subject}")`);
+    console.log(`[mail] no mail service configured → wrote ${path.join('outbox', file)} ("${mail.subject}")`);
     return true;
   } catch (err) {
     console.error(`[mail] failed to send "${mail.subject}" to ${mail.to}:`, err);

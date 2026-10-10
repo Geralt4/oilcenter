@@ -50,6 +50,7 @@ export default defineRailway(() => {
       "SITE_URL",
       "SITE_USER",
       "SITE_PASSWORD",
+      "RESEND_API_KEY",
       "SMTP_HOST",
       "SMTP_PORT",
       "SMTP_SECURE",

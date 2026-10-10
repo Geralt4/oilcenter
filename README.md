@@ -66,7 +66,7 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
    not the courier's actual contract. Set the real ones.
 8. **Legal pages** (terms, privacy, cookies, returns, shipping) are good-faith templates around Greek/EU consumer law.
    They are not legal advice — have a lawyer review them.
-9. **E-mail**: set the `SMTP_*` variables. Without them, e-mails are written to `data/outbox/*.html` instead of sent.
+9. **E-mail**: set `RESEND_API_KEY` (Resend's HTTPS API — needed on hosts that block outgoing SMTP, such as Railway below its Pro plan) or the `SMTP_*` variables. Without either, e-mails are written to `data/outbox/*.html` instead of sent.
 10. **Card payments**: see below. Until a provider is configured the "card" option is simply not offered.
 10b. **Online ordering is closed** (*Ρυθμίσεις → Λειτουργία καταστήματος → «Το κατάστημα δέχεται online παραγγελίες»*,
     off by default). Visitors can browse, see prices and fill a cart, but the cart and `/checkout` show "οι online
