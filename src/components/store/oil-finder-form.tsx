@@ -75,8 +75,17 @@ export function OilFinderForm({ product }: { product?: { slug: string; name: str
       </div>
 
       <div>
+        <label htmlFor="of-cc" className="label">Κυβικά (cc) {optional}</label>
+        <input id="of-cc" name="cc" defaultValue={was('cc')} inputMode="numeric" autoComplete="off" placeholder="π.χ. 1364" className="field tabular" />
+      </div>
+      <div>
+        <label htmlFor="of-power" className="label">Ίπποι (PS) {optional}</label>
+        <input id="of-power" name="power" defaultValue={was('power')} autoComplete="off" placeholder="π.χ. 90 PS ή 66 kW" className="field tabular" />
+      </div>
+
+      <div>
         <label htmlFor="of-engine" className="label">Κινητήρας {optional}</label>
-        <input id="of-engine" name="engine" defaultValue={was('engine')} autoComplete="off" placeholder="π.χ. 1.4 D-4D 90 PS" className="field" />
+        <input id="of-engine" name="engine" defaultValue={was('engine')} autoComplete="off" placeholder="π.χ. 1.4 D-4D" className="field" />
       </div>
       <div>
         <label htmlFor="of-km" className="label">Χιλιόμετρα {optional}</label>

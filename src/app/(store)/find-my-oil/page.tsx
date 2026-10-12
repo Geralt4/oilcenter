@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 type Props = { searchParams: Promise<{ product?: string | string[] }> };
 
 const steps = [
-  { icon: ClipboardList, title: 'Μας λέτε τι οδηγείτε', text: 'Μάρκα, μοντέλο, έτος και καύσιμο. Αν ξέρετε και τον κινητήρα, ακόμη καλύτερα.' },
+  { icon: ClipboardList, title: 'Μας λέτε τι οδηγείτε', text: 'Μάρκα, μοντέλο, έτος και καύσιμο. Με τα κυβικά και τους ίππους του κινητήρα η απάντηση είναι πιο ακριβής.' },
   { icon: SearchCheck, title: 'Βρίσκουμε τι ζητά ο κατασκευαστής', text: 'Ιξώδες και προδιαγραφή, όχι «κάτι που κάνει». Το λάθος λάδι το πληρώνει ο κινητήρας.' },
   { icon: PhoneCall, title: 'Σας καλούμε', text: 'Με το σωστό προϊόν, την τιμή του και το αν το έχουμε στο ράφι.' },
 ];
@@ -49,7 +49,7 @@ export default async function FindMyOilPage({ searchParams }: Props) {
           </ol>
 
           <p className="mt-6 rounded-2xl bg-ink-50 p-4 text-sm leading-relaxed text-ink-700">
-            <strong className="font-semibold text-ink-900">Πού τα βρίσκω;</strong> Στην άδεια κυκλοφορίας: <span className="tabular">D.1</span> μάρκα, <span className="tabular">D.3</span> μοντέλο, <span className="tabular">B</span> πρώτη άδεια, <span className="tabular">P.1</span> κυβισμός, <span className="tabular">P.3</span> καύσιμο.
+            <strong className="font-semibold text-ink-900">Πού τα βρίσκω;</strong> Στην άδεια κυκλοφορίας: <span className="tabular">D.1</span> μάρκα, <span className="tabular">D.3</span> μοντέλο, <span className="tabular">B</span> πρώτη άδεια, <span className="tabular">P.1</span> κυβικά, <span className="tabular">P.2</span> ισχύς σε kW (× 1,36 = ίπποι PS), <span className="tabular">P.3</span> καύσιμο.
           </p>
 
           <a href={telHref(shop.phone)} className="mt-4 flex items-center gap-3 rounded-2xl bg-ink-900 p-4 text-white transition-colors hover:bg-ink-800">
