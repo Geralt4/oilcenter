@@ -34,7 +34,7 @@ All the questions of section 5 are in Greek, with room for each answer, in [`que
 - [ ] A copy of the backups **outside** Railway — needs a storage account `→ D4`. Until then: download one by hand now and then. Photos uploaded through the admin are not in the snapshot yet.
 - [ ] Uptime check on `/api/health` with an e-mail alert `→ C1` (an external service; nothing to build)
 - [ ] E-mail sending (SMTP), so contact-form messages and sign-ups actually arrive `→ C1, C2` (the code is there; it needs the account and DNS records)
-- [ ] Move `railway.json` to Railway's new config format (their deadline: 1/12/2026) — **prepared** in `.railway/railway.ts`, not applied: applying it starts a deployment, so it waits until the site may come back up. Steps in the README.
+- [x] Move `railway.json` to Railway's new config format (their deadline: 1/12/2026) — done 13/10/2026: settings applied from `.railway/railway.ts`, `railway.json` removed, deploy without it verified.
 
 ### Domain — [you] / [Ilias], then [dev] — step by step in `DOMAIN.md`
 - [x] Find out who controls `oilcenter.gr` `→ D1` — **Papaki, inside the old agency's account, together with the free
