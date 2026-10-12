@@ -96,7 +96,7 @@ Where there is a default, "OK" is a complete answer.
 - **B5.** Address, phones, e-mail as shown today: Σόλωνος 52, 546 44 Θεσσαλονίκη · 2310 850778 · 6977 440388 · fax 2310 850267 · iliastsakiridis@hotmail.com. Anything to change or remove (is the fax still in use)? Does he approve the line «Τιμές χονδρικής, ακόμα και για αγορές λιανικής»?
 
 ### Opening hours
-- **H1.** Real hours per day. Default (a guess): Mon–Fri 08:30–17:00, Sat 09:00–14:00, Sun closed. Any midday break or summer hours?
+- **H1.** Real hours per day. Default (a guess): Mon–Fri 08:30–17:00, Sat 09:00–13:00, Sun closed. Any midday break or summer hours?
 
 ### Prices and catalogue
 - **P1.** The 17 probable matches in `SKROUTZ-PRICES.md` section 1: correct, or which are not?

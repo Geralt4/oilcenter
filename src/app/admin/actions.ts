@@ -286,13 +286,16 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     const keep = priced.flatMap((v) => (v.id ? [v.id] : []));
     // a size may only point at one of this product's own photos
     const ownImages = new Set([...(await tx.select({ url: productImages.url }).from(productImages).where(eq(productImages.productId, pid))).map((i) => i.url), ...uploads]);
+    // one new photo and one size still on the main photo (of several): the photo is that size's
+    const onMain = priced.flatMap((v, i) => (v.imageUrl && ownImages.has(v.imageUrl) ? [] : [i]));
+    const lone = priced.length >= 2 && uploads.length === 1 && onMain.length === 1 ? onMain[0] : null;
     const before = new Map((await tx.select({ id: variants.id, priceCents: variants.priceCents }).from(variants).where(eq(variants.productId, pid))).map((v) => [v.id, v.priceCents]));
     await tx.delete(variants).where(keep.length ? and(eq(variants.productId, pid), notInArray(variants.id, keep)) : eq(variants.productId, pid));
 
     for (const [sort, v] of priced.entries()) {
       const row = {
         productId: pid, label: v.label, volumeMl: /\d\s*g$/i.test(v.label) ? null : parseVolumeMl(v.label), priceCents: v.priceCents!, compareAtCents: v.compareAtCents,
-        stock: v.stock, trackStock: v.trackStock, availability: v.availability ?? 'in_stock', weightGrams: v.weightGrams, barcode: v.barcode ? normalizeGtin(v.barcode) : null, mpn: v.mpn || null, imageUrl: v.imageUrl && ownImages.has(v.imageUrl) ? v.imageUrl : null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
+        stock: v.stock, trackStock: v.trackStock, availability: v.availability ?? 'in_stock', weightGrams: v.weightGrams, barcode: v.barcode ? normalizeGtin(v.barcode) : null, mpn: v.mpn || null, imageUrl: sort === lone ? uploads[0] : v.imageUrl && ownImages.has(v.imageUrl) ? v.imageUrl : null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
         sku: skus[sort],
       };
       if (v.id) await tx.update(variants).set(row).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));

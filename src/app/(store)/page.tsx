@@ -10,6 +10,7 @@ import { TrustBadges } from '@/components/store/trust-badges';
 import { buttonClass } from '@/components/ui/button';
 import { getBrands, getCategoryTree, getFeaturedProducts, getPopularViscosities, listProducts, viscositySlug } from '@/lib/catalog';
 import { jsonLdString, localBusinessJsonLd } from '@/lib/seo';
+import { BRANDS_ON_SHELF } from '@/lib/settings';
 import { getSettings } from '@/lib/settings.server';
 import { formatPrice, telHref } from '@/lib/utils';
 
@@ -34,7 +35,7 @@ export default async function HomePage() {
     { icon: Headset, title: 'Το σωστό λάδι για το όχημά σας', text: 'Πείτε μας μάρκα, μοντέλο και έτος — τηλεφωνικά ή με τη φόρμα οχήματος.', href: '/find-my-oil', more: 'Ποιο λάδι θέλω; →' },
     selling
       ? { icon: Truck, title: 'Αποστολή σε όλη την Ελλάδα', text: shipping.freeOverCents > 0 ? `Δωρεάν για αγορές άνω των ${formatPrice(shipping.freeOverCents)}.` : `Παράδοση σε ${shipping.deliveryEstimate}.` }
-      : { icon: ShieldCheck, title: `${brands.length}+ μάρκες στο ράφι`, text: 'Λάδια κινητήρα, βαλβολίνες, αντιψυκτικά και χημικά, άμεσα διαθέσιμα.', href: '/brands', more: 'Δείτε τις μάρκες →' },
+      : { icon: ShieldCheck, title: `${Math.max(BRANDS_ON_SHELF, brands.length)}+ μάρκες στο ράφι`, text: 'Λάδια κινητήρα, βαλβολίνες, αντιψυκτικά, χημικά και ανταλλακτικά, άμεσα διαθέσιμα.', href: '/brands', more: 'Δείτε τις μάρκες →' },
     selling
       ? { icon: Store, title: 'Παραλαβή από το κατάστημα', text: `${shop.street}, ${shop.city} — χωρίς χρέωση.` }
       : { icon: Store, title: 'Ελάτε στο κατάστημα', text: `${shop.street}, ${shop.city}.`, href: '/contact', more: 'Ωράριο & χάρτης →' },
@@ -59,7 +60,7 @@ export default async function HomePage() {
               <span className="text-oil-400">για κάθε κινητήρα.</span>
             </h1>
             <p className="mt-5 max-w-xl text-lg leading-relaxed text-ink-200">
-              Λιπαντικά, βαλβολίνες, αντιψυκτικά και χημικά από τις κορυφαίες μάρκες — και συμβουλή για το σωστό λάδι. {selling ? 'Παραγγείλετε online ή περάστε' : 'Καλέστε μας ή περάστε'} από το κατάστημά μας στη {shop.city}.
+              Λιπαντικά, βαλβολίνες, αντιψυκτικά, χημικά και ανταλλακτικά από τις κορυφαίες μάρκες — και συμβουλή για το σωστό λάδι. {selling ? 'Παραγγείλετε online ή επισκεφθείτε' : 'Καλέστε μας ή επισκεφθείτε'} το κατάστημά μας στη {shop.city}.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/products" className={buttonClass({ size: 'lg' })}>
@@ -102,9 +103,15 @@ export default async function HomePage() {
               </div>
             </div>
             <div className="absolute -top-4 -right-2 hidden rotate-3 rounded-2xl bg-oil-500 px-5 py-3 text-ink-950 shadow-lift sm:block">
-              <p className="display text-3xl">{brands.length}+ μάρκες</p>
+              <p className="display text-3xl">{Math.max(BRANDS_ON_SHELF, brands.length)}+ μάρκες</p>
               <p className="text-xs font-semibold">σε ένα κατάστημα</p>
             </div>
+            {shop.foundedYear > 0 && (
+              <div className="absolute -top-6 -left-4 hidden h-28 w-28 -rotate-6 flex-col items-center justify-center rounded-full bg-ink-950 text-center shadow-lift ring-2 ring-oil-400 ring-offset-4 ring-offset-ink-950 sm:flex">
+                <p className="text-[0.625rem] font-semibold tracking-[0.26em] text-oil-300 uppercase">Από το</p>
+                <p className="display tabular text-4xl leading-none text-white">{shop.foundedYear}</p>
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -211,8 +218,17 @@ export default async function HomePage() {
               <div>
                 <p className="eyebrow text-oil-300">Made in Germany</p>
                 <h2 className="display mt-2 text-4xl sm:text-5xl">accelerate</h2>
-                <p className="mt-4 leading-relaxed text-ink-200">
-                  Γερμανική ποιότητα και τεχνολογία, με επίσημες εγκρίσεις κατασκευαστών (VW, Mercedes-Benz, BMW).{shop.accelerateDealer ? ' Είμαστε ο εξουσιοδοτημένος αντιπρόσωπος της accelerate.' : ' Θα βρείτε όλη τη γκάμα στο κατάστημά μας.'}
+                {shop.accelerateDealer ? (
+                  <p className="mt-4 leading-relaxed text-ink-200">
+                    Στο Oil Center Τσακιρίδης είμαστε επίσημοι αντιπρόσωποι της σειράς λιπαντικών Accelerate. Τα προϊόντα Accelerate κατασκευάζονται στη Γερμανία και διαθέτουν επίσημες εγκρίσεις από κορυφαίους κατασκευαστές (VW, Mercedes-Benz, BMW), προσφέροντας κορυφαία ποιότητα και προστασία για κάθε κινητήρα.
+                  </p>
+                ) : (
+                  <p className="mt-4 leading-relaxed text-ink-200">
+                    Γερμανική ποιότητα και τεχνολογία, με επίσημες εγκρίσεις κατασκευαστών (VW, Mercedes-Benz, BMW). Θα βρείτε όλη τη γκάμα στο κατάστημά μας.
+                  </p>
+                )}
+                <p className="mt-3 leading-relaxed text-ink-200">
+                  Για επαγγελματίες και συνεργεία, παρέχουμε ειδικές τιμές χονδρικής και προνομιακές προσφορές. Επικοινωνήστε μαζί μας ή επισκεφθείτε μας στη {shop.street} στη {shop.city} για να λάβετε τον επαγγελματικό τιμοκατάλογο χονδρικής.
                 </p>
                 <Link href="/brand/accelerate" className={buttonClass({ className: 'mt-6' })}>
                   Όλη η γκάμα accelerate
@@ -253,7 +269,7 @@ export default async function HomePage() {
           ))}
         </ul>
         <p className="mt-4 text-sm text-ink-500">
-          <Link href="/brands" className="font-semibold text-ink-800 underline underline-offset-4 hover:text-ink-950">Δείτε και τις {brands.length} μάρκες</Link>
+          <Link href="/brands" className="font-semibold text-ink-800 underline underline-offset-4 hover:text-ink-950">Δείτε όλες τις μάρκες</Link>
         </p>
       </section>
 

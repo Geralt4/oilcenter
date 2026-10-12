@@ -111,6 +111,9 @@ export type ShopSettings = {
 /** The fixed availability phrases Skroutz recognises in a feed (developer.skroutz.gr → XML Feed → Availability). */
 export const SKROUTZ_AVAILABILITY = ['Άμεσα διαθέσιμο', 'Διαθέσιμο από 1 έως 3 ημέρες', 'Διαθέσιμο από 4 έως 6 ημέρες', 'Διαθέσιμο από 7 έως 12 ημέρες'] as const;
 
+/** How many brands the shop carries on its shelves (the owner's figure, 12.10.2026); the online catalogue lists fewer. */
+export const BRANDS_ON_SHELF = 30;
+
 export const DEFAULT_SETTINGS: ShopSettings = {
   shop: {
     name: 'Oil Center',
@@ -132,19 +135,19 @@ export const DEFAULT_SETTINGS: ShopSettings = {
     vatNumber: '054243156',
     taxOffice: 'Καλαμαριάς / ΚΕΦΟΔΕ',
     gemi: '58197804000',
-    // confirmed by the owner on 22.09.2026: no midday break, no summer timetable
+    // confirmed by the owner on 22.09.2026: no midday break, no summer timetable; Saturday closes at 13:00 since 12.10.2026
     hours: [
       { day: 1, closed: false, open: '08:30', close: '17:00' },
       { day: 2, closed: false, open: '08:30', close: '17:00' },
       { day: 3, closed: false, open: '08:30', close: '17:00' },
       { day: 4, closed: false, open: '08:30', close: '17:00' },
       { day: 5, closed: false, open: '08:30', close: '17:00' },
-      { day: 6, closed: false, open: '09:00', close: '14:00' },
+      { day: 6, closed: false, open: '09:00', close: '13:00' },
       { day: 7, closed: true, open: '', close: '' },
     ],
     hoursVerified: true,
-    foundedYear: 0,
-    accelerateDealer: false,
+    foundedYear: 1998,
+    accelerateDealer: true,
   },
   storefront: {
     demoMode: true,

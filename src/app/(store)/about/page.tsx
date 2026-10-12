@@ -7,6 +7,7 @@ import { StoreLocation } from '@/components/store/store-location';
 import { TrustBadges } from '@/components/store/trust-badges';
 import { buttonClass } from '@/components/ui/button';
 import { getBrands } from '@/lib/catalog';
+import { BRANDS_ON_SHELF } from '@/lib/settings';
 import { getSettings } from '@/lib/settings.server';
 
 export const metadata: Metadata = {
@@ -28,7 +29,7 @@ export default async function AboutPage() {
 
   const values = [
     { icon: Headset, title: 'Συμβουλή πριν την αγορά', text: 'Πείτε μας το όχημα και σας λέμε τι χρειάζεται — στο κατάστημα, τηλεφωνικά ή με τη φόρμα οχήματος.' },
-    { icon: Boxes, title: `${brands.length}+ μάρκες στο ράφι`, text: 'Οι δημοφιλέστερες μάρκες λιπαντικών, άμεσα διαθέσιμες στο κατάστημα.' },
+    { icon: Boxes, title: `${Math.max(BRANDS_ON_SHELF, brands.length)}+ μάρκες στο ράφι`, text: 'Οι δημοφιλέστερες μάρκες λιπαντικών, άμεσα διαθέσιμες στο κατάστημα.' },
     shop.accelerateDealer
       ? { icon: Handshake, title: 'Εξουσιοδοτημένος αντιπρόσωπος accelerate', text: 'Γερμανικά λιπαντικά με εγκρίσεις κατασκευαστών, απευθείας από τον αντιπρόσωπο.' }
       : { icon: Handshake, title: 'Όλη η γκάμα accelerate', text: 'Γερμανικά λιπαντικά με εγκρίσεις κατασκευαστών, σε όλα τα ιξώδη.' },
@@ -42,7 +43,7 @@ export default async function AboutPage() {
       <div className="mt-6 grid items-center gap-10 lg:grid-cols-2">
         <div>
           <p className="eyebrow text-oil-700">{shop.legalName}</p>
-          <h1 className="display mt-2 text-4xl sm:text-6xl">Λιπαντικά και χημικά αυτοκινήτου, στην καρδιά της Θεσσαλονίκης</h1>
+          <h1 className="display mt-2 text-4xl sm:text-6xl">Λιπαντικά, χημικά και ανταλλακτικά αυτοκινήτου, στην καρδιά της Θεσσαλονίκης</h1>
           <div className="prose-oc mt-6 text-lg">
             <p>Στη {shop.street} στη Θεσσαλονίκη λειτουργεί η έδρα της επιχείρησης εμπορίας λιπαντικών αυτοκινήτων <strong>{shop.legalName}</strong>. Στο κατάστημά μας θα βρείτε τις δημοφιλέστερες μάρκες λιπαντικών, καθώς και μεγάλη γκάμα ανταλλακτικών. Διαθέτουμε ακόμη αντιψυκτικά, paraflu, γράσα και λάδια υδραυλικού.</p>
             <p>Ελάτε να μας γνωρίσετε, για να σας εξυπηρετήσουμε όπως μόνο εμείς ξέρουμε και μπορούμε!</p>

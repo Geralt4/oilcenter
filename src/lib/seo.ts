@@ -44,6 +44,7 @@ export function localBusinessJsonLd(settings: ShopSettings) {
     ...(shop.email && { email: shop.email }),
     image: `${siteUrl()}/shop/counter-mobil-1.webp`,
     priceRange: '€',
+    ...(shop.foundedYear > 0 && { foundingDate: String(shop.foundedYear) }),
     currenciesAccepted: 'EUR',
     address: {
       '@type': 'PostalAddress',
