@@ -18,5 +18,5 @@ railway config apply    # shows the same plan, asks, then changes the live servi
 ```
 
 `railway.ts` describes the whole project: anything left out of it is deleted on apply. A plan that shows a
-`Delete` line, or any change to `web-volume` (the shop database), must not be applied — and never pass
+`Delete` line, or any change to `web-volume-Q6Vy` (the shop database), must not be applied — and never pass
 `--confirm-destructive`.
