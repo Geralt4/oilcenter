@@ -4,13 +4,24 @@ import { cn } from '@/lib/utils';
 
 /** The Oilcenter.gr artwork, as a rounded square. */
 export function LogoMark({ className }: { className?: string }) {
-  return <Image src={mark} alt="" aria-hidden="true" sizes="40px" className={cn('rounded-[25%] object-cover', className)} />;
+  return <Image src={mark} alt="" aria-hidden="true" sizes="64px" className={cn('rounded-[25%] object-cover', className)} />;
 }
 
-export function Logo({ className, tone = 'dark', since }: { className?: string; tone?: 'dark' | 'light'; since?: number }) {
+export function Logo({
+  className,
+  markClassName,
+  tone = 'dark',
+  since,
+}: {
+  className?: string;
+  /** Size of the picture; default 40 px. */
+  markClassName?: string;
+  tone?: 'dark' | 'light';
+  since?: number;
+}) {
   return (
     <span className={cn('inline-flex items-center gap-2.5', className)}>
-      <LogoMark className="h-10 w-10 shrink-0" />
+      <LogoMark className={cn('h-10 w-10 shrink-0', markClassName)} />
       <span className="flex flex-col leading-none">
         <span className={cn('font-display text-[1.625rem] font-extrabold tracking-tight uppercase', tone === 'dark' ? 'text-ink-900' : 'text-white')}>
           Oil<span className="text-oil-500">·</span>Center
