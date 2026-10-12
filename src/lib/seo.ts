@@ -26,8 +26,8 @@ export function jsonLdString(data: unknown): string {
  * share of a category or a product back to the home page.
  */
 export const OG_BASE = { type: 'website', locale: 'el_GR', siteName: 'Oil Center — Τσακιρίδης' } as const;
-/** the card shown when a page has no picture of its own (1200×630, public/shop/share.jpg) */
-export const OG_IMAGE = { url: '/shop/share.jpg', width: 1200, height: 630, alt: 'Oil Center — Τσακιρίδης · Λιπαντικά, Θεσσαλονίκη' } as const;
+/** the card shown when a page has no picture of its own (1200×630, public/shop/share-oilcenter.jpg) */
+export const OG_IMAGE = { url: '/shop/share-oilcenter.jpg', width: 1200, height: 630, alt: 'Oilcenter.gr — Λιπαντικά, πρόσθετα, φροντίδα αυτοκινήτου' } as const;
 
 /** schema.org AutoPartsStore — feeds Google's local panel with phone, address, geo and opening hours. */
 export function localBusinessJsonLd(settings: ShopSettings) {
