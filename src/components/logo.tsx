@@ -1,21 +1,10 @@
+import Image from 'next/image';
+import mark from './logo-artwork.jpg';
 import { cn } from '@/lib/utils';
 
-/** Oil drop with a specular highlight. Pure SVG so it stays crisp from favicon to hero. */
+/** The Oilcenter.gr artwork, as a rounded square. */
 export function LogoMark({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 40 40" className={className} aria-hidden="true">
-      <defs>
-        <linearGradient id="oc-drop" x1="0.2" y1="0" x2="0.8" y2="1">
-          <stop offset="0" stopColor="#ffd566" />
-          <stop offset="0.55" stopColor="#f2a30b" />
-          <stop offset="1" stopColor="#c97605" />
-        </linearGradient>
-      </defs>
-      <rect width="40" height="40" rx="10" fill="#11141a" />
-      <path d="M20 6.5c4.9 6.3 9.6 11.1 9.6 16.7A9.6 9.6 0 0 1 20 32.8a9.6 9.6 0 0 1-9.6-9.6C10.4 17.6 15.1 12.8 20 6.5z" fill="url(#oc-drop)" />
-      <path d="M15.2 23.6c0 2.7 1.9 4.9 4.4 5.4" fill="none" stroke="#fff" strokeOpacity="0.75" strokeWidth="1.9" strokeLinecap="round" />
-    </svg>
-  );
+  return <Image src={mark} alt="" aria-hidden="true" sizes="40px" className={cn('rounded-[25%] object-cover', className)} />;
 }
 
 export function Logo({ className, tone = 'dark', since }: { className?: string; tone?: 'dark' | 'light'; since?: number }) {
