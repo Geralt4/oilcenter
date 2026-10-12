@@ -64,7 +64,8 @@ export function ProductView({ product, images, variants, initialVariantId }: Pro
   const selectVariant = (v: ViewVariant) => {
     setVariantId(v.id);
     setQuantity(1);
-    if (v.imageUrl) setActiveImage(v.imageUrl);
+    // a size without its own photo shows the main one, not whatever the previous size left behind
+    setActiveImage(v.imageUrl ?? images[0]?.url ?? null);
   };
 
   const onAdd = () => {

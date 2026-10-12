@@ -14,9 +14,9 @@ export function Footer({ settings, tree, canOrder }: { settings: ShopSettings; t
     <footer className="steel mt-20 text-ink-300">
       <div className="container-page grid gap-10 py-14 md:grid-cols-2 lg:grid-cols-[1.3fr_1fr_1fr_1.2fr]">
         <div>
-          <Logo tone="light" />
+          <Logo tone="light" since={shop.foundedYear} />
           <p className="mt-5 max-w-sm text-sm leading-relaxed">
-            {shop.legalName} — εμπορία λιπαντικών, χημικών και ανταλλακτικών αυτοκινήτου στη Θεσσαλονίκη.
+            {shop.legalName}{shop.foundedYear > 0 ? ` — από το ${shop.foundedYear}` : ''}. Εμπορία λιπαντικών, χημικών και ανταλλακτικών αυτοκινήτου στη Θεσσαλονίκη.
           </p>
           <ul className="mt-6 space-y-3 text-sm">
             <li>

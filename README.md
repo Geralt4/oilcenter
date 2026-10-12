@@ -52,7 +52,7 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
    labels is garbled. Only approvals that were clearly legible were recorded; the rest were left empty rather than
    guessed, because a wrong OEM approval means the wrong oil in a customer's engine. Complete them from the
    manufacturers' data sheets.
-4. **Opening hours are a guess** (Mon–Fri 08:30–17:00, Sat 09:00–14:00). Correct them and tick "επιβεβαιωμένο" — only
+4. **Opening hours are a guess** (Mon–Fri 08:30–17:00, Sat 09:00–13:00). Correct them and tick "επιβεβαιωμένο" — only
    then are they published to Google via structured data.
 2b. The full list of those 43, grouped by what to check, is in [`REVIEW.md`](REVIEW.md).
 5. **ΑΦΜ, Αρ. ΓΕΜΗ and ΔΟΥ** were supplied by the owner on 22.09.2026 (defaults in `src/lib/settings.ts`, data patch

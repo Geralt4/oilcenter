@@ -63,7 +63,7 @@ export function MobileNav({ tree, brands, shop, customerName }: Props) {
           <button type="button" aria-label="Κλείσιμο μενού" onClick={() => setOpen(false)} className="animate-fade-in absolute inset-0 h-full w-full cursor-default bg-ink-950/55 backdrop-blur-[2px]" />
           <div ref={panelRef} tabIndex={-1} className="animate-slide-in-left absolute inset-y-0 left-0 flex w-[88%] max-w-sm flex-col bg-white shadow-lift outline-none">
             <div className="flex h-16 shrink-0 items-center justify-between border-b border-line px-4">
-              <Logo />
+              <Logo since={shop.foundedYear} />
               <button type="button" onClick={() => setOpen(false)} aria-label="Κλείσιμο" className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl text-ink-600 hover:bg-ink-100">
                 <X className="h-5 w-5" />
               </button>

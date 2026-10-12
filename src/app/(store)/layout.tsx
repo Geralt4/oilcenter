@@ -22,7 +22,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     ...(storefront.demoMode ? { robots: { index: false, follow: false } } : {}),
     // the promise of delivery belongs to the site only while it really takes orders (catalogue mode otherwise)
-    ...(storefront.ordersEnabled ? { description: 'Λιπαντικά κινητήρα, βαλβολίνες, αντιψυκτικά και χημικά από Castrol, Motul, Mobil, Valvoline, Shell, Liqui Moly και accelerate. Αποστολή σε όλη την Ελλάδα, παραλαβή από το κατάστημα στη Θεσσαλονίκη.' } : {}),
+    ...(storefront.ordersEnabled ? { description: 'Λιπαντικά κινητήρα, βαλβολίνες, αντιψυκτικά, χημικά και ανταλλακτικά από Castrol, Motul, Mobil, Valvoline, Shell, Liqui Moly και accelerate. Αποστολή σε όλη την Ελλάδα, παραλαβή από το κατάστημα στη Θεσσαλονίκη.' } : {}),
   };
 }
 

@@ -1,7 +1,7 @@
 import './env';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 import { db } from '../src/lib/db';
-import { brands, settings } from '../src/lib/db/schema';
+import { brands, productImages, products, settings, variants } from '../src/lib/db/schema';
 import { DEFAULT_SETTINGS, type ShopSettings } from '../src/lib/settings';
 import { saveSettingsGroup } from '../src/lib/settings.server';
 import { applyHazardLabels, applyManufacturerSpecs } from './manufacturer-data';
@@ -72,6 +72,55 @@ async function removeAccelerateClaim(): Promise<string> {
   return 'sentence removed from the accelerate brand description';
 }
 
+/**
+ * Saturday closes at 13:00 from 12.10.2026 (the owner's instruction). Only a stored 14:00 moves; a Saturday set some
+ * other way, and every other field of the stored shop settings, is left as it is.
+ */
+async function saturdayClosesAt13(): Promise<string> {
+  const [row] = await db.select().from(settings).where(eq(settings.key, 'shop'));
+  const stored = (row && typeof row.value === 'object' && row.value !== null && !Array.isArray(row.value) ? row.value : null) as Partial<ShopSettings['shop']> | null;
+  const hours = stored?.hours;
+  if (!stored || !Array.isArray(hours)) return 'nothing stored';
+  if (!hours.some((d) => d.day === 6 && d.close === '14:00')) return 'kept Saturday as the owner set it';
+  const moved = hours.map((d) => (d.day === 6 && d.close === '14:00' ? { ...d, close: '13:00' } : d));
+  await db.update(settings).set({ value: { ...stored, hours: moved } }).where(eq(settings.key, 'shop'));
+  return 'Saturday now closes at 13:00';
+}
+
+/**
+ * accelerate's authorised dealership and the founding year (1998) were confirmed by the owner on 12.10.2026. The year
+ * is written only where none was entered (0 or missing), so a year typed in Ρυθμίσεις is never overwritten.
+ */
+async function shopSince1998(): Promise<string> {
+  const [row] = await db.select().from(settings).where(eq(settings.key, 'shop'));
+  const stored = (row && typeof row.value === 'object' && row.value !== null && !Array.isArray(row.value) ? row.value : null) as Partial<ShopSettings['shop']> | null;
+  if (!stored) return 'nothing stored';
+  const setYear = !stored.foundedYear;
+  await db.update(settings).set({ value: { ...stored, accelerateDealer: true, ...(setYear && { foundedYear: 1998 }) } }).where(eq(settings.key, 'shop'));
+  return `set accelerateDealer to true${setYear ? ' and foundedYear to 1998' : ''}`;
+}
+
+/**
+ * The owner's Toyota photos (5 L and 1 L) were uploaded, but no size pointed at them, so every size showed the main
+ * photo (12.10.2026). Each size is linked to the photo of its own label, and only where it has no photo of its own yet.
+ */
+async function linkToyotaSizePhotos(): Promise<string> {
+  const [product] = await db.select({ id: products.id }).from(products).where(eq(products.slug, 'toyota-premium-fuel-economy-5w-30-5l'));
+  if (!product) return 'product not found';
+  const photos: Record<string, string> = {
+    '5L': '/media/products/toyota-premium-fuel-economy-5w-30-5l-affdwsm.webp',
+    '1L': '/media/products/toyota-premium-fuel-economy-5w-30-5l-o1uvmze.webp',
+  };
+  let linked = 0;
+  for (const [label, url] of Object.entries(photos)) {
+    const [photo] = await db.select({ id: productImages.id }).from(productImages).where(and(eq(productImages.productId, product.id), eq(productImages.url, url)));
+    if (!photo) continue;
+    const sizes = await db.update(variants).set({ imageUrl: url }).where(and(eq(variants.productId, product.id), eq(variants.label, label), or(isNull(variants.imageUrl), eq(variants.imageUrl, '')))).returning({ id: variants.id });
+    linked += sizes.length;
+  }
+  return `${linked} sizes linked to their photo`;
+}
+
 /*
  * One-time DATA patches for existing databases. Runs at start-up after the migrations and the seed (see Dockerfile).
  * The hosted database lives on a volume and is never re-seeded, so this is how a data change rides along with a deploy.
@@ -96,6 +145,12 @@ const PATCHES: Array<{ id: string; run: () => Promise<string> }> = [
   { id: '2026-10-09-remove-facebook', run: removeFacebookLink },
   // Search synonyms get their own column; search texts the product editor had stripped of them are rebuilt.
   { id: '2026-10-09-search-keywords', run: applySearchKeywords },
+  // Saturday closes at 13:00 from 12.10.2026 (the owner's instruction): only a stored 14:00 is moved.
+  { id: '2026-10-12-saturday-hours', run: saturdayClosesAt13 },
+  // Founded 1998 and accelerate dealer, both confirmed by the owner on 12.10.2026; a founding year already entered is kept.
+  { id: '2026-10-12-shop-since-1998', run: shopSince1998 },
+  // The owner's Toyota photos go to their own pack sizes: they were uploaded, but no size pointed at them.
+  { id: '2026-10-12-toyota-size-photos', run: linkToyotaSizePhotos },
 ];
 
 const KEY = 'dataPatches';

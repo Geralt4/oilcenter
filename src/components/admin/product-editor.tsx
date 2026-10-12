@@ -25,6 +25,9 @@ export async function ProductEditor({ product, created }: Props) {
     id: v.id, label: v.label, sku: v.sku, price: centsToInput(v.priceCents), compareAt: centsToInput(v.compareAtCents), stock: v.stock, trackStock: v.trackStock, availability: v.availability,
     weightGrams: v.weightGrams, barcode: v.barcode ?? '', mpn: v.mpn ?? '', imageUrl: v.imageUrl ?? '', isActive: v.isActive, priceVerified: v.priceVerified,
   }));
+  // several sizes and several photos, yet no size has a photo of its own: every size would show the main one
+  const imageUrls = new Set((product?.images ?? []).map((i) => i.url));
+  const needsSizePhotos = !!product && rows.length >= 2 && product.images.length >= 2 && !rows.some((r) => imageUrls.has(r.imageUrl));
 
   return (
     <>
@@ -75,13 +78,14 @@ export async function ProductEditor({ product, created }: Props) {
         </Card>
 
         <Card title="Συσκευασίες, τιμές & απόθεμα" description="Κάθε συσκευασία (1L, 4L, 20L…) έχει δική της τιμή, βάρος αποστολής και απόθεμα.">
+          {needsSizePhotos && <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900">Το προϊόν έχει περισσότερες από μία συσκευασίες και φωτογραφίες, αλλά καμία συσκευασία δεν έχει τη δική της. Πατήστε στη στήλη «Φωτογραφία» αυτήν που ταιριάζει σε κάθε μέγεθος και αποθηκεύστε.</p>}
           {/* remounts once a save has given new sizes their ids: sent back without one, a size would be deleted and created again */}
           <VariantsEditor key={rows.map((r) => r.id ?? 'new').join('-')} initial={rows} images={(product?.images ?? []).map((i) => i.url)} />
         </Card>
 
         <Card title="Προσθήκη φωτογραφιών" description="Τραβήξτε το προϊόν σε ανοιχτόχρωμο φόντο. Το σύστημα καθαρίζει το φόντο, κεντράρει και φέρνει όλες τις φωτογραφίες στο ίδιο μέγεθος.">
           <FileInput name="images" accept="image/jpeg,image/png,image/webp" multiple maxFiles={12} maxTotalMb={20} what="φωτογραφίες" className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-900 file:px-4 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-700" />
-          <p className="mt-2 text-xs text-ink-500">Έως 12 φωτογραφίες και 20 MB συνολικά σε κάθε αποθήκευση· αν έχετε περισσότερες, ανεβάστε τες σε δύο δόσεις.</p>
+          <p className="mt-2 text-xs text-ink-500">Έως 12 φωτογραφίες και 20 MB συνολικά σε κάθε αποθήκευση· αν έχετε περισσότερες, ανεβάστε τες σε δύο δόσεις. Αν το προϊόν έχει πολλές συσκευασίες, μετά την αποθήκευση διαλέξτε παραπάνω ποια φωτογραφία δείχνει καθεμία.</p>
         </Card>
 
         <Card
