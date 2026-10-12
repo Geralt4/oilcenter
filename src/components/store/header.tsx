@@ -87,7 +87,7 @@ export function Header({ settings, tree, brands, customerName, canOrder, adminPr
           <MobileNav tree={tree} brands={brands} shop={shop} customerName={customerName} />
 
           <Link href="/" aria-label="Oil Center — αρχική σελίδα" className="shrink-0">
-            <Logo since={shop.foundedYear} />
+            <Logo since={shop.foundedYear} markClassName="h-13 w-13 lg:h-15 lg:w-15" />
           </Link>
 
           <div className="hidden flex-1 lg:block">
