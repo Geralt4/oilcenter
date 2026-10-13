@@ -188,8 +188,10 @@ Nothing else changes yet, and the old site keeps running.
    ```
    Each command prints **two records**: a `CNAME` target of the form `<hash>.up.railway.app` and a `TXT`
    ownership record. Both are mandatory per domain — with the CNAME alone the host answers 404 forever. Keep all four.
-3. Both hostnames are already declared in `.railway/railway.ts` (`domains`, port 3000). Nothing to edit; but never
-   run `railway config apply` with a `Delete` line in its plan (README → "Hosted preview (Railway)").
+3. `.railway/railway.ts` cannot register a custom domain, so the two hostnames are not in it yet. Once both exist on
+   the service, run `railway config pull --json`, copy how it describes them into the `web` service of that file, and
+   check that `railway config plan` shows no `Delete` line (README → "Hosted preview (Railway)"). Skip this and the
+   next `railway config apply` removes the domains again.
 
 ### Step 5 — build the new DNS zone next to the old one (you)
 
@@ -301,7 +303,7 @@ e-mail are now void (if Ilias ever reused one of them elsewhere, change that too
 - `src/app/admin/(panel)/skroutz/page.tsx` — the "temporary address" warning now fires for anything but
   `https://www.oilcenter.gr` (also the bare domain or a typo in `SITE_URL`).
 - `src/lib/email.ts` — sender falls back to the SMTP login when `MAIL_FROM` is empty (Gmail).
-- `.railway/railway.ts` — both custom domains declared with port 3000 (a bare string would mean port 8080).
+- `.railway/railway.ts` — the custom domains are added to it after they exist on Railway (step 3 above).
 - `next.config.ts` — comment on what HSTS `includeSubDomains` means once the apex is served here; `preload` stays out.
 - `README.md`, `TEST-RUN.md`, `questions.md` (D1–D3, C2), `.env.example` — updated to this plan.
 

@@ -101,6 +101,19 @@ async function shopSince1998(): Promise<string> {
 }
 
 /**
+ * The shop's Instagram profile (given on 13.10.2026): the link shows in the header strip, the footer and the contact
+ * page. A profile the owner has typed into Admin → Ρυθμίσεις in the meantime is kept.
+ */
+async function applyInstagramLink(): Promise<string> {
+  const [row] = await db.select().from(settings).where(eq(settings.key, 'shop'));
+  const stored = (row && typeof row.value === 'object' && row.value !== null && !Array.isArray(row.value) ? row.value : {}) as Partial<ShopSettings['shop']>;
+  if (stored.instagramUrl) return `kept ${stored.instagramUrl}`;
+  const instagramUrl = DEFAULT_SETTINGS.shop.instagramUrl;
+  await saveSettingsGroup('shop', { ...DEFAULT_SETTINGS.shop, ...stored, instagramUrl });
+  return `Instagram link set to ${instagramUrl}`;
+}
+
+/**
  * The owner's Toyota photos (5 L and 1 L) were uploaded, but no size pointed at them, so every size showed the main
  * photo (12.10.2026). Each size is linked to the photo of its own label, and only where it has no photo of its own yet.
  */
@@ -151,6 +164,8 @@ const PATCHES: Array<{ id: string; run: () => Promise<string> }> = [
   { id: '2026-10-12-shop-since-1998', run: shopSince1998 },
   // The owner's Toyota photos go to their own pack sizes: they were uploaded, but no size pointed at them.
   { id: '2026-10-12-toyota-size-photos', run: linkToyotaSizePhotos },
+  // The shop's Instagram profile; a link already entered in the admin is kept.
+  { id: '2026-10-13-instagram-link', run: applyInstagramLink },
 ];
 
 const KEY = 'dataPatches';

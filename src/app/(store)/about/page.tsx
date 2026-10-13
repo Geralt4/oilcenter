@@ -55,8 +55,8 @@ export default async function AboutPage() {
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div className="relative col-span-2 aspect-[16/10] overflow-hidden rounded-3xl shadow-tile">
-            <Image src="/shop/counter-mobil-super.webp" alt="Ράφια με λιπαντικά στο κατάστημα Oil Center" fill priority sizes="(min-width: 1024px) 600px, 100vw" className="object-cover object-[50%_25%]" />
+          <div className="relative col-span-2 aspect-[4/3] overflow-hidden rounded-3xl shadow-tile">
+            <Image src="/shop/counter-castrol-magnatec.webp" alt="Castrol Magnatec 10W-40 σε τρεις συσκευασίες στον πάγκο του καταστήματος" fill priority sizes="(min-width: 1024px) 600px, 100vw" className="object-cover" />
           </div>
           <div className="relative aspect-square overflow-hidden rounded-3xl shadow-tile">
             <Image src="/shop/counter-mobil-1.webp" alt="Mobil 1 στον πάγκο του καταστήματος" fill sizes="(min-width: 1024px) 300px, 50vw" className="object-cover" />

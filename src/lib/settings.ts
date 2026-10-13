@@ -130,7 +130,7 @@ export const DEFAULT_SETTINGS: ShopSettings = {
     region: 'Θεσσαλονίκη',
     lat: 40.606737,
     lng: 22.957507,
-    instagramUrl: '',
+    instagramUrl: 'https://www.instagram.com/tsakiridis_oilcenter.gr/',
     skroutzUrl: 'https://www.skroutz.gr/shop/30368/Tsakiridis-Oil-Center/products.html',
     vatNumber: '054243156',
     taxOffice: 'Καλαμαριάς / ΚΕΦΟΔΕ',

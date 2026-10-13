@@ -1,11 +1,11 @@
-// Railway settings for the hosted preview — replaces railway.json (Config as Code, retired 2026-12-01).
+// Railway settings for the hosted preview (they replaced railway.json, which Railway retires on 2026-12-01).
 // Railway never reads this file on deploy: `railway config apply` pushes it to the project.
 // Workflow and safety rules: README.md → "Hosted preview (Railway)".
 //
 // This file describes the WHOLE project, and omitting something means deleting it. The volume,
 // its mount and every variable must therefore stay listed, even though nothing about them is
 // configured here. `railway config plan` must never show a "Delete" line or a change to
-// web-volume: that volume holds the shop database.
+// web-volume-Q6Vy: that volume holds the shop database.
 import { defineRailway, preserve, project, service, volume } from "railway/iac";
 
 // preserve() keeps whatever value is stored on Railway, so secrets never enter git. For a
@@ -14,11 +14,11 @@ const keep = (...names: string[]) => Object.fromEntries(names.map((name) => [nam
 
 export default defineRailway(() => {
   // SQLite database, admin uploads, e-mail outbox and backups.
-  const webVolume = volume("web-volume", {
+  const webVolume = volume("web-volume-Q6Vy", {
     alerts: { usage: { "100": {}, "80": {}, "95": {} } },
     allowOnlineResize: true,
-    region: "sfo",
-    sizeMB: 500,
+    region: "europe-west4-drams3a",
+    sizeMB: 5000,
   });
 
   const web = service("web", {
@@ -30,15 +30,10 @@ export default defineRailway(() => {
     healthcheckTimeout: 180,
     // `railway config migrate` drops the restart policy; the raw deploy block keeps it.
     deploy: { restartPolicyType: "ON_FAILURE", restartPolicyMaxRetries: 5 },
-    replicas: { sfo: 1 },
+    replicas: { "europe-west4-drams3a": 1 },
     volumeMounts: { "/app/data": webVolume },
-    // The public hostnames (DOMAIN.md). The port is mandatory: a bare string defaults to 8080 in the SDK, and the
-    // app listens on 3000. The generated *.up.railway.app address is never listed here. A custom domain added in
-    // the dashboard or with `railway domain` but missing from this list is DELETED by the next apply.
-    domains: [
-      { domain: "www.oilcenter.gr", port: 3000 },
-      { domain: "oilcenter.gr", port: 3000 },
-    ],
+    // Custom domains (DOMAIN.md) cannot be registered from this file: add them in the dashboard, then run
+    // `railway config pull` and copy the lines it adds here, or the next apply removes them again.
     // Every variable of .env.example that can be set on Railway, whether or not it is set today.
     // A variable that is set there but missing here is DELETED by the next apply — losing
     // SITE_PASSWORD that way would silently open the pre-launch password gate.

@@ -351,11 +351,11 @@ Set `SITE_URL` to the public origin, generate a fresh `AUTH_SECRET` (`openssl ra
 
 ### Hosted preview (Railway)
 
-The preview the owner reviews runs on Railway: project `oilcenter`, service `web`, built from the `Dockerfile`
-(`railway.json` sets the builder and the `/api/health` check until the move to `.railway/railway.ts` described below is
-finished), with the volume `web-volume` (500 MB) mounted at `/app/data`.
+The preview the owner reviews runs on Railway: project `oilcenter`, service `web` in EU West, built from the
+`Dockerfile`, with the volume `web-volume-Q6Vy` mounted at `/app/data`. The service settings (builder, the `/api/health`
+check, the restart policy) are described in `.railway/railway.ts`.
 
-- URL: <https://web-production-2fe57.up.railway.app> — admin at `/admin`. The admin e-mail and password of the hosted
+- URL: <https://web-production-c64ee.up.railway.app> — admin at `/admin`. The admin e-mail and password of the hosted
   shop are in the git-ignored `.env.railway.local`; on Railway they are the `ADMIN_EMAIL` / `ADMIN_PASSWORD` variables.
   The password variable is only read when the admin user is first created: change it afterwards from *Admin → Ρυθμίσεις*.
 - Ship a new version: `railway up --service web --ci` from this directory (uploads the working tree, honours `.gitignore`).
@@ -365,45 +365,35 @@ finished), with the volume `web-volume` (500 MB) mounted at `/app/data`.
   hostnames on the service, DNS off the old Papaki hosting, `SITE_URL=https://www.oilcenter.gr`, redeploy — is the
   step-by-step runbook in [`DOMAIN.md`](DOMAIN.md). Once `SITE_URL` is set, `src/proxy.ts` redirects every other host
   (the bare domain, this preview address) to it.
-- The volume survives redeploys: a restart logs "Database already has 175 products — skipping catalogue seed".
+- The volume survives redeploys: a restart logs "Database already has … products — skipping catalogue seed".
   Catalogue edits made in the hosted admin therefore stay; `catalog/catalog.json` is only used for an empty database.
-- Anything set on Railway outside the repo (a variable, the custom domain) must also be listed in `.railway/railway.ts`
-  once that file is in force — see below.
+- Anything set on Railway outside the repo (a variable, a custom domain) must also be listed in `.railway/railway.ts`
+  — see below.
 
-#### Railway settings: from `railway.json` to `.railway/railway.ts`
+#### Railway settings: `.railway/railway.ts`
 
-Railway stops reading `railway.json` (Config as Code) on **2026-12-01**. Its replacement, `.railway/railway.ts`, is written
-and checked but **not applied yet**: the preview was offline on purpose when it was prepared (2026-09-20), and finishing the
-move needs a deploy. Until the steps below are done `railway.json` stays in force — the builder, the `/api/health` check
-and the restart policy come from it alone; the service on Railway has none of them stored.
+`railway.json` (Config as Code, retired by Railway on 2026-12-01) is gone. Since 2026-10-13 the settings live in
+`.railway/railway.ts`; the first deploy without `railway.json` was built from the Dockerfile, passed the `/api/health`
+check and runs with the `ON_FAILURE` restart policy.
 
-What is different: Railway never reads `.railway/railway.ts` on deploy. `railway config apply` compares the file with the live
-project and writes the difference into the service settings. The file describes the **whole project, and whatever it
-leaves out is deleted**. The file that `railway config migrate` generates lists only the health check — applying that one
-would have deleted the service variables and detached the database volume. The file in this repo therefore lists the
-volume, its mount and every variable of `.env.example` (as `preserve()`: the value stays on Railway, and a variable that
-is not set is left alone), and keeps the restart policy in a raw `deploy` block, which `migrate` silently drops.
+Railway never reads `.railway/railway.ts` on deploy. `railway config apply` compares the file with the live project and
+writes the difference into the service settings. The file describes the **whole project, and whatever it leaves out is
+deleted**: it therefore lists the volume, its mount and every variable of `.env.example` (as `preserve()`: the value
+stays on Railway, and a variable that is not set is left alone).
 
-Finish the move at the next deploy:
+To change a setting:
 
-1. `npm install --prefix .railway` — the SDK the CLI needs; it lives there so it never reaches the production image.
-2. `railway config plan` has to show `2 to change, 0 to destroy`: `build.builder → "DOCKERFILE"`, and
-   `deploy.healthcheckPath`, `healthcheckTimeout`, `restartPolicyType`, `restartPolicyMaxRetries`. The two custom domains
-   of [`DOMAIN.md`](DOMAIN.md) show up as `2 to add` unless `railway domain` already created them. **Stop at any `Delete`
-   line or any change to `web-volume`** (the shop database) and fix the file instead; never pass `--confirm-destructive`.
-   A `Delete variable` line means the variable is missing from the `env` list.
+1. `npm install --prefix .railway` once — the SDK the CLI needs; it lives there so it never reaches the production image.
+2. Edit `.railway/railway.ts`, then `railway config plan` (read-only). **Stop at any `Delete` line or any change to
+   `web-volume-Q6Vy`** (the shop database) and fix the file instead; never pass `--confirm-destructive`. A
+   `Delete variable` line means the variable is missing from the `env` list.
 3. `railway config apply` and confirm. It may start a deployment by itself.
-4. `git rm railway.json` (do not commit yet), then `railway up --service web --ci`. Only a deploy *without* `railway.json`
-   proves the new settings, because that file overrides them.
-5. Check all four: the build log (`railway logs --service web --build --lines 200`) shows the Dockerfile build and a health
-   check on `/api/health`; `curl https://web-production-2fe57.up.railway.app/api/health` answers `{"ok":true,"products":175}`;
-   the runtime log says "Database already has 175 products — skipping catalogue seed"; `railway config plan` reports that
-   the configuration is up to date.
-6. All four hold: commit the removal and shorten this section. Otherwise `git restore --staged --worktree railway.json` and
-   `railway up` again — that is the configuration that was running before.
 
-Afterwards the settings change like this: edit `.railway/railway.ts`, `railway config plan`, `railway config apply`. A new variable
-goes into the `env` list, a custom domain into the `domains` list — always as `{ domain, port: 3000 }`, a bare string means
-port 8080 — (`railway config pull --json` shows how Railway describes the live project), or the next apply proposes to delete it.
+A new variable goes into the `env` list. A custom domain cannot be registered from the file: add it on Railway first,
+then copy how `railway config pull --json` describes it into the file, or the next apply proposes to delete it.
+
+Known quirk: after the apply the plan keeps listing `build.builder (null → "DOCKERFILE")` and
+`deploy.restartPolicyType (null → "ON_FAILURE")`. Both are in effect on the running deployment
+(`railway deployment list --json` → `meta.serviceManifest`); the two lines are harmless.
 
 Old URLs from the 2015 site (`/castrol.html`, `/contact.html`, …) are 301-redirected in `next.config.ts`.
