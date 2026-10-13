@@ -1,9 +1,9 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { jwtVerify } from 'jose';
 import { NextResponse, type NextRequest } from 'next/server';
 
 /*
- * Three gates run before any page is rendered:
+ * Four gates run before any page is rendered:
  *
  * 0. Canonical host. Once SITE_URL names the public origin (https://www.oilcenter.gr), a request that arrives under
  *    any other host — the bare oilcenter.gr, the *.up.railway.app preview address — is redirected there with the
@@ -20,8 +20,14 @@ import { NextResponse, type NextRequest } from 'next/server';
  *    at the top of every admin page and server action. The gate matters because a client-side (RSC) navigation can
  *    render a page without its layout, so a page must never depend on the layout alone to keep intruders out.
  *
+ * 3. Content-Security-Policy with a per-request nonce (see contentSecurityPolicy below). script-src drops
+ *    'unsafe-inline' — the one directive that would let an injected <script> run — so only scripts carrying this
+ *    request's nonce, and whatever they load ('strict-dynamic'), may execute. The site is rendered per request
+ *    already (the root layout is force-dynamic), so minting a nonce costs nothing.
+ *
  * Left open on purpose (see `matcher`): /api/health, which the host polls to decide whether the app is alive, and
- * /api/payments/*, where payment gateways call back server-to-server and cannot log in.
+ * /api/payments/*, where payment gateways call back server-to-server and cannot log in. Neither serves HTML, so
+ * neither needs a CSP.
  */
 
 const digest = (value: string) => createHash('sha256').update(value).digest();
@@ -85,6 +91,36 @@ function canonicalHostRedirect(request: NextRequest): NextResponse | null {
   return response;
 }
 
+/**
+ * The Content-Security-Policy for one response. script-src carries this request's nonce and 'strict-dynamic'
+ * instead of 'unsafe-inline': a <script> injected into the page without the nonce is refused outright, and a
+ * script that does run may only load what it loads itself. Next stamps the nonce on every script it renders
+ * (the x-nonce request header below). 'unsafe-eval' stays only in development, where React's dev overlay needs
+ * it. style-src keeps 'unsafe-inline' on purpose: the components use inline style={{…}} attributes, which a
+ * nonce does not cover — and styles are a far weaker injection vector than scripts.
+ */
+function contentSecurityPolicy(nonce: string): string {
+  const scriptSrc = [`'self'`, `'nonce-${nonce}'`, `'strict-dynamic'`];
+  if (process.env.NODE_ENV === 'development') scriptSrc.push(`'unsafe-eval'`);
+  return [
+    `default-src 'self'`,
+    `base-uri 'self'`,
+    `object-src 'none'`,
+    `frame-ancestors 'self'`,
+    `form-action 'self'`,
+    `script-src ${scriptSrc.join(' ')}`,
+    `style-src 'self' 'unsafe-inline'`,
+    `img-src 'self' data: blob:`,
+    `font-src 'self'`,
+    `connect-src 'self'`,
+    // the store-location map is an embedded Google Maps iframe
+    `frame-src https://www.google.com`,
+    `worker-src 'self'`,
+    `manifest-src 'self'`,
+    `upgrade-insecure-requests`,
+  ].join('; ');
+}
+
 export async function proxy(request: NextRequest) {
   const canonical = canonicalHostRedirect(request);
   if (canonical) return canonical;
@@ -120,7 +156,17 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/admin/login', request.url));
   }
 
-  return NextResponse.next();
+  // Gate 3: mint a nonce, hand it to Next on the request (Next stamps it on its own scripts) and send the
+  // policy back on the response. Every request gets its own nonce, so one leaked in a response is worthless
+  // in the next.
+  const nonce = Buffer.from(randomUUID()).toString('base64');
+  const csp = contentSecurityPolicy(nonce);
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-nonce', nonce);
+  requestHeaders.set('Content-Security-Policy', csp);
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set('Content-Security-Policy', csp);
+  return response;
 }
 
 export const config = {

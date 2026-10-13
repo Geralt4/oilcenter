@@ -80,7 +80,10 @@ export async function sendMail(mail: Mail): Promise<boolean> {
     const dir = path.resolve(process.env.DATA_DIR || './data', 'outbox');
     await mkdir(dir, { recursive: true });
     const file = `${new Date().toISOString().replace(/[:.]/g, '-')}__${mail.to.replace(/[^a-z0-9@.]+/gi, '_')}.html`;
-    await writeFile(path.join(dir, file), `<!-- to: ${mail.to} | subject: ${mail.subject} -->\n${mail.html}`);
+    // to/subject are free text (a contact form's subject line reaches the subject): escape them so a "-->"
+    // inside cannot close the comment early and inject markup into the outbox file.
+    const comment = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    await writeFile(path.join(dir, file), `<!-- to: ${comment(mail.to)} | subject: ${comment(mail.subject)} -->\n${mail.html}`);
     console.log(`[mail] no mail service configured → wrote ${path.join('outbox', file)} ("${mail.subject}")`);
     return true;
   } catch (err) {

@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { and, eq, gt } from 'drizzle-orm';
 import { z } from 'zod';
 import { hashPassword, randomToken, sha256, verifyPassword } from '@/lib/auth/password';
-import { createSession, destroySession, requireCustomer } from '@/lib/auth/session';
+import { createSession, destroySession, getCustomer, requireCustomer, revokeAllSessions } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { customers } from '@/lib/db/schema';
 import { passwordResetMail, sendMail } from '@/lib/email';
@@ -81,6 +81,9 @@ export async function loginCustomer(_prev: FormState, formData: FormData): Promi
 }
 
 export async function logoutCustomer(): Promise<void> {
+  // Revoke before the cookie goes: deleting the cookie alone would leave a stolen copy valid for up to 30 days.
+  const customer = await getCustomer();
+  if (customer) await revokeAllSessions('customer', customer.id);
   await destroySession('customer');
   redirect('/');
 }

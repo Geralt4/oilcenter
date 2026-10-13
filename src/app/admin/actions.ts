@@ -8,7 +8,7 @@ import { and, eq, inArray, ne, notInArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { AVAILABILITY, type Availability } from '@/lib/availability';
 import { hashPassword, randomToken, verifyPassword } from '@/lib/auth/password';
-import { createSession, destroySession, requireAdmin } from '@/lib/auth/session';
+import { createSession, destroySession, getAdmin, requireAdmin, revokeAllSessions } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, variants, type BaseType, type OrderStatus } from '@/lib/db/schema';
 import { orderStatusMail, sendMail } from '@/lib/email';
@@ -54,6 +54,9 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
 }
 
 export async function logoutAdmin(): Promise<void> {
+  // Revoke before the cookie goes: deleting the cookie alone would leave a stolen copy valid for up to 12 h.
+  const admin = await getAdmin();
+  if (admin) await revokeAllSessions('admin', admin.id);
   await destroySession('admin');
   redirect('/admin/login');
 }
@@ -541,11 +544,11 @@ export async function deleteSignup(fd: FormData): Promise<void> {
 // ─── Settings ────────────────────────────────────────────────────────────────
 const TIME =/^([01]\d|2[0-3]):[0-5]\d$/;
 
-/** Links pasted by the owner end up in <a href>: accept http(s) only, and forgive a missing "https://". */
+/** Links pasted by the owner end up in <a href>: accept https only, and forgive a missing "https://". */
 function cleanUrl(raw: string): string {
   if (!raw) return '';
   try {
-    const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    const url = new URL(/^https:\/\//i.test(raw) ? raw : `https://${raw}`);
     return url.hostname.includes('.') ? url.toString() : '';
   } catch {
     return '';

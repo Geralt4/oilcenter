@@ -2,7 +2,7 @@ import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { SignJWT, jwtVerify } from 'jose';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { adminUsers, customers } from '@/lib/db/schema';
 
@@ -65,6 +65,15 @@ export async function createSession(role: Role, id: number, tokenVersion: number
 
 export async function destroySession(role: Role): Promise<void> {
   (await cookies()).delete(COOKIE[role].name);
+}
+
+/**
+ * Signs one account out everywhere at once (logout): bumping tokenVersion makes every cookie minted so far
+ * fail the version check in getAdmin/getCustomer — on this device and on any other.
+ */
+export async function revokeAllSessions(role: Role, id: number): Promise<void> {
+  if (role === 'admin') await db.update(adminUsers).set({ tokenVersion: sql`${adminUsers.tokenVersion} + 1` }).where(eq(adminUsers.id, id));
+  else await db.update(customers).set({ tokenVersion: sql`${customers.tokenVersion} + 1` }).where(eq(customers.id, id));
 }
 
 /** Verifies the cookie, that the account still exists, AND that the session has not been revoked. Memoised per request. */

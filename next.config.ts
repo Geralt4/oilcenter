@@ -1,23 +1,9 @@
 import type { NextConfig } from 'next';
 
-// Baseline Content-Security-Policy. A nonce-based policy would be stricter, but the CSP guide for this
-// Next version notes that nonces force every page into dynamic rendering (no static/CDN caching), which is
-// not worth it here. 'unsafe-inline' is required for the scripts/styles Next injects; the other directives
-// still block the high-value vectors — off-site script origins, <base> injection, framing, form hijacking.
-const contentSecurityPolicy = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "object-src 'none'",
-  "frame-ancestors 'self'",
-  "form-action 'self'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self'",
-  "connect-src 'self'",
-  // the store-location map is an embedded Google Maps iframe
-  "frame-src https://www.google.com",
-].join('; ');
+// Static security headers. The Content-Security-Policy is deliberately NOT among them: it needs a
+// per-request nonce, and only src/proxy.ts can mint one (gate 3 there). The old policy lived here with
+// script-src 'unsafe-inline', which would have let any future XSS run free; the nonce policy in the proxy
+// drops that. Everything below is static and applies to every response.
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
@@ -53,13 +39,19 @@ const nextConfig: NextConfig = {
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(self)' },
+          // No Cross-Origin-Resource-Policy on purpose: the Skroutz feed embeds /catalog/* product photos
+          // from skroutz.gr, and CORP would block that. COOP below still cuts the window-based attacks.
+          { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+          { key: 'X-DNS-Prefetch-Control', value: 'off' },
+          // Keeps this origin in its own process group, so a cross-origin page cannot be rearranged into
+          // sharing one with it (a prerequisite for several side-channel attacks).
+          { key: 'Origin-Agent-Cluster', value: '?1' },
           // Two years; browsers only honour it over HTTPS, so it is inert on local http. Once the bare oilcenter.gr
           // is served here too (redirecting to www), includeSubDomains pins EVERY *.oilcenter.gr to HTTPS for two
           // years in each browser that saw it — fine, because the old Papaki hosting and its mail./ftp. hosts are
           // being deleted, but any future subdomain must be HTTPS from day one. Never add `preload`: it is
           // effectively irreversible.
           { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' },
-          { key: 'Content-Security-Policy', value: contentSecurityPolicy },
         ],
       },
       {
