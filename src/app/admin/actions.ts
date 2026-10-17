@@ -4,12 +4,12 @@ import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq, inArray, ne, notInArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, ne, notInArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AVAILABILITY, type Availability } from '@/lib/availability';
 import { hashPassword, randomToken, verifyPassword } from '@/lib/auth/password';
-import { newTotpSecret, verifyTotp } from '@/lib/auth/totp';
-import { createSession, destroySession, getAdmin, requireAdmin, revokeAllSessions } from '@/lib/auth/session';
+import { newTotpSecret, totpStep } from '@/lib/auth/totp';
+import { createSession, createSudoSession, destroySession, destroySudoSession, getAdmin, hasSudoSession, requireAdmin, revokeAllSessions } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, variants, type BaseType, type OrderStatus } from '@/lib/db/schema';
 import { orderStatusMail, sendMail } from '@/lib/email';
@@ -37,6 +37,20 @@ const int = (fd: FormData, key: string, fallback = 0) => {
   const n = Math.round(Number(raw));
   return Number.isFinite(n) ? n : fallback;
 };
+
+/**
+ * Verify a TOTP code AND burn its time step in one conditional UPDATE. Two requests presenting the
+ * same code cannot both succeed, and a previously accepted code is refused for the rest of its window.
+ */
+async function consumeTotp(adminId: number, secret: string, email: string, token: string): Promise<boolean> {
+  const step = totpStep(secret, email, token);
+  if (step === null) return false;
+  const result = await db
+    .update(adminUsers)
+    .set({ totpLastStep: step })
+    .where(and(eq(adminUsers.id, adminId), or(isNull(adminUsers.totpLastStep), lt(adminUsers.totpLastStep, step))));
+  return Number(result.rowsAffected ?? 0) > 0;
+}
 
 // ─── Session ─────────────────────────────────────────────────────────────────
 export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
@@ -72,7 +86,7 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
     if (!attempted) return { ok: false, message: 'Συμπληρώστε τον 6ψήφιο κωδικό από την εφαρμογή επαλήθευσης.', fieldErrors: { totp: 'Υποχρεωτικό πεδίο' } };
     const totpLimited = rateLimit(`admin-totp:${await clientIp()}:${email}`, 5, 15 * 60 * 1000);
     if (!totpLimited.ok) return { ok: false, message: `Πολλές προσπάθειες με κωδικό. Δοκιμάστε ξανά σε ${Math.ceil(totpLimited.retryAfterSec / 60)} λεπτά.` };
-    if (!verifyTotp(admin.totpSecret, admin.email, attempted)) return { ok: false, message: 'Λάθος κωδικός επαλήθευσης.' };
+    if (!(await consumeTotp(admin.id, admin.totpSecret, admin.email, attempted))) return { ok: false, message: 'Λάθος ή ήδη χρησιμοποιημένος κωδικός επαλήθευσης.' };
   }
 
   await db.update(adminUsers).set({ lastLoginAt: new Date() }).where(eq(adminUsers.id, admin.id));
@@ -84,21 +98,32 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
 /** Step 1: create (or replace) an unconfirmed secret. The owner scans the QR on the settings page. */
 export async function beginTotpEnrollment(fd: FormData): Promise<void> {
   const me = await requireAdmin();
+  const limited = rateLimit(`mfa:${await clientIp()}:${me.id}`, 8, 15 * 60 * 1000);
+  if (!limited.ok) redirect('/admin/settings?mfa=rate');
   const [row] = await db.select({ secret: adminUsers.totpSecret, confirmedAt: adminUsers.totpConfirmedAt }).from(adminUsers).where(eq(adminUsers.id, me.id));
   // Replacing an ACTIVE secret silently would let a stolen session swap in its own authenticator. Require a
   // current code first (the UI only offers "enable" when nothing is active; this guards direct action calls).
-  if (row?.confirmedAt && (!row.secret || !verifyTotp(row.secret, me.email, str(fd, 'totp')))) redirect('/admin/settings');
-  await db.update(adminUsers).set({ totpSecret: newTotpSecret(), totpConfirmedAt: null }).where(eq(adminUsers.id, me.id));
+  if (row?.confirmedAt && (!row.secret || !(await consumeTotp(me.id, row.secret, me.email, str(fd, 'totp'))))) redirect('/admin/settings?mfa=wrong');
+  await db.update(adminUsers).set({ totpSecret: newTotpSecret(), totpConfirmedAt: null, totpLastStep: null }).where(eq(adminUsers.id, me.id));
   revalidatePath('/admin/settings');
 }
 
 /** Step 2: prove the authenticator works before the factor starts being required at login. */
 export async function confirmTotpEnrollment(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   const me = await requireAdmin();
+  const limited = rateLimit(`mfa:${await clientIp()}:${me.id}`, 8, 15 * 60 * 1000);
+  if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά σε λίγα λεπτά.' };
   const [row] = await db.select({ secret: adminUsers.totpSecret }).from(adminUsers).where(eq(adminUsers.id, me.id));
   if (!row?.secret) return { ok: false, message: 'Δεν υπάρχει εκκρεμής ρύθμιση. Πατήστε «Ενεργοποίηση» ξανά.' };
-  if (!verifyTotp(row.secret, me.email, str(fd, 'totp'))) return { ok: false, message: 'Ο κωδικός δεν είναι σωστός. Βεβαιωθείτε ότι το ρολόι του κινητού είναι αυτόματο και δοκιμάστε τον νέο κωδικό.' };
-  await db.update(adminUsers).set({ totpConfirmedAt: new Date() }).where(eq(adminUsers.id, me.id));
+  if (!(await consumeTotp(me.id, row.secret, me.email, str(fd, 'totp')))) return { ok: false, message: 'Ο κωδικός δεν είναι σωστός ή έχει ήδη χρησιμοποιηθεί. Περιμένετε τον επόμενο και δοκιμάστε ξανά.' };
+  // A factor that just became required must also invalidate sessions opened before it existed.
+  const [updated] = await db
+    .update(adminUsers)
+    .set({ totpConfirmedAt: new Date(), tokenVersion: sql`${adminUsers.tokenVersion} + 1` })
+    .where(eq(adminUsers.id, me.id))
+    .returning({ ver: adminUsers.tokenVersion });
+  if (updated) await createSession('admin', me.id, updated.ver);
+  await destroySudoSession();
   revalidatePath('/admin/settings');
   return { ok: true, message: 'Η επαλήθευση δύο βημάτων ενεργοποιήθηκε. Από την επόμενη σύνδεση θα ζητείται ο κωδικός της εφαρμογής.' };
 }
@@ -106,13 +131,41 @@ export async function confirmTotpEnrollment(_prev: AdminFormState, fd: FormData)
 /** Turning it OFF needs a current code: a stolen session alone must not be able to remove the factor. */
 export async function disableTotp(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   const me = await requireAdmin();
+  const limited = rateLimit(`mfa:${await clientIp()}:${me.id}`, 8, 15 * 60 * 1000);
+  if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά σε λίγα λεπτά.' };
   const [row] = await db.select({ secret: adminUsers.totpSecret, confirmedAt: adminUsers.totpConfirmedAt }).from(adminUsers).where(eq(adminUsers.id, me.id));
   if (!row?.secret) return { ok: false, message: 'Η επαλήθευση δύο βημάτων δεν είναι ενεργή.' };
   // A pending (never confirmed) enrollment can simply be cancelled; an active one needs proof of possession.
-  if (row.confirmedAt && !verifyTotp(row.secret, me.email, str(fd, 'totp'))) return { ok: false, message: 'Λάθος κωδικός επαλήθευσης.' };
-  await db.update(adminUsers).set({ totpSecret: null, totpConfirmedAt: null }).where(eq(adminUsers.id, me.id));
+  if (row.confirmedAt && !(await consumeTotp(me.id, row.secret, me.email, str(fd, 'totp')))) return { ok: false, message: 'Λάθος ή ήδη χρησιμοποιημένος κωδικός επαλήθευσης.' };
+  const [updated] = await db
+    .update(adminUsers)
+    .set({ totpSecret: null, totpConfirmedAt: null, totpLastStep: null, tokenVersion: sql`${adminUsers.tokenVersion} + 1` })
+    .where(eq(adminUsers.id, me.id))
+    .returning({ ver: adminUsers.tokenVersion });
+  if (updated) await createSession('admin', me.id, updated.ver);
+  await destroySudoSession();
   revalidatePath('/admin/settings');
   return { ok: true, message: row.confirmedAt ? 'Η επαλήθευση δύο βημάτων απενεργοποιήθηκε.' : 'Η εκκρεμής ρύθμιση ακυρώθηκε.' };
+}
+
+// ─── Re-authentication for administrator changes ────────────────────────────
+/**
+ * Proves the acting administrator's password AND current authenticator code, then leaves a signed,
+ * five-minute sudo cookie. The password and code are not stored anywhere.
+ */
+export async function confirmAdminIdentity(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
+  const me = await requireAdmin();
+  const limited = rateLimit(`sudo:${await clientIp()}:${me.id}`, 5, 15 * 60 * 1000);
+  if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
+  const [row] = await db.select().from(adminUsers).where(eq(adminUsers.id, me.id));
+  if (!row || !(await verifyPassword(String(fd.get('currentPassword') ?? ''), row.passwordHash))) return { ok: false, message: 'Λάθος κωδικός.' };
+  if (row.totpConfirmedAt) {
+    if (!row.totpSecret) return { ok: false, message: 'Η επαλήθευση δύο βημάτων είναι ελλιπώς ρυθμισμένη. Χρειάζεται αποκατάσταση από τον διακομιστή.' };
+    if (!(await consumeTotp(me.id, row.totpSecret, me.email, str(fd, 'totp')))) return { ok: false, message: 'Λάθος ή ήδη χρησιμοποιημένος κωδικός επαλήθευσης. Περιμένετε τον επόμενο κωδικό.' };
+  }
+  await createSudoSession(me.id);
+  revalidatePath('/admin/settings');
+  return { ok: true, message: 'Η ταυτότητα επιβεβαιώθηκε. Οι αλλαγές διαχειριστών είναι διαθέσιμες για 5 λεπτά.' };
 }
 
 // ─── Administrators ──────────────────────────────────────────────────────────
@@ -122,7 +175,8 @@ export async function disableTotp(_prev: AdminFormState, fd: FormData): Promise<
  * for a colleague who lost theirs. Passwords are never shared between accounts.
  */
 export async function addAdmin(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
-  await requireAdmin();
+  const me = await requireAdmin();
+  if (!(await hasSudoSession(me.id))) return { ok: false, message: 'Επιβεβαιώστε πρώτα την ταυτότητά σας (κωδικός + κωδικός εφαρμογής) στην ενότητα «Επιβεβαίωση ταυτότητας».' };
   const email = str(fd, 'email').toLowerCase();
   const name = str(fd, 'adminName');
   const password = String(fd.get('adminPassword') ?? '');
@@ -141,11 +195,11 @@ export async function addAdmin(_prev: AdminFormState, fd: FormData): Promise<Adm
 /** Removing the LAST administrator would lock the shop out of its own panel. */
 export async function removeAdmin(fd: FormData): Promise<void> {
   const me = await requireAdmin();
+  if (!(await hasSudoSession(me.id))) redirect('/admin/settings?sudo=1');
   const id = int(fd, 'id');
   if (id === me.id) return; // never delete yourself; sign out is the way out
-  const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(adminUsers);
-  if (n <= 1) return;
-  await db.delete(adminUsers).where(eq(adminUsers.id, id));
+  // The count is part of the DELETE itself: two concurrent removals cannot both see "2 administrators".
+  await db.delete(adminUsers).where(and(eq(adminUsers.id, id), sql`(select count(*) from admin_users) > 1`));
   revalidatePath('/admin/settings');
 }
 
@@ -156,11 +210,12 @@ export async function removeAdmin(fd: FormData): Promise<void> {
  */
 export async function resetAdminMfa(fd: FormData): Promise<void> {
   const me = await requireAdmin();
+  if (!(await hasSudoSession(me.id))) redirect('/admin/settings?sudo=1');
   const id = int(fd, 'id');
   if (id === me.id) return;
   await db
     .update(adminUsers)
-    .set({ totpSecret: null, totpConfirmedAt: null, tokenVersion: sql`${adminUsers.tokenVersion} + 1` })
+    .set({ totpSecret: null, totpConfirmedAt: null, totpLastStep: null, tokenVersion: sql`${adminUsers.tokenVersion} + 1` })
     .where(eq(adminUsers.id, id));
   revalidatePath('/admin/settings');
 }

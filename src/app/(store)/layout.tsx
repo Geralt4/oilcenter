@@ -8,6 +8,7 @@ import { StoreProvider, type PublicStoreConfig } from '@/components/store/store-
 import { Tracker } from '@/components/store/tracker';
 import { getAdmin, getCustomer } from '@/lib/auth/session';
 import { getBrands, getCategoryTree } from '@/lib/catalog';
+import { commerceEnabled } from '@/lib/commerce-flag';
 import { cardProvider } from '@/lib/payments';
 import { mapsDirectionsUrl } from '@/lib/settings';
 import { getSettings } from '@/lib/settings.server';
@@ -31,14 +32,16 @@ export default async function StoreLayout({ children }: { children: React.ReactN
 
   const { bankAccounts: _bankAccounts, ...payments } = settings.payments;
   const { ordersEnabled } = settings.storefront;
+  // The deployment switch wins over both the database toggle and an admin session (lib/commerce-flag.ts).
+  const canOrder = commerceEnabled() && (ordersEnabled || admin !== null);
   const config: PublicStoreConfig = {
     shipping: settings.shipping,
     payments,
     vatRate: settings.tax.vatRate,
     cardProviderConfigured: cardProvider() !== null,
     demoMode: settings.storefront.demoMode,
-    canOrder: ordersEnabled || admin !== null,
-    adminTestOrders: !ordersEnabled && admin !== null,
+    canOrder,
+    adminTestOrders: commerceEnabled() && !ordersEnabled && admin !== null,
     lowStockThreshold: settings.storefront.lowStockThreshold,
     phone: settings.shop.phone,
     address: [settings.shop.street, settings.shop.city].filter(Boolean).join(', '),

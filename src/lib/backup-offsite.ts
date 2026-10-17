@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { backupsDir, backupsSupported } from '@/lib/backup';
+import { backupsDir, backupsSupported, writeSnapshot } from '@/lib/backup';
 
 /*
  * Off-site backups to Backblaze B2, encrypted before they leave the machine.
@@ -111,6 +111,39 @@ async function b2List(auth: B2Auth, bucketId: string, prefix: string): Promise<A
   return out;
 }
 
+type RemoteVersion = { fileName: string; fileId: string; uploadTimestamp: number };
+
+/** Every VERSION (not only the latest name) — B2 keeps old versions, and leaving them would defeat retention. */
+async function b2ListVersions(auth: B2Auth, bucketId: string, prefix: string): Promise<RemoteVersion[]> {
+  const out: RemoteVersion[] = [];
+  let startFileName: string | undefined;
+  let startFileId: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const res = await b2Call<{ files: RemoteVersion[]; nextFileName: string | null; nextFileId: string | null }>(auth, 'b2_list_file_versions', {
+      bucketId, prefix, maxFileCount: 1000, ...(startFileName && startFileId ? { startFileName, startFileId } : {}),
+    });
+    out.push(...res.files.map((f) => ({ fileName: f.fileName, fileId: f.fileId, uploadTimestamp: f.uploadTimestamp })));
+    if (!res.nextFileName || !res.nextFileId) break;
+    startFileName = res.nextFileName;
+    startFileId = res.nextFileId;
+  }
+  return out;
+}
+
+/** Newest-first keep of VERSIONS in one family; returns the ones to delete. Pure, so it is tested. */
+export function expiredVersions<T extends { fileName: string; uploadTimestamp: number }>(versions: T[], prefix: string, keep: number): T[] {
+  return versions
+    .filter((v) => v.fileName.startsWith(prefix) && v.fileName.endsWith('.enc'))
+    .sort((a, b) => b.uploadTimestamp - a.uploadTimestamp)
+    .slice(keep);
+}
+
+async function pruneRemote(auth: B2Auth, bucketId: string): Promise<void> {
+  const versions = await b2ListVersions(auth, bucketId, '');
+  const doomed = [...expiredVersions(versions, 'shop-', KEEP_DB), ...expiredVersions(versions, 'uploads-', KEEP_UPLOADS)];
+  for (const v of doomed) await b2Call(auth, 'b2_delete_file_version', { fileName: v.fileName, fileId: v.fileId });
+}
+
 // ─── Retention (pure, so it can be tested without B2) ───────────────────────
 /** Newest-first keep of `names` matching `prefix…suffix`: returns the ones that must be DELETED. */
 export function expired(names: string[], prefix: string, suffix: string, keep: number): string[] {
@@ -171,7 +204,9 @@ async function packUploads(): Promise<{ name: string; file: string } | null> {
 }
 
 const KEEP_DB = 14;
-const KEEP_UPLOADS = 4;
+// Kept equal to the database count: a database snapshot without its matching uploads archive is not a
+// complete recovery set (photos and SDS files live only on the volume).
+const KEEP_UPLOADS = 14;
 
 /**
  * Uploads today's snapshot(s) that are not off-site yet and prunes old remote copies.
@@ -208,18 +243,8 @@ export async function ensureOffsiteBackup(): Promise<'uploaded' | 'exists' | 'un
       }
     }
 
-    // retention: newest-first, keep N, delete the rest (versions included — B2 keeps every upload otherwise)
-    const current = new Set(remote.map((f) => f.fileName));
-    current.add(dbObject);
-    if (uploaded) current.add(uploadsObject);
-    const doomed = [
-      ...expired([...current], 'shop-', '.db.gz.enc', KEEP_DB),
-      ...expired([...current], 'uploads-', '.tar.gz.enc', KEEP_UPLOADS),
-    ];
-    for (const name of doomed) {
-      const files = await b2List(auth, bucketId, name);
-      for (const f of files.filter((file) => file.fileName === name)) await b2Call(auth, 'b2_delete_file_version', { fileName: f.fileName, fileId: f.fileId });
-    }
+    // retention: newest versions first, keep N per family, delete the rest (B2 keeps every upload as a version)
+    await pruneRemote(auth, bucketId);
 
     if (uploaded) await writeStatus({ at: Date.now(), ok: true, object: dbObject });
     return uploaded ? 'uploaded' : 'exists';
@@ -229,5 +254,43 @@ export async function ensureOffsiteBackup(): Promise<'uploaded' | 'exists' | 'un
     throw err;
   } finally {
     running = false;
+  }
+}
+
+/**
+ * The explicit "backup now" path. Unlike ensureOffsiteBackup(), it never reuses an existing snapshot:
+ * it writes a NEW uniquely named snapshot (…-HHMMSS.db.gz), uploads exactly that file, prunes versions
+ * and records the result. Used after setup changes so the recovery point includes them.
+ */
+export async function pushSnapshotNow(): Promise<{ object: string }> {
+  if (!offsiteConfigured()) throw new Error('Off-site backups are not configured.');
+  if (!backupsSupported()) throw new Error('Snapshots are only available for a local SQLite database.');
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Athens' }).format(new Date());
+  const time = new Date().toISOString().slice(11, 19).replace(/:/g, '');
+  const name = `shop-${day}-${time}.db.gz`;
+  const file = path.join(backupsDir(), name);
+  await writeSnapshot(file);
+  try {
+    const auth = await b2Auth();
+    const bucketId = await b2BucketId(auth);
+    const object = `${name}.enc`;
+    await b2Upload(auth, bucketId, object, encryptBackup(await readFile(file)));
+    // A database snapshot without its matching files is not a complete recovery set: refresh the uploads
+    // archive in the same run (same object name, new version — pruning understands versions).
+    const pack = await packUploads();
+    if (pack) {
+      await b2Upload(auth, bucketId, `${pack.name}.enc`, encryptBackup(await readFile(pack.file)));
+      await rm(pack.file, { force: true });
+    }
+    await pruneRemote(auth, bucketId);
+    await writeStatus({ at: Date.now(), ok: true, object });
+    // keep the local manual snapshots bounded too
+    const manual = (await readdir(backupsDir())).filter((n) => /^shop-\d{4}-\d{2}-\d{2}-\d{6}\.db\.gz$/.test(n)).sort();
+    for (const old of manual.slice(0, Math.max(0, manual.length - 7))) await rm(path.join(backupsDir(), old), { force: true });
+    return { object };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await writeStatus({ at: Date.now(), ok: false, object: null, error: message.slice(0, 500) });
+    throw err;
   }
 }

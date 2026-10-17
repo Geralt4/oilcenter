@@ -21,8 +21,6 @@ export type PlaceOrderResult =
 export async function placeOrder(raw: unknown): Promise<PlaceOrderResult> {
   const limited = rateLimit(`checkout:${await clientIp()}`, 8, 10 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά ή καλέστε μας.` };
-  // A cart of a few lines serialises to a few KB; anything larger was not made by this checkout.
-  if (typeof raw === 'string' && raw.length > 64 * 1024) return { ok: false, message: 'Η παραγγελία δεν μπορούσε να διαβαστεί. Καλέστε μας για να την καταχωρήσουμε.' };
 
   // Pre-launch the checkout is closed to the public. The page already hides the form; this is the check that counts.
   // canOrderNow() also answers the deployment switch (COMMERCE_ENABLED=false): website only, even for admins.

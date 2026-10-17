@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { resolveCartLines } from '@/lib/catalog';
+import { readJsonLimited } from '@/lib/form-size';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 
 const Body = z.object({
@@ -12,7 +13,11 @@ export async function POST(request: Request) {
   const limited = rateLimit(`cart:${await clientIp()}`, 60, 5 * 60 * 1000);
   if (!limited.ok) return NextResponse.json({ error: 'too_many_requests' }, { status: 429, headers: { 'Retry-After': String(limited.retryAfterSec) } });
 
-  const parsed = Body.safeParse(await request.json().catch(() => null));
+  // 100 cart lines cannot legitimately serialise past 32 KB; the cap is enforced while streaming.
+  const body = await readJsonLimited(request, 32 * 1024);
+  if (!body.ok) return NextResponse.json({ error: body.tooLarge ? 'too_large' : 'invalid_cart' }, { status: body.tooLarge ? 413 : 400 });
+
+  const parsed = Body.safeParse(body.value);
   if (!parsed.success) return NextResponse.json({ error: 'invalid_cart' }, { status: 400 });
 
   const resolved = await resolveCartLines(parsed.data.lines);

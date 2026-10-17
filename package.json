@@ -17,6 +17,7 @@
     "admin:create": "tsx scripts/create-admin.ts",
     "admin:reset-mfa": "tsx scripts/reset-mfa.ts",
     "backup:push": "tsx scripts/backup-push.ts",
+    "backup:now": "tsx scripts/backup-now.ts",
     "backup:pull": "tsx scripts/backup-pull.ts",
     "db:patch": "tsx scripts/patches.ts",
     "setup": "npm run db:migrate && npm run db:seed && npm run db:patch",

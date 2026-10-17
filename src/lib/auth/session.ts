@@ -19,6 +19,10 @@ const COOKIE: Record<Role, { name: string; maxAge: number }> = {
   customer: { name: 'oc_customer', maxAge: 60 * 60 * 24 * 30 },
 };
 
+/** Short-lived proof that the administrator re-entered their password + authenticator code. */
+const SUDO_COOKIE = 'oc_admin_sudo';
+const SUDO_MAX_AGE = 5 * 60;
+
 function secretKey(): Uint8Array {
   const secret = process.env.AUTH_SECRET;
   if (!secret || secret.length < 32) {
@@ -65,6 +69,43 @@ export async function createSession(role: Role, id: number, tokenVersion: number
 
 export async function destroySession(role: Role): Promise<void> {
   (await cookies()).delete(COOKIE[role].name);
+}
+
+// ─── Re-authentication ("sudo mode") ────────────────────────────────────────
+/*
+ * Changing who can administer the shop is more sensitive than editing a product, so those actions
+ * require the acting administrator to have proved BOTH factors within the last five minutes. The
+ * proof lives in its own HttpOnly cookie, signed like the session and bound to the account id, so
+ * a stolen session cookie alone is not enough. The password/code themselves are never stored.
+ */
+export async function createSudoSession(adminId: number): Promise<void> {
+  const store = await cookies();
+  store.set(
+    SUDO_COOKIE,
+    await new SignJWT({ role: 'sudo' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(String(adminId))
+      .setIssuedAt()
+      .setExpirationTime(Math.floor(Date.now() / 1000) + SUDO_MAX_AGE)
+      .sign(secretKey()),
+    { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: SUDO_MAX_AGE },
+  );
+}
+
+export async function destroySudoSession(): Promise<void> {
+  (await cookies()).delete(SUDO_COOKIE);
+}
+
+/** Valid for five minutes and only for the given account. */
+export async function hasSudoSession(adminId: number): Promise<boolean> {
+  const token = (await cookies()).get(SUDO_COOKIE)?.value;
+  if (!token) return false;
+  try {
+    const { payload } = await jwtVerify(token, secretKey(), { algorithms: ['HS256'] });
+    return payload.role === 'sudo' && Number(payload.sub) === adminId;
+  } catch {
+    return false;
+  }
 }
 
 /**

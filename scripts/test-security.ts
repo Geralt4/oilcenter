@@ -107,7 +107,7 @@ async function main() {
   process.env.AUTH_SECRET = saved.secret; process.env.SITE_URL = saved.site; process.env.COMMERCE_ENABLED = saved.commerce;
 
   console.log('Admin second factor (TOTP)');
-  const { newTotpSecret, totpFor, totpUri, verifyTotp } = await import('../src/lib/auth/totp');
+  const { newTotpSecret, totpFor, totpStep, totpUri, verifyTotp } = await import('../src/lib/auth/totp');
   const secret = newTotpSecret();
   check('secret is base32 (160-bit), as authenticator apps expect', /^[A-Z2-7]{32}$/.test(secret), secret);
   const email = 'owner@example.com';
@@ -119,10 +119,13 @@ async function main() {
   check('a code three steps old is refused', !verifyTotp(secret, email, totpFor(secret, email).generate({ timestamp: Date.now() - 90_000 })));
   const uri = totpUri(secret, email);
   check('otpauth URI names the issuer and the account', uri.startsWith('otpauth://totp/') && uri.includes('Oil%20Center') && uri.includes(encodeURIComponent(email)), uri);
+  const step = totpStep(secret, email, now);
+  check('a valid code maps to one stable time step (single-use storage)', step !== null && step === totpStep(secret, email, now), step);
+  check('a code outside the drift window maps to no step', totpStep(secret, email, totpFor(secret, email).generate({ timestamp: Date.now() - 90_000 })) === null);
 
   console.log('Off-site backup encryption');
   process.env.BACKUP_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
-  const { decryptBackup, encryptBackup, expired } = await import('../src/lib/backup-offsite');
+  const { decryptBackup, encryptBackup, expired, expiredVersions } = await import('../src/lib/backup-offsite');
   const plain = Buffer.from('SQLite format 3\0customer data and password hashes');
   const sealed = encryptBackup(plain);
   check('decrypt(encrypt(x)) === x', decryptBackup(sealed).equals(plain));
@@ -146,6 +149,14 @@ async function main() {
   const names = ['shop-2026-10-16.db.gz.enc', 'shop-2026-10-17.db.gz.enc', 'shop-2026-10-15.db.gz.enc', 'uploads-2026-10-17.tar.gz.enc'];
   check('retention keeps the newest N and marks the rest for deletion', JSON.stringify(expired(names, 'shop-', '.db.gz.enc', 2)) === JSON.stringify(['shop-2026-10-15.db.gz.enc']));
   check('uploads archives and database snapshots never mix', expired(names, 'uploads-', '.tar.gz.enc', 4).length === 0);
+  const versions = [
+    { fileName: 'shop-a.db.gz.enc', uploadTimestamp: 1 },
+    { fileName: 'shop-b.db.gz.enc', uploadTimestamp: 3 },
+    { fileName: 'shop-c.db.gz.enc', uploadTimestamp: 2 },
+    { fileName: 'uploads-x.tar.gz.enc', uploadTimestamp: 9 },
+  ];
+  check('version retention keeps the newest and marks older versions', expiredVersions(versions, 'shop-', 2).map((v) => v.fileName).join(',') === 'shop-a.db.gz.enc');
+  check('version retention never mixes archive families', expiredVersions(versions, 'uploads-', 2).length === 0);
   process.env.BACKUP_ENCRYPTION_KEY = Buffer.alloc(31, 1).toString('base64');
   let badKeyRefused = false;
   try {
@@ -166,6 +177,15 @@ async function main() {
   const badBackupKey = cfg('x'.repeat(48), 'https://www.oilcenter.gr', 'false');
   check('a bad BACKUP_ENCRYPTION_KEY is reported', badBackupKey.some((p) => p.includes('BACKUP_ENCRYPTION_KEY')), badBackupKey);
   delete process.env.B2_KEY_ID; delete process.env.B2_APP_KEY; delete process.env.B2_BUCKET; delete process.env.BACKUP_ENCRYPTION_KEY;
+
+  console.log('Request-size boundaries');
+  const { readJsonLimited } = await import('../src/lib/form-size');
+  const okBody = await readJsonLimited(new Request('http://localhost/x', { method: 'POST', body: JSON.stringify({ lines: [] }), headers: { 'Content-Type': 'application/json' } }), 1024);
+  check('valid JSON within the cap is parsed', okBody.ok && JSON.stringify(okBody.value) === '{"lines":[]}');
+  const bigBody = await readJsonLimited(new Request('http://localhost/x', { method: 'POST', body: 'x'.repeat(5000) }), 1024);
+  check('an oversized streamed body is refused', !bigBody.ok && bigBody.tooLarge);
+  const badJson = await readJsonLimited(new Request('http://localhost/x', { method: 'POST', body: '{not json' }), 1024);
+  check('malformed JSON is refused separately from an oversized body', !badJson.ok && !badJson.tooLarge);
 }
 
 main()

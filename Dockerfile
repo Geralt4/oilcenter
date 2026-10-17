@@ -26,6 +26,9 @@ COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/catalog ./catalog
 COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/src ./src
+# Next writes optimized-image entries here at runtime. As root during the COPY, the directory would
+# otherwise stay root-owned and every image request would log EACCES once the process drops to `node`.
+RUN mkdir -p /app/.next/cache && chown -R node:node /app/.next/cache
 # No VOLUME instruction on purpose: several hosts (e.g. Railway) reject it. Mount the platform's
 # persistent volume at /app/data instead.
 #

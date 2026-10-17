@@ -204,6 +204,8 @@ export const adminUsers = sqliteTable(
     totpSecret: text('totp_secret'),
     /** when the owner confirmed a working authenticator; null = not enforced yet */
     totpConfirmedAt: integer('totp_confirmed_at', { mode: 'timestamp_ms' }),
+    /** last accepted 30-second time step: a code is single-use even inside its validity window */
+    totpLastStep: integer('totp_last_step'),
     /** bumped on password change so existing session cookies stop validating */
     tokenVersion: integer('token_version').notNull().default(0),
     createdAt: createdAt(),

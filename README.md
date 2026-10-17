@@ -98,10 +98,15 @@ What the deployment-level protections do and where they live — read together w
 - **Login throttling:** both logins spend from two pools — per-IP+e-mail and a new IP-wide budget
   (`src/lib/rate-limit.ts` `loginBudgets`), so password spraying across many addresses from one machine hits the wall.
 - **Admin two-step verification (TOTP):** Admin → Ρυθμίσεις → «Επαλήθευση δύο βημάτων» enrolls an authenticator app
-  (QR code). Once confirmed, every admin login also requires the 6-digit code; a second, separate rate limit guards the
-  code itself. Turning it off requires a current code, so a stolen session cannot remove it. Lost phone:
+  (QR code). Once confirmed, every admin login also requires the 6-digit code; each code is **single-use** (its time step
+  is burned in the database, so replay inside the 30 s window fails), and a separate rate limit guards guessing. Turning
+  it off or replacing it requires a current code, and both changes revoke all sessions. Lost phone:
   `npm run admin:reset-mfa -- <email>` on the server (also signs every session out), or — for the *other* administrator —
-  the «Επαναφορά 2FA» button under «Διαχειριστές». No recovery-code list by design — the server operator is the recovery path.
+  the «Επαναφορά 2FA» button under «Διαχειριστές». No recovery-code list by design.
+- **Re-authentication for sensitive admin changes:** adding/removing administrators and resetting a colleague's 2FA
+  require the acting administrator's password **and** current authenticator code within a five-minute "sudo" window
+  (`oc_admin_sudo`, HttpOnly JWT bound to the account). A stolen session cookie alone cannot do any of it. Removing the
+  last administrator is impossible, enforced inside the DELETE itself so concurrent requests cannot both win.
 - **Two administrators, two phones:** the shop and the maintainer each get their own account (Admin → Ρυθμίσεις →
   «Διαχειριστές» → «Προσθήκη διαχειριστή»), each with its own password and its own authenticator app. Never share one
   account between two people: two accounts mean individual revocation, an honest audit trail (order events name the actor)
@@ -109,22 +114,26 @@ What the deployment-level protections do and where they live — read together w
   colleague's 2FA; the last administrator cannot be deleted. To set it up: sign in as the owner → Ρυθμίσεις → Διαχειριστές
   → add the maintainer's e-mail with a temporary password → the maintainer signs in, changes it (same page) and enables 2FA
   with their own phone.
-- **Public form sizes:** every public server action rejects oversized submissions right after rate limiting
-  (`src/lib/form-size.ts`, 256 KB; the launch-signup form 32 KB; checkout 64 KB). The 32 MB global action limit exists
-  for the admin photo form only; admin uploads stay admin-session-gated.
+- **Public request sizes:** server actions still inherit the 32 MB ceiling (the admin photo form needs it), so public
+  forms additionally check their FormData (`src/lib/form-size.ts`, 256 KB; launch-signup 32 KB) as defence in depth —
+  those checks run *after* Next has parsed the body, so they are not a pre-parsing boundary. JSON endpoints are stricter:
+  `/api/cart` reads the request as a stream and stops at 32 KB, returning **413** (`readJsonLimited`), regardless of
+  `Content-Length`. Splitting admin uploads into their own endpoint so the global action limit can drop is tracked as a
+  remaining improvement.
 - **API throttling:** `/api/cart`, `/api/products` and `/api/search` are rate-limited per IP (the search endpoint scans
   the whole in-memory catalogue per request, so it was the expensive one to leave open).
 - **Non-root container:** `docker/entrypoint.sh` starts as root only to `chown` the persistent volume to `node`, then
-  re-execs migrations and the server as uid 1000 via gosu. On hosts that mount `/app/data` root-owned this is what makes
-  a non-root runtime possible at all.
+  re-execs migrations and the server as uid 1000 via gosu; the Dockerfile pre-creates Next's runtime image cache owned by
+  `node`, so optimized images are cached without permission errors.
 - **Off-site backups:** every night's local snapshot (`shop-*.db.gz`) is encrypted with AES-256-GCM and uploaded to a
-  private Backblaze B2 bucket as `shop-YYYY-MM-DD.db.gz.enc` (14 kept), together with a daily archive of uploaded photos
-  and safety data sheets (`uploads-YYYY-MM-DD.tar.gz.enc`, 4 kept). Configuration: `B2_KEY_ID`, `B2_APP_KEY`,
-  `B2_BUCKET`, `BACKUP_ENCRYPTION_KEY` — all four or none (the startup check enforces this). The B2 application key is
-  restricted to that one bucket, and it **cannot decrypt** anything: `BACKUP_ENCRYPTION_KEY` must never be stored in the
-  B2 account. Keep two offline copies (owner + developer); they are what makes a restore possible after losing Railway
-  itself. Status is shown in Admin → Ρυθμίσεις; `npm run backup:push` forces a run; `npm run db:migrate`-style runbooks
-  live below.
+  private Backblaze B2 bucket as `shop-YYYY-MM-DD.db.gz.enc`, together with a daily archive of uploaded photos and safety
+  data sheets. Fourteen versions of each family are kept; pruning uses `b2_list_file_versions`, so superseded versions
+  are deleted too, not just the visible filename. **Every deploy also writes a fresh uniquely named snapshot and uploads
+  that exact file** (`npm run backup:now` does the same on demand), so a recovery point follows setup changes instead of
+  waiting for the next day. Configuration: `B2_KEY_ID`, `B2_APP_KEY`, `B2_BUCKET`, `BACKUP_ENCRYPTION_KEY` — all four or
+  none (the startup check enforces this). The B2 key is restricted to that one bucket and cannot decrypt anything; the
+  encryption key must never be stored in the B2 account. Keep two offline copies (owner + developer). Status is shown in
+  Admin → Ρυθμίσεις.
 
 ### Restoring from B2
 

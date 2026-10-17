@@ -7,12 +7,14 @@ import { buttonClass } from '@/components/ui/button';
 import { db } from '@/lib/db';
 import { orders } from '@/lib/db/schema';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
-import { requireOrderingOrHistory } from '@/lib/catalogue-mode';
+import { accountsAvailable, requireOrderingOrHistory } from '@/lib/catalogue-mode';
 
 export const metadata: Metadata = { title: 'Η παραγγελία μου', robots: { index: false, follow: true } };
 
 async function lookup(formData: FormData) {
   'use server';
+  // The page redirects in catalogue mode, but a direct action call must be refused here too.
+  if (!(await accountsAvailable())) redirect('/');
   const number = String(formData.get('number') ?? '').trim().toUpperCase().replace(/\s/g, '');
   const email = String(formData.get('email') ?? '').trim().toLowerCase();
   // Same answer for "no such order" and "wrong e-mail", and a rate limit: no way to probe order numbers.

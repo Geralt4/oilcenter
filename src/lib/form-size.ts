@@ -23,3 +23,36 @@ export function formBytes(fd: FormData): number {
 export function formTooBig(fd: FormData, maxKb = DEFAULT_MAX_KB): boolean {
   return formBytes(fd) > maxKb * 1024;
 }
+
+/**
+ * Read a JSON body without ever buffering more than `maxBytes`. Next hands route handlers a stream,
+ * so the size can be enforced while reading — a false or missing Content-Length cannot get around it.
+ * Returns `{ ok: false, tooLarge: true }` once the cap is crossed.
+ */
+export async function readJsonLimited(request: Request, maxBytes = 64 * 1024): Promise<{ ok: true; value: unknown } | { ok: false; tooLarge: boolean }> {
+  const declared = Number(request.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) return { ok: false, tooLarge: true };
+  if (!request.body) return { ok: false, tooLarge: false };
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        return { ok: false, tooLarge: true };
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return { ok: false, tooLarge: false };
+  }
+  try {
+    return { ok: true, value: JSON.parse(Buffer.concat(chunks).toString('utf8')) };
+  } catch {
+    return { ok: false, tooLarge: false };
+  }
+}

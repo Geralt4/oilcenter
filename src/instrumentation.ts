@@ -18,24 +18,25 @@ export async function register() {
   }
 
   const { ensureDailyBackup } = await import('@/lib/backup');
-  const { ensureOffsiteBackup, offsiteConfigured } = await import('@/lib/backup-offsite');
+  const { ensureOffsiteBackup, offsiteConfigured, pushSnapshotNow } = await import('@/lib/backup-offsite');
 
-  const run = () =>
+  // At boot (i.e. once per deploy) force a NEW snapshot: a deploy usually follows setup changes, and the
+  // day's earlier snapshot predates them. Hourly runs then keep the ordinary daily copy current.
+  const run = (fresh: boolean) =>
     ensureDailyBackup()
       .then((result) => {
         if (result === 'created') console.log('[backup] daily database snapshot written');
-        // Off-site copy rides on the same schedule: once today's snapshot exists, upload it (encrypted go B2).
-        if (offsiteConfigured()) {
-          return ensureOffsiteBackup()
-            .then((offsite) => {
-              if (offsite === 'uploaded') console.log('[backup] off-site copy uploaded to Backblaze B2');
-            })
-            .catch((err) => console.error('[backup] OFFSITE upload FAILED — local snapshot is safe, the off-site copy is not current:', err instanceof Error ? err.message : err));
-        }
+        if (!offsiteConfigured()) return;
+        const offsite = fresh ? pushSnapshotNow().then(({ object }) => (object ? 'uploaded' : 'exists')) : ensureOffsiteBackup();
+        return offsite
+          .then((outcome) => {
+            if (outcome === 'uploaded') console.log(`[backup] off-site copy uploaded to Backblaze B2${fresh ? ' (fresh boot snapshot)' : ''}`);
+          })
+          .catch((err) => console.error('[backup] OFFSITE upload FAILED — local snapshot is safe, the off-site copy is not current:', err instanceof Error ? err.message : err));
       })
       .catch((err) => console.error('[backup] snapshot FAILED', err));
 
   // shortly after boot (migrations have already run), then every hour: the first check after midnight makes the new day's copy
-  setTimeout(run, 30_000).unref();
-  setInterval(run, 60 * 60 * 1000).unref();
+  setTimeout(() => run(true), 30_000).unref();
+  setInterval(() => run(false), 60 * 60 * 1000).unref();
 }

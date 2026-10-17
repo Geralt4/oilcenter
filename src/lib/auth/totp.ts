@@ -27,13 +27,19 @@ export function totpUri(secret: string, email: string): string {
 }
 
 /**
- * True when `token` is the code for the current 30 s step, or the one immediately before/after
- * (clock drift, and the few seconds it takes to type). The ±1 window is the standard allowance;
- * anything wider multiplies the brute-force space without helping real users.
+ * The 30-second time step a code belongs to, or null when it does not match the current step or the
+ * one immediately before/after (clock drift, and the few seconds it takes to type). Returning the
+ * step lets callers enforce single use: once a step is accepted for an account, the same code can
+ * never be accepted again, even inside its validity window.
  */
-export function verifyTotp(secret: string, email: string, token: string): boolean {
+export function totpStep(secret: string, email: string, token: string): number | null {
   const clean = token.replace(/\s/g, '');
-  if (!/^\d{6}$/.test(clean)) return false;
+  if (!/^\d{6}$/.test(clean)) return null;
   const delta = totpFor(secret, email).validate({ token: clean, window: 1 });
-  return delta !== null;
+  if (delta === null) return null;
+  return Math.floor(Date.now() / 30_000) + delta;
+}
+
+export function verifyTotp(secret: string, email: string, token: string): boolean {
+  return totpStep(secret, email, token) !== null;
 }

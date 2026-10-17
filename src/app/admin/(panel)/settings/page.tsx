@@ -1,7 +1,7 @@
 import { Download } from 'lucide-react';
 import { asc, eq } from 'drizzle-orm';
 import QRCode from 'qrcode';
-import { addAdmin, beginTotpEnrollment, changeAdminPassword, confirmTotpEnrollment, disableTotp, removeAdmin, resetAdminMfa, saveSettings } from '@/app/admin/actions';
+import { addAdmin, beginTotpEnrollment, changeAdminPassword, confirmAdminIdentity, confirmTotpEnrollment, disableTotp, removeAdmin, resetAdminMfa, saveSettings } from '@/app/admin/actions';
 import { AdminForm, ConfirmButton } from '@/components/admin/admin-form';
 import { Card, Check, Field, PageHeader } from '@/components/admin/ui';
 import { buttonClass } from '@/components/ui/button';
@@ -13,13 +13,15 @@ import { adminUsers } from '@/lib/db/schema';
 import { cardProvider } from '@/lib/payments';
 import { DAY_NAMES } from '@/lib/settings';
 import { requireAdmin } from '@/lib/auth/session';
+import { hasSudoSession } from '@/lib/auth/session';
 import { getSettings } from '@/lib/settings.server';
 import { centsToInput, cn, formatDate, formatDateTime } from '@/lib/utils';
 
 export const metadata = { title: 'Ρυθμίσεις' };
 
-export default async function AdminSettingsPage() {
+export default async function AdminSettingsPage({ searchParams }: { searchParams: Promise<{ sudo?: string; mfa?: string }> }) {
   const admin = await requireAdmin();
+  const [{ sudo: sudoParam, mfa: mfaParam }, sudo] = await Promise.all([searchParams, hasSudoSession(admin.id)]);
   const [s, backups, mfa, admins] = await Promise.all([
     getSettings(),
     listBackups(),
@@ -37,6 +39,29 @@ export default async function AdminSettingsPage() {
   return (
     <>
       <PageHeader title="Ρυθμίσεις" description="Ό,τι αλλάζετε εδώ εφαρμόζεται αμέσως στο κατάστημα." />
+
+      {(sudoParam || mfaParam) && (
+        <p role="alert" className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-950">
+          {sudoParam === '1'
+            ? 'Για αλλαγές διαχειριστών χρειάζεται πρώτα επιβεβαίωση ταυτότητας (κωδικός και, αν έχετε 2FA, κωδικός εφαρμογής).'
+            : mfaParam === 'wrong'
+              ? 'Ο κωδικός επαλήθευσης δεν ήταν σωστός ή είχε ήδη χρησιμοποιηθεί. Περιμένετε τον επόμενο κωδικό.'
+              : 'Πολλές προσπάθειες. Δοκιμάστε ξανά σε λίγα λεπτά.'}
+        </p>
+      )}
+
+      <Card title="Επιβεβαίωση ταυτότητας" description="Η προσθήκη ή αφαίρεση διαχειριστών και η επαναφορά 2FA απαιτούν φρέσκια επιβεβαίωση, ώστε μια κλεμμένη συνεδρία να μην αρκεί. Η επιβεβαίωση ισχύει για 5 λεπτά." className="mb-6 max-w-xl">
+        {sudo ? (
+          <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-medium text-emerald-800">Η ταυτότητα είναι επιβεβαιωμένη για τα επόμενα 5 λεπτά.</p>
+        ) : (
+          <AdminForm action={confirmAdminIdentity} submitLabel="Επιβεβαίωση" variant="dark" resetOnSuccess>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Τρέχων κωδικός"><input type="password" name="currentPassword" autoComplete="current-password" required className="field" /></Field>
+              {mfa?.confirmedAt && <Field label="Κωδικός εφαρμογής" hint="Ο τρέχων 6ψήφιος κωδικός."><input name="totp" inputMode="numeric" autoComplete="one-time-code" maxLength={7} required className="field tabular" /></Field>}
+            </div>
+          </AdminForm>
+        )}
+      </Card>
 
       <AdminForm action={saveSettings} submitLabel="Αποθήκευση ρυθμίσεων" stickyBar className="space-y-6">
         <Card title="Λειτουργία καταστήματος">
