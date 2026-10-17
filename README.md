@@ -29,6 +29,8 @@ Admin login = `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env.local`. Change the pas
 | `npm run catalog:build` | rebuild `catalog/catalog.json` + `public/catalog/*.webp` from the client's photos |
 | `npm run test:orders` | order-logic regression test, incl. availability (runs on a throwaway snapshot of the DB) |
 | `npm run test:feed` | Skroutz feed regression test: what is listed, valid XML, barcodes (same throwaway snapshot) |
+| `npm run test:security` | commerce switch, MFA, limits, upload tokens/deadline/rollback and backup encryption |
+| `npm run test:flows` | real browser flow on a throwaway DB: login + TOTP, confirmed database download, CSV import, photo/SDS save (builds first) |
 | `npm run lint` / `typecheck` | ESLint / TypeScript |
 
 ## ⚠️ Before going live

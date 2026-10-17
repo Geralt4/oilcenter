@@ -27,7 +27,8 @@
     "test:security": "tsx scripts/test-security.ts",
     "test:feed": "tsx scripts/test-feed.ts",
     "test:catalog": "tsx scripts/test-catalog.ts",
-    "test:admin": "tsx scripts/test-admin.ts"
+    "test:admin": "tsx scripts/test-admin.ts",
+    "test:flows": "npm run build && tsx scripts/test-flows.ts"
   },
   "engines": {
     "node": ">=20.9"
@@ -59,6 +60,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.8",
+    "playwright-core": "^1.64.1",
     "postcss": "^8.5.28",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.13",

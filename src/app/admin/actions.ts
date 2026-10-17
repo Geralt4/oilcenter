@@ -389,10 +389,25 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   const photoClaims: Array<{ token: string; url: string }> = [];
   let sdsUpload: string | null = null;
   let sdsClaim: { token: string; file: string } | null = null;
-  const releaseAll = async () => {
-    for (const claim of photoClaims) await releaseUpload(claim.token, uploadPath(claim.url));
-    if (sdsClaim) await releaseUpload(sdsClaim.token, sdsClaim.file);
+  /** Returns false when at least one file could not be put back in staging. Every claim is still attempted. */
+  const releaseAll = async (): Promise<boolean> => {
+    const claims = [
+      ...photoClaims.map((claim) => ({ token: claim.token, file: uploadPath(claim.url) })),
+      ...(sdsClaim ? [sdsClaim] : []),
+    ];
+    let clean = true;
+    for (const claim of claims) {
+      try {
+        await releaseUpload(claim.token, claim.file);
+      } catch (err) {
+        clean = false;
+        console.error(`[upload] failed to return ${claim.token} to staging`, err);
+      }
+    }
+    return clean;
   };
+  const ROLLBACK_FAILED = 'Η αποθήκευση απέτυχε και κάποια αρχεία δεν μπόρεσαν να επιστραφούν. Ανεβάστε τα ξανά και δοκιμάστε ξανά.';
+  const releaseOr = async (message: string): Promise<AdminFormState> => ((await releaseAll()) ? { ok: false, message } : { ok: false, message: ROLLBACK_FAILED });
 
   let productId: number;
   let hazard: ReturnType<typeof buildHazard> = null;
@@ -403,8 +418,7 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     if (sdsToken) {
       const claimed = await claimUpload(sdsToken, 'sds', me.id);
       if (!claimed) {
-        await releaseAll();
-        return { ok: false, message: 'Το δελτίο δεδομένων ασφαλείας έληξε ή δεν είναι διαθέσιμο. Ανεβάστε το ξανά.' };
+        return releaseOr('Το δελτίο δεδομένων ασφαλείας έληξε ή δεν είναι διαθέσιμο. Ανεβάστε το ξανά.');
       }
       try {
         const moved = await moveSds(claimed.file, slug);
@@ -412,14 +426,13 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
         sdsClaim = { token: claimed.token, file: moved.file };
       } catch (err) {
         // The move itself failed: the file is still staged, so release the token without a file.
-        await releaseUpload(claimed.token);
+        await releaseUpload(claimed.token).catch((releaseErr) => console.error(`[upload] failed to return ${claimed.token} to staging`, releaseErr));
         throw err;
       }
     }
     const sdsLink = str(fd, 'sdsUrl');
     if (sdsLink && !sdsLink.startsWith('/media/sds/') && !/^https:\/\/[^\s]+$/i.test(sdsLink)) {
-      await releaseAll();
-      return { ok: false, message: 'Ο σύνδεσμος του δελτίου δεδομένων ασφαλείας πρέπει να ξεκινά με https://' };
+      return releaseOr('Ο σύνδεσμος του δελτίου δεδομένων ασφαλείας πρέπει να ξεκινά με https://');
     }
     hazard = buildHazard({
       none: bool(fd, 'hazardNone'), confirmed: bool(fd, 'hazardConfirmed'), signalWord: str(fd, 'hazardSignal'), pictograms: fd.getAll('hazardPictograms').map(String),
@@ -431,22 +444,20 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     // Photos were normalised to 1000×1000 WebP by the upload endpoint; here only the single-use tokens are claimed.
     const photoTokens = fd.getAll('images').filter((v): v is string => typeof v === 'string' && v.length > 0);
     if (photoTokens.length > MAX_PHOTOS) {
-      await releaseAll();
-      return { ok: false, message: `Έως ${MAX_PHOTOS} φωτογραφίες τη φορά.` };
+      return releaseOr(`Έως ${MAX_PHOTOS} φωτογραφίες τη φορά.`);
     }
     const productsDir = path.resolve(process.env.DATA_DIR || './data', 'uploads', 'products');
     for (const token of photoTokens) {
       const claimed = await claimUpload(token, 'photo', me.id);
       if (!claimed) {
-        await releaseAll();
-        return { ok: false, message: 'Μία φωτογραφία έληξε ή δεν είναι διαθέσιμη. Ανεβάστε την ξανά.' };
+        return releaseOr('Μία φωτογραφία έληξε ή δεν είναι διαθέσιμη. Ανεβάστε την ξανά.');
       }
       const name = `${slug.slice(0, 60)}-${randomToken(5).toLowerCase()}.webp`;
       try {
         await moveClaimed(claimed.file, productsDir, name);
       } catch (err) {
         // This photo is still in staging (the rename failed), so release its token without a file.
-        await releaseUpload(claimed.token);
+        await releaseUpload(claimed.token).catch((releaseErr) => console.error(`[upload] failed to return ${claimed.token} to staging`, releaseErr));
         throw err;
       }
       uploads.push(`/media/products/${name}`);
@@ -497,7 +508,12 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
       return pid;
     });
   } catch (err) {
-    await releaseAll();
+    const clean = await releaseAll();
+    if (!clean) {
+      // Keep the original failure visible: a rollback problem must not hide why the save failed.
+      console.error('[product] save failed after uploads were claimed', err);
+      return { ok: false, message: ROLLBACK_FAILED };
+    }
     if (isUniqueViolation(err, 'sku')) return { ok: false, message: 'Κάποιος κωδικός (SKU) χρησιμοποιείται ήδη — σε άλλο προϊόν ή δύο φορές εδώ.' };
     throw err;
   }
@@ -614,36 +630,44 @@ export async function importPricesCsv(_prev: AdminFormState, fd: FormData): Prom
   if (!token) return { ok: false, message: 'Επιλέξτε αρχείο CSV.' };
   const claimed = await claimUpload(token, 'price-csv', me.id);
   if (!claimed) return { ok: false, message: 'Το αρχείο έληξε ή δεν είναι διαθέσιμο. Ανεβάστε το ξανά.' };
-  const text = await readStagedText(claimed.file).catch(() => null);
-  if (text === null) {
-    await releaseUpload(token);
-    return { ok: false, message: 'Το αρχείο δεν διαβάζεται. Ανεβάστε το ξανά.' };
-  }
-
-  const rows = await db.select({ id: variants.id, sku: variants.sku, priceCents: variants.priceCents, priceVerified: variants.priceVerified, stock: variants.stock, trackStock: variants.trackStock, availability: variants.availability }).from(variants);
-  const plan = planPriceImport(text, new Map(rows.map(({ sku, ...v }) => [sku, v])));
-  if (plan.error !== undefined) {
-    await releaseUpload(token);
-    return { ok: false, message: plan.error };
-  }
-
-  // all or nothing: half a price list is worse than none
+  const releaseOnFailure = async () => {
+    try {
+      await releaseUpload(token);
+    } catch (releaseErr) {
+      console.error(`[upload] failed to return ${token} to staging`, releaseErr);
+    }
+  };
   try {
+    const text = await readStagedText(claimed.file).catch(() => null);
+    if (text === null) {
+      await releaseOnFailure();
+      return { ok: false, message: 'Το αρχείο δεν διαβάζεται. Ανεβάστε το ξανά.' };
+    }
+
+    const rows = await db.select({ id: variants.id, sku: variants.sku, priceCents: variants.priceCents, priceVerified: variants.priceVerified, stock: variants.stock, trackStock: variants.trackStock, availability: variants.availability }).from(variants);
+    const plan = planPriceImport(text, new Map(rows.map(({ sku, ...v }) => [sku, v])));
+    if (plan.error !== undefined) {
+      await releaseOnFailure();
+      return { ok: false, message: plan.error };
+    }
+
+    // all or nothing: half a price list is worse than none
     await db.transaction(async (tx) => {
       for (const change of plan.changes) {
         await tx.update(variants).set(change.patch).where(eq(variants.id, change.id));
         if (change.patch.priceCents !== undefined) await tx.insert(priceChanges).values({ variantId: change.id, oldCents: change.oldCents, newCents: change.newCents, source: 'csv' });
       }
     });
+    await finishUpload(token);
+    revalidatePath('/admin/prices');
+    // Completed even when some rows were skipped: returning ok:false here would keep the form-looking
+    // failure and leave an already-consumed token in the UI. The message reports what changed.
+    return { ok: true, message: describePriceImport(plan) };
   } catch (err) {
-    await releaseUpload(token);
+    // Also covers the database read before the plan: a failed import must not strand its upload.
+    await releaseOnFailure();
     throw err;
   }
-  await finishUpload(token);
-  revalidatePath('/admin/prices');
-  // Completed even when some rows were skipped: returning ok:false here would keep the form-looking
-  // failure and leave an already-consumed token in the UI. The message reports what changed.
-  return { ok: true, message: describePriceImport(plan) };
 }
 
 // ─── Brands, categories, coupons, messages ───────────────────────────────────
@@ -942,54 +966,62 @@ export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promi
   if (!token) return { ok: false, message: 'Επιλέξτε αρχείο CSV.' };
   const claimed = await claimUpload(token, 'code-csv', me.id);
   if (!claimed) return { ok: false, message: 'Το αρχείο έληξε ή δεν είναι διαθέσιμο. Ανεβάστε το ξανά.' };
-  const text = await readStagedText(claimed.file).catch(() => null);
-  if (text === null) {
-    await releaseUpload(token);
-    return { ok: false, message: 'Το αρχείο δεν διαβάζεται. Ανεβάστε το ξανά.' };
-  }
-  const { header, rows: lines } = parseCsv(text);
-  const col = { sku: header.indexOf('sku'), ean: header.findIndex((h) => h === 'ean' || h.startsWith('barcode') || h === 'gtin'), mpn: header.findIndex((h) => h === 'mpn' || h.startsWith('κωδ')) };
-  if (col.sku < 0 || (col.ean < 0 && col.mpn < 0)) {
-    await releaseUpload(token);
-    return { ok: false, message: 'Η πρώτη γραμμή πρέπει να έχει στήλη «sku» και τουλάχιστον μία από τις «ean», «mpn».' };
-  }
-
-  const rows = await db.select({ id: variants.id, sku: variants.sku, barcode: variants.barcode }).from(variants);
-  const bySku = new Map(rows.map((v) => [v.sku, v]));
-  const owner = new Map(rows.flatMap((v) => (v.barcode ? [[v.barcode, v.id] as const] : [])));
-  let updated = 0;
-  const unknown: string[] = [];
-  const rejected: string[] = [];
+  const releaseOnFailure = async () => {
+    try {
+      await releaseUpload(token);
+    } catch (releaseErr) {
+      console.error(`[upload] failed to return ${token} to staging`, releaseErr);
+    }
+  };
   try {
-  for (const { cells } of lines) {
-    const sku = (cells[col.sku] ?? '').toUpperCase();
-    if (!sku) continue;
-    const current = bySku.get(sku);
-    if (!current) {
-      unknown.push(sku);
-      continue;
+    const text = await readStagedText(claimed.file).catch(() => null);
+    if (text === null) {
+      await releaseOnFailure();
+      return { ok: false, message: 'Το αρχείο δεν διαβάζεται. Ανεβάστε το ξανά.' };
     }
-    const patch: { barcode?: string; mpn?: string } = {};
-    const ean = col.ean >= 0 ? normalizeGtin(cells[col.ean] ?? '') : '';
-    if (ean) {
-      if (!isValidGtin(ean) || (owner.has(ean) && owner.get(ean) !== current.id)) rejected.push(sku);
-      else patch.barcode = ean;
+    const { header, rows: lines } = parseCsv(text);
+    const col = { sku: header.indexOf('sku'), ean: header.findIndex((h) => h === 'ean' || h.startsWith('barcode') || h === 'gtin'), mpn: header.findIndex((h) => h === 'mpn' || h.startsWith('κωδ')) };
+    if (col.sku < 0 || (col.ean < 0 && col.mpn < 0)) {
+      await releaseOnFailure();
+      return { ok: false, message: 'Η πρώτη γραμμή πρέπει να έχει στήλη «sku» και τουλάχιστον μία από τις «ean», «mpn».' };
     }
-    const mpn = col.mpn >= 0 ? (cells[col.mpn] ?? '').slice(0, 80) : '';
-    if (mpn) patch.mpn = mpn;
-    if (!patch.barcode && !patch.mpn) continue;
-    await db.update(variants).set(patch).where(eq(variants.id, current.id));
-    if (patch.barcode) owner.set(patch.barcode, current.id);
-    updated++;
-  }
+
+    const rows = await db.select({ id: variants.id, sku: variants.sku, barcode: variants.barcode }).from(variants);
+    const bySku = new Map(rows.map((v) => [v.sku, v]));
+    const owner = new Map(rows.flatMap((v) => (v.barcode ? [[v.barcode, v.id] as const] : [])));
+    let updated = 0;
+    const unknown: string[] = [];
+    const rejected: string[] = [];
+    for (const { cells } of lines) {
+      const sku = (cells[col.sku] ?? '').toUpperCase();
+      if (!sku) continue;
+      const current = bySku.get(sku);
+      if (!current) {
+        unknown.push(sku);
+        continue;
+      }
+      const patch: { barcode?: string; mpn?: string } = {};
+      const ean = col.ean >= 0 ? normalizeGtin(cells[col.ean] ?? '') : '';
+      if (ean) {
+        if (!isValidGtin(ean) || (owner.has(ean) && owner.get(ean) !== current.id)) rejected.push(sku);
+        else patch.barcode = ean;
+      }
+      const mpn = col.mpn >= 0 ? (cells[col.mpn] ?? '').slice(0, 80) : '';
+      if (mpn) patch.mpn = mpn;
+      if (!patch.barcode && !patch.mpn) continue;
+      await db.update(variants).set(patch).where(eq(variants.id, current.id));
+      if (patch.barcode) owner.set(patch.barcode, current.id);
+      updated++;
+    }
+
+    revalidatePath('/admin/skroutz');
+    await finishUpload(token);
+    const list = (label: string, skus: string[]) => (skus.length ? ` ${label}: ${skus.slice(0, 6).join(', ')}${skus.length > 6 ? '…' : ''}.` : '');
+    // Completed even with unknown/rejected codes; the message names them.
+    return { ok: true, message: `${updated === 1 ? 'Ενημερώθηκε 1 συσκευασία' : `Ενημερώθηκαν ${updated} συσκευασίες`}.${list('Μη έγκυρο ή διπλό barcode', rejected)}${list('Άγνωστοι κωδικοί', unknown)}` };
   } catch (err) {
-    await releaseUpload(token);
+    // A database failure mid-import must leave the CSV claimable for a retry.
+    await releaseOnFailure();
     throw err;
   }
-
-  revalidatePath('/admin/skroutz');
-  await finishUpload(token);
-  const list = (label: string, skus: string[]) => (skus.length ? ` ${label}: ${skus.slice(0, 6).join(', ')}${skus.length > 6 ? '…' : ''}.` : '');
-  // Completed even with unknown/rejected codes; the message names them.
-  return { ok: true, message: `${updated === 1 ? 'Ενημερώθηκε 1 συσκευασία' : `Ενημερώθηκαν ${updated} συσκευασίες`}.${list('Μη έγκυρο ή διπλό barcode', rejected)}${list('Άγνωστοι κωδικοί', unknown)}` };
 }

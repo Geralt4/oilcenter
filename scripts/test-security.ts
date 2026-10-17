@@ -5,6 +5,7 @@
  * no payment sessions — regardless of the owner's settings, a logged-in admin, or a real order in the database.
  */
 import { rmSync } from 'node:fs';
+import { rename, rm, stat } from 'node:fs/promises';
 import { cloneDatabase } from './test-db';
 
 let dir = '';
@@ -204,7 +205,7 @@ async function main() {
   console.log('Staged admin uploads');
   const path = (await import('node:path')).default;
   process.env.DATA_DIR = path.join(dir, 'data');
-  const { stageUpload, claimUpload, releaseUpload, readBodyLimited, isUploadKind, uploadLimit, isSameOrigin } = await import('../src/lib/uploads');
+  const { stageUpload, claimUpload, releaseUpload, finishUpload, readBodyLimited, isUploadKind, uploadLimit, isSameOrigin, stagingDir } = await import('../src/lib/uploads');
   const { pendingUploads } = await import('../src/lib/db/schema');
   check('only explicit upload kinds are accepted', isUploadKind('photo') && !isUploadKind('toString') && !isUploadKind('__proto__'));
   check('an explicit kind has a positive byte limit', uploadLimit('photo') > 0);
@@ -234,6 +235,44 @@ async function main() {
   const startedAt = Date.now();
   const stalledResult = await readBodyLimited(stalled, 1024, 30);
   check('a stalled upload deadline interrupts the pending read', stalledResult === null && Date.now() - startedAt < 1000, Date.now() - startedAt);
+  const hungCancel = new ReadableStream<Uint8Array>({ cancel() { return new Promise<void>(() => undefined); } });
+  const hungStarted = Date.now();
+  const hungResult = await Promise.race([readBodyLimited(hungCancel, 1024, 30), new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), 1000))]);
+  check('cancellation that never settles cannot hold the request open', hungResult === null && Date.now() - hungStarted < 1000, hungResult);
+  const late = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      // Simulates a read that was already in flight while the event loop was blocked past the deadline.
+      const until = Date.now() + 60;
+      while (Date.now() < until) { /* deliberately block */ }
+      controller.close();
+    },
+  });
+  const lateStarted = Date.now();
+  check('a completion delivered after the deadline is still refused', (await readBodyLimited(late, 1024, 10)) === null, Date.now() - lateStarted);
+
+  const movedToken = await stageUpload(1, 'photo', 'moved.webp', Buffer.from('synthetic-photo'));
+  await claimUpload(movedToken, 'photo', 1);
+  const movedStaging = path.join(stagingDir(), movedToken);
+  const movedFinal = path.join(dir, 'synthetic-moved.webp');
+  await rename(movedStaging, movedFinal);
+  await releaseUpload(movedToken, movedFinal);
+  check('a moved file is restored to staging on rollback', await stat(movedStaging).then(() => true).catch(() => false));
+  check('…and its token is claimable again', Boolean(await claimUpload(movedToken, 'photo', 1)));
+  await finishUpload(movedToken);
+
+  const brokenToken = await stageUpload(1, 'photo', 'broken.webp', Buffer.from('synthetic-photo'));
+  await claimUpload(brokenToken, 'photo', 1);
+  await rm(path.join(stagingDir(), brokenToken), { force: true });
+  let restoreReported = false;
+  try {
+    await releaseUpload(brokenToken, path.join(dir, 'missing', 'broken.webp'));
+  } catch {
+    restoreReported = true;
+  }
+  check('a failed file restore is reported instead of swallowed', restoreReported);
+  check('…and the token is not made claimable while its bytes are missing', (await claimUpload(brokenToken, 'photo', 1)) === null);
+  await releaseUpload(brokenToken);
+  await finishUpload(brokenToken);
 
   console.log('Upload submit coordination');
   const { beginUpload, endUpload, pendingUploads: pendingUploadCount } = await import('../src/components/admin/upload-pending');

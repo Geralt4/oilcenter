@@ -27,6 +27,12 @@ export function UploadField({ name, kind, accept, multiple, maxFiles, maxTotalMb
   const [problem, setProblem] = useState('');
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // A new selection may begin before an older request resolves (the picker is disabled, but a
+  // programmatic change, a dropped disabled attribute or a future UI change can still do it).
+  // Only the newest selection may write tokens or messages; the counter keeps "busy" accurate
+  // until every outstanding request has finished.
+  const sequence = useRef(0);
+  const active = useRef(0);
 
   // AdminForm calls form.reset() after a successful import; React state is not part of that reset,
   // so clear the pending tokens here. Without this the next import would submit an already-consumed
@@ -64,6 +70,8 @@ export function UploadField({ name, kind, accept, multiple, maxFiles, maxTotalMb
     setProblem('');
 
     const form = input.closest('form');
+    const requestId = ++sequence.current;
+    active.current += 1;
     setBusy(true);
     // Counted per FORM, not per field: photo and SDS uploads can overlap.
     if (form) beginUpload(form);
@@ -81,20 +89,27 @@ export function UploadField({ name, kind, accept, multiple, maxFiles, maxTotalMb
         added.push(body.token);
       }
       // A single-file field replaces the previous selection; a multi-file field adds to it.
-      setTokens((current) => (multiple ? [...current, ...added] : added));
-      input.value = '';
+      if (requestId === sequence.current) {
+        setTokens((current) => (multiple ? [...current, ...added] : added));
+        input.value = '';
+      }
     } catch {
-      input.setCustomValidity('Το ανέβασμα απέτυχε. Δοκιμάστε ξανά.');
-      setProblem('Το ανέβασμα απέτυχε. Ελέγξτε τη σύνδεση και δοκιμάστε ξανά — δεν αποθηκεύτηκε τίποτα.');
+      if (requestId === sequence.current) {
+        input.setCustomValidity('Το ανέβασμα απέτυχε. Δοκιμάστε ξανά.');
+        setProblem('Το ανέβασμα απέτυχε. Ελέγξτε τη σύνδεση και δοκιμάστε ξανά — δεν αποθηκεύτηκε τίποτα.');
+        // Clear the picker so choosing the same file again fires another change event.
+        input.value = '';
+      }
     } finally {
-      setBusy(false);
+      active.current = Math.max(0, active.current - 1);
+      if (active.current === 0) setBusy(false);
       if (form) endUpload(form);
     }
   }
 
   return (
     <div>
-      <input ref={inputRef} type="file" accept={accept} multiple={multiple} onChange={upload} aria-invalid={Boolean(problem)} className={className} />
+      <input ref={inputRef} type="file" accept={accept} multiple={multiple} disabled={busy} aria-busy={busy} onChange={upload} aria-invalid={Boolean(problem)} className={className} />
       {tokens.map((token) => (
         <input key={token} type="hidden" name={name} value={token} />
       ))}

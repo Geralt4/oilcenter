@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { and, eq, gt, isNull, lt, or } from 'drizzle-orm';
 import { db } from '@/lib/db';
@@ -52,39 +52,45 @@ export const stagingDir = () => path.resolve(process.env.DATA_DIR || './data', '
 
 /** Stream a request body with a hard byte cap and a deadline that interrupts a stalled read. */
 export async function readBodyLimited(body: ReadableStream<Uint8Array> | null, maxBytes: number, deadlineMs = 60_000): Promise<Buffer | null> {
-  if (!body) return null;
+  if (!body || deadlineMs <= 0) return null;
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
   const deadline = Date.now() + deadlineMs;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // One timer covers the whole body. Cancellation is started but never awaited: a source is allowed
+  // to leave cancel() pending forever, and the caller must not inherit that hang.
+  const expired = new Promise<'expired'>((resolve) => {
+    timer = setTimeout(() => resolve('expired'), deadlineMs);
+  });
+  const stop = () => {
+    void reader.cancel().catch(() => undefined);
+  };
   try {
     for (;;) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) {
-        await reader.cancel().catch(() => undefined);
+      if (Date.now() >= deadline) {
+        stop();
         return null;
       }
-      // A timer races the pending read: a socket that stops sending must not hold the request open.
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const timeout = new Promise<'timeout'>((resolve) => {
-        timer = setTimeout(() => resolve('timeout'), remaining);
-      });
-      const next = await Promise.race([reader.read(), timeout]);
-      if (timer) clearTimeout(timer);
-      if (next === 'timeout') {
-        await reader.cancel().catch(() => undefined);
+      const next = await Promise.race([reader.read(), expired]);
+      // A chunk delivered only after the event loop was blocked past the deadline is still late.
+      if (next === 'expired' || Date.now() >= deadline) {
+        stop();
         return null;
       }
       if (next.done) break;
       total += next.value.byteLength;
       if (total > maxBytes) {
-        await reader.cancel().catch(() => undefined);
+        stop();
         return null;
       }
       chunks.push(next.value);
     }
   } catch {
+    stop();
     return null;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
   return Buffer.concat(chunks);
 }
@@ -124,11 +130,22 @@ export async function claimUpload(token: string, kind: UploadKind, adminId: numb
 /**
  * Hand a claimed upload back so a failed save can be retried. `file` is moved back to staging when
  * it had already been moved into its final place (photos/SDS). The token becomes claimable again
- * until its original expiry.
+ * only after its bytes are safely back in staging: resetting a claim whose file is still at the
+ * final path would leave the form retrying a token that now points at nothing.
  */
 export async function releaseUpload(token: string, file?: string): Promise<void> {
-  if (file) await rename(file, path.join(stagingDir(), token)).catch(() => undefined);
-  await db.update(pendingUploads).set({ claimedAt: null }).where(eq(pendingUploads.token, token)).catch(() => undefined);
+  if (file) {
+    const staged = path.join(stagingDir(), token);
+    try {
+      await rename(file, staged);
+    } catch (err) {
+      // Releasing is idempotent: a second call finds the bytes already in staging and may proceed.
+      const alreadyStaged = await stat(staged).then(() => true).catch(() => false);
+      const stillAtFinal = await stat(file).then(() => true).catch(() => false);
+      if (!alreadyStaged || stillAtFinal) throw err;
+    }
+  }
+  await db.update(pendingUploads).set({ claimedAt: null }).where(eq(pendingUploads.token, token));
 }
 
 /** CSV imports read the staged bytes in place; on success the row and file are removed for good. */
