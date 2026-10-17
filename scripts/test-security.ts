@@ -5,7 +5,7 @@
  * no payment sessions — regardless of the owner's settings, a logged-in admin, or a real order in the database.
  */
 import { rmSync } from 'node:fs';
-import { rename, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { cloneDatabase } from './test-db';
 
 let dir = '';
@@ -273,6 +273,40 @@ async function main() {
   check('…and the token is not made claimable while its bytes are missing', (await claimUpload(brokenToken, 'photo', 1)) === null);
   await releaseUpload(brokenToken);
   await finishUpload(brokenToken);
+
+  // Bytes whose record cannot be written must not survive: the sweeper works from the table, so it
+  // would never learn about them. Hiding the table makes the insert fail the way a locked database would.
+  const stagedBefore = await readdir(stagingDir());
+  await client.execute('ALTER TABLE pending_uploads RENAME TO pending_uploads_hidden');
+  let registrationFailed = false;
+  try {
+    await stageUpload(1, 'photo', 'unregistered.png', Buffer.from('orphaned bytes'));
+  } catch {
+    registrationFailed = true;
+  }
+  await client.execute('ALTER TABLE pending_uploads_hidden RENAME TO pending_uploads');
+  check('a failed token registration is reported', registrationFailed);
+  check('…and the bytes it had already written are removed again', (await readdir(stagingDir())).length === stagedBefore.length);
+
+  // The mirror case at the other end of the lifecycle: a file that cannot be deleted keeps its record,
+  // so the hourly sweeper can still find it. Deleting the record first would orphan the bytes forever.
+  const stuckToken = await stageUpload(1, 'price-csv', 'stuck.csv', Buffer.from('synthetic csv'));
+  const stuckPath = path.join(stagingDir(), stuckToken);
+  await rm(stuckPath, { force: true });
+  await mkdir(stuckPath);
+  await writeFile(path.join(stuckPath, 'child'), 'undeletable');
+  let finishFailed = false;
+  try {
+    await finishUpload(stuckToken);
+  } catch {
+    finishFailed = true;
+  }
+  const stuckRow = await db.select().from(pendingUploads).where(eq(pendingUploads.token, stuckToken));
+  check('a file that cannot be deleted fails the cleanup instead of hiding it', finishFailed);
+  check('…and its record survives for the sweeper to finish the job', stuckRow.length === 1);
+  await rm(stuckPath, { recursive: true, force: true });
+  await finishUpload(stuckToken);
+  check('the record is removed once the bytes are gone', (await db.select().from(pendingUploads).where(eq(pendingUploads.token, stuckToken))).length === 0);
 
   console.log('Upload submit coordination');
   const { beginUpload, endUpload, pendingUploads: pendingUploadCount } = await import('../src/components/admin/upload-pending');

@@ -992,27 +992,30 @@ export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promi
     let updated = 0;
     const unknown: string[] = [];
     const rejected: string[] = [];
-    for (const { cells } of lines) {
-      const sku = (cells[col.sku] ?? '').toUpperCase();
-      if (!sku) continue;
-      const current = bySku.get(sku);
-      if (!current) {
-        unknown.push(sku);
-        continue;
+    // all or nothing: a failure halfway through the file must not leave half the barcodes applied
+    await db.transaction(async (tx) => {
+      for (const { cells } of lines) {
+        const sku = (cells[col.sku] ?? '').toUpperCase();
+        if (!sku) continue;
+        const current = bySku.get(sku);
+        if (!current) {
+          unknown.push(sku);
+          continue;
+        }
+        const patch: { barcode?: string; mpn?: string } = {};
+        const ean = col.ean >= 0 ? normalizeGtin(cells[col.ean] ?? '') : '';
+        if (ean) {
+          if (!isValidGtin(ean) || (owner.has(ean) && owner.get(ean) !== current.id)) rejected.push(sku);
+          else patch.barcode = ean;
+        }
+        const mpn = col.mpn >= 0 ? (cells[col.mpn] ?? '').slice(0, 80) : '';
+        if (mpn) patch.mpn = mpn;
+        if (!patch.barcode && !patch.mpn) continue;
+        await tx.update(variants).set(patch).where(eq(variants.id, current.id));
+        if (patch.barcode) owner.set(patch.barcode, current.id);
+        updated++;
       }
-      const patch: { barcode?: string; mpn?: string } = {};
-      const ean = col.ean >= 0 ? normalizeGtin(cells[col.ean] ?? '') : '';
-      if (ean) {
-        if (!isValidGtin(ean) || (owner.has(ean) && owner.get(ean) !== current.id)) rejected.push(sku);
-        else patch.barcode = ean;
-      }
-      const mpn = col.mpn >= 0 ? (cells[col.mpn] ?? '').slice(0, 80) : '';
-      if (mpn) patch.mpn = mpn;
-      if (!patch.barcode && !patch.mpn) continue;
-      await db.update(variants).set(patch).where(eq(variants.id, current.id));
-      if (patch.barcode) owner.set(patch.barcode, current.id);
-      updated++;
-    }
+    });
 
     revalidatePath('/admin/skroutz');
     await finishUpload(token);

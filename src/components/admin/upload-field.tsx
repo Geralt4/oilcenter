@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { beginUpload, endUpload } from '@/components/admin/upload-pending';
 
 type Props = {
@@ -36,18 +36,20 @@ export function UploadField({ name, kind, accept, multiple, maxFiles, maxTotalMb
 
   // AdminForm calls form.reset() after a successful import; React state is not part of that reset,
   // so clear the pending tokens here. Without this the next import would submit an already-consumed
-  // token first (and single-file fields would keep an old file).
+  // token first (and single-file fields would keep an old file). The "Καθαρισμός" button calls the same
+  // thing: leaving the error text or a customValidity behind would keep an otherwise valid form blocked.
+  const clear = useCallback(() => {
+    setTokens([]);
+    setProblem('');
+    inputRef.current?.setCustomValidity('');
+  }, []);
+
   useEffect(() => {
     const form = inputRef.current?.closest('form');
     if (!form) return;
-    const onReset = () => {
-      setTokens([]);
-      setProblem('');
-      inputRef.current?.setCustomValidity('');
-    };
-    form.addEventListener('reset', onReset);
-    return () => form.removeEventListener('reset', onReset);
-  }, []);
+    form.addEventListener('reset', clear);
+    return () => form.removeEventListener('reset', clear);
+  }, [clear]);
 
   async function upload(event: React.ChangeEvent<HTMLInputElement>) {
     const input = event.currentTarget;
@@ -118,7 +120,7 @@ export function UploadField({ name, kind, accept, multiple, maxFiles, maxTotalMb
       {!busy && tokens.length > 0 && (
         <p className="mt-2 text-xs text-ink-500">
           {tokens.length} {what} έτοιμα για αποθήκευση.{' '}
-          <button type="button" className="font-semibold text-petrol-500 underline underline-offset-2" onClick={() => setTokens([])}>
+          <button type="button" className="font-semibold text-petrol-500 underline underline-offset-2" onClick={clear}>
             Καθαρισμός
           </button>
         </p>

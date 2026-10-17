@@ -98,16 +98,23 @@ export async function readBodyLimited(body: ReadableStream<Uint8Array> | null, m
 /** Store bytes in the staging area and register their single-use token. */
 export async function stageUpload(adminId: number, kind: UploadKind, originalName: string, data: Buffer): Promise<string> {
   const token = randomToken(18);
+  const file = path.join(stagingDir(), token);
   await mkdir(stagingDir(), { recursive: true });
-  await writeFile(path.join(stagingDir(), token), data, { mode: 0o600 });
-  await db.insert(pendingUploads).values({
-    token,
-    adminId,
-    kind,
-    originalName: originalName.slice(0, 160),
-    bytes: data.byteLength,
-    expiresAt: new Date(Date.now() + TTL_MS),
-  });
+  await writeFile(file, data, { mode: 0o600 });
+  try {
+    await db.insert(pendingUploads).values({
+      token,
+      adminId,
+      kind,
+      originalName: originalName.slice(0, 160),
+      bytes: data.byteLength,
+      expiresAt: new Date(Date.now() + TTL_MS),
+    });
+  } catch (err) {
+    // Without a record the hourly sweeper can never find these bytes again: take them out now.
+    await rm(file, { force: true }).catch(() => undefined);
+    throw err;
+  }
   return token;
 }
 
@@ -148,10 +155,15 @@ export async function releaseUpload(token: string, file?: string): Promise<void>
   await db.update(pendingUploads).set({ claimedAt: null }).where(eq(pendingUploads.token, token));
 }
 
-/** CSV imports read the staged bytes in place; on success the row and file are removed for good. */
+/**
+ * CSV imports read the staged bytes in place; on success the row and file are removed for good.
+ * The bytes go FIRST: a record whose file is already gone is harmless (the sweeper clears the row),
+ * while bytes without a record are invisible to housekeeping and would sit on the disk forever. A
+ * file that cannot be deleted throws, so the caller keeps the record that lets the sweeper retry.
+ */
 export async function finishUpload(token: string): Promise<void> {
-  await rm(path.join(stagingDir(), token), { force: true }).catch(() => undefined);
-  await db.delete(pendingUploads).where(eq(pendingUploads.token, token)).catch(() => undefined);
+  await rm(path.join(stagingDir(), token), { force: true });
+  await db.delete(pendingUploads).where(eq(pendingUploads.token, token));
 }
 
 /** Move a claimed staged file to its final destination (same filesystem: rename, no copy). */

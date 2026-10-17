@@ -14,7 +14,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
-import { chromium, type Browser } from 'playwright-core';
+import { chromium, type Browser, type BrowserContext } from 'playwright-core';
 import sharp from 'sharp';
 import { cloneDatabase } from './test-db';
 
@@ -62,15 +62,20 @@ async function main() {
 
   const { eq, asc } = await import('drizzle-orm');
   const { db, client } = await import('../src/lib/db');
-  const { adminUsers, products, productImages, variants } = await import('../src/lib/db/schema');
+  const { adminUsers, pendingUploads, products, productImages, variants } = await import('../src/lib/db/schema');
   const { hashPassword } = await import('../src/lib/auth/password');
   const { newTotpSecret, totpFor } = await import('../src/lib/auth/totp');
 
   const email = 'e2e-owner@example.invalid';
+  const unenrolledEmail = 'e2e-unenrolled@example.invalid';
   const password = 'E2E-Only-Password-123!';
   const totpSecret = newTotpSecret();
   await db.delete(adminUsers);
-  await db.insert(adminUsers).values({ email, name: 'E2E owner', passwordHash: await hashPassword(password), totpSecret, totpConfirmedAt: new Date() });
+  await db.insert(adminUsers).values([
+    { email, name: 'E2E owner', passwordHash: await hashPassword(password), totpSecret, totpConfirmedAt: new Date() },
+    // a second account without an authenticator: it must not be able to obtain the privileged confirmation
+    { email: unenrolledEmail, name: 'E2E without 2FA', passwordHash: await hashPassword(password) },
+  ]);
 
   const [product] = await db.select({ id: products.id }).from(products).orderBy(asc(products.id)).limit(1);
   if (!product) throw new Error('The throwaway database has no products to edit.');
@@ -122,43 +127,139 @@ async function main() {
     }
     const context = await browser.newContext({ acceptDownloads: true });
     const page = await context.newPage();
+    /**
+     * A code for a step that has not been spent yet. Every accepted code burns its 30-second step, so
+     * a second code has to wait for the next step rather than reuse a step the account already used.
+     */
+    let spentStep = 0;
+    const freshCode = async () => {
+      const current = Math.floor(Date.now() / 30_000);
+      if (current <= spentStep) while (Math.floor(Date.now() / 30_000) <= spentStep) await delay(200);
+      spentStep = Math.floor(Date.now() / 30_000);
+      return totpFor(totpSecret, email).generate();
+    };
+    /** One login attempt in its own page: returns the visible refusal, or the signed-in URL. */
+    const attemptLogin = async (own: BrowserContext, code?: string, who = email) => {
+      const signIn = await own.newPage();
+      await signIn.goto(`${base}/admin/login`);
+      await signIn.locator('input[name="email"]').fill(who);
+      await signIn.locator('input[name="password"]').fill(code === '@wrong-password' ? 'not-the-password' : password);
+      if (code && code !== '@wrong-password') await signIn.locator('input[name="totp"]').fill(code);
+      await signIn.getByRole('button', { name: 'Σύνδεση' }).click();
+      const alert = signIn.locator('form').getByRole('alert');
+      const refused = await alert
+        .waitFor({ state: 'visible', timeout: 4_000 })
+        .then(async () => ({ text: (await alert.first().textContent()) ?? '', html: (await alert.first().innerHTML()).slice(0, 120) }))
+        .catch(() => null);
+      const url = refused ? null : signIn.url();
+      await signIn.close();
+      return { refused: refused?.text ?? null, alertHtml: refused?.html ?? null, url };
+    };
+
+    console.log('Authentication is refused without both factors');
+    const anonymousPanel = await context.request.get(`${base}/admin`, { maxRedirects: 0 });
+    const anonymousBackup = await context.request.get(`${base}/admin/backup`, { maxRedirects: 0 });
+    check('an anonymous visitor cannot reach the admin panel', anonymousPanel.status() === 307 && anonymousPanel.headers().location?.endsWith('/admin/login'));
+    check('an anonymous visitor cannot download the database', anonymousBackup.status() === 307 && anonymousBackup.headers().location?.endsWith('/admin/login'));
+
+    const wrongPassword = await attemptLogin(context, '@wrong-password');
+    check('a wrong password is refused', Boolean(wrongPassword.refused?.includes('Λάθος e-mail ή κωδικός')), wrongPassword.alertHtml);
+    const noCode = await attemptLogin(context);
+    check('the password alone is refused while 2FA is enrolled', Boolean(noCode.refused?.includes('6ψήφιο')), noCode.alertHtml);
+
+    // Two throwaway sessions for one code: the first spends the step, the second must be turned away.
+    const spentCode = await freshCode();
+    const firstUse = await attemptLogin(await browser.newContext(), spentCode);
+    check('password + code signs in', firstUse.url === `${base}/admin`, firstUse.alertHtml);
+    const replayed = await attemptLogin(await browser.newContext(), spentCode);
+    check('the same authenticator code cannot be used twice', Boolean(replayed.refused?.includes('Λάθος ή ήδη χρησιμοποιημένος')), replayed.alertHtml);
 
     console.log('Authentication and privileged download');
     await page.goto(`${base}/admin/login`);
     await page.locator('input[name="email"]').fill(email);
     await page.locator('input[name="password"]').fill(password);
-    await page.locator('input[name="totp"]').fill(totpFor(totpSecret, email).generate());
+    const loginCode = await freshCode();
+    await page.locator('input[name="totp"]').fill(loginCode);
     await page.getByRole('button', { name: 'Σύνδεση' }).click();
     await page.waitForURL(`${base}/admin`, { timeout: 20_000 });
-    check('password + TOTP signs the administrator in', page.url() === `${base}/admin`);
+    check('a later sign-in with a fresh code also works', page.url() === `${base}/admin`);
 
     await page.goto(`${base}/admin/settings`);
+    const earlyDownload = await context.request.get(`${base}/admin/backup`, { maxRedirects: 0 });
+    check('a logged-in session without confirmation cannot download the database', earlyDownload.status() === 307 && earlyDownload.headers().location?.includes('sudo=1'));
+    await page.goto(`${base}/admin/settings`);
     const identity = page.locator('#identity');
+    // the password is checked first, so a wrong password must be refused even with a spent code in the box
+    await identity.locator('input[name="currentPassword"]').fill('not-the-password');
+    await identity.locator('input[name="totp"]').fill(loginCode);
+    await identity.getByRole('button', { name: 'Επιβεβαίωση' }).click();
+    const identityAlert = identity.getByRole('alert');
+    await identityAlert.waitFor({ timeout: 10_000 });
+    check('a wrong password cannot confirm the identity', ((await identityAlert.textContent()) ?? '').includes('Λάθος κωδικός'));
+
     await identity.locator('input[name="currentPassword"]').fill(password);
-    await identity.locator('input[name="totp"]').fill(totpFor(totpSecret, email).generate({ timestamp: Date.now() + 30_000 }));
+    await identity.locator('input[name="totp"]').fill(await freshCode());
     await identity.getByRole('button', { name: 'Επιβεβαίωση' }).click();
     await identity.getByText('Η ταυτότητα είναι επιβεβαιωμένη').waitFor({ timeout: 20_000 });
-    check('password + a fresh TOTP code confirms the identity', await identity.getByText('Η ταυτότητα είναι επιβεβαιωμένη').isVisible());
+    check('password + a fresh code confirms the identity', await identity.getByText('Η ταυτότητα είναι επιβεβαιωμένη').isVisible());
 
     // A direct download navigation is awkward in headless browsers; the context request below
     // shares the browser's HttpOnly cookies, so it exercises the same confirmed session.
     const snapshot = await context.request.get(`${base}/admin/backup`);
     const bytes = Buffer.from(await snapshot.body());
     check('the confirmed administrator receives a gzipped database snapshot', snapshot.ok() && bytes.length > 20 && bytes[0] === 0x1f && bytes[1] === 0x8b, { status: snapshot.status(), bytes: bytes.length });
+    const downloadStatuses: number[] = [];
+    for (let attempt = 0; attempt < 5; attempt++) downloadStatuses.push((await context.request.get(`${base}/admin/backup`)).status());
+    check('repeated downloads are throttled', downloadStatuses.slice(0, 4).every((status) => status === 200) && downloadStatuses[4] === 429, downloadStatuses);
 
     console.log('CSV import');
     await page.goto(`${base}/admin/prices`);
     const csvInput = page.locator('input[type="file"][accept*="csv"]');
+    const stagedCsv = page.locator('input[type="hidden"][name="file"]');
+    const asCsv = (body: string) => ({ mimeType: 'text/csv', buffer: Buffer.from(body, 'utf8') });
+    const amount = (cents: number) => (cents / 100).toFixed(2).replace('.', ',');
     const nextPriceCents = Math.max(100, variant.priceCents + 123);
-    const csv = `sku;price\n${variant.sku};${(nextPriceCents / 100).toFixed(2).replace('.', ',')}\nNO-SUCH-SKU-E2E;9,99\n`;
-    await csvInput.setInputFiles({ name: 'prices.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
-    await page.locator('input[type="hidden"][name="file"]').waitFor({ state: 'attached', timeout: 20_000 });
+    const csv = `sku;price\n${variant.sku};${amount(nextPriceCents)}\nNO-SUCH-SKU-E2E;9,99\n`;
+    // the action writes through the same database file the test reads, so poll instead of racing the UI text
+    const priceStoredAs = async (cents: number) => {
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const [row] = await db.select({ priceCents: variants.priceCents }).from(variants).where(eq(variants.sku, variant.sku));
+        if (row?.priceCents === cents) return true;
+        await delay(250);
+      }
+      return false;
+    };
+
+    await csvInput.setInputFiles({ name: 'prices.csv', ...asCsv(csv) });
+    await stagedCsv.waitFor({ state: 'attached', timeout: 20_000 });
+    check('the CSV upload produces a staged token', (await stagedCsv.count()) === 1);
+
+    // A refused upload must be visible AND must not leave the field holding an error or a blocked validation.
+    await page.route('**/api/admin/upload*', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'busy' }) }));
+    await csvInput.setInputFiles({ name: 'replacement.csv', ...asCsv('sku;price\nBROKEN-E2E;1,00\n') });
+    await page.getByRole('alert').waitFor({ timeout: 20_000 });
+    await page.unroute('**/api/admin/upload*');
+    check('a refused upload is reported and stages nothing new', (await stagedCsv.count()) === 1 && !(await csvInput.evaluate((el: HTMLInputElement) => el.checkValidity())));
+    await page.getByRole('button', { name: 'Καθαρισμός' }).click();
+    check('clearing the field removes its staged token', (await stagedCsv.count()) === 0);
+    const csvForm = csvInput.locator('xpath=ancestor::form');
+    await csvForm.getByRole('alert').waitFor({ state: 'detached', timeout: 10_000 }).catch(() => undefined);
+    check('…and its error and blocked validation with it', (await csvForm.getByRole('alert').count()) === 0 && (await csvInput.evaluate((el: HTMLInputElement) => el.checkValidity())));
+
+    await csvInput.setInputFiles({ name: 'prices.csv', ...asCsv(csv) });
+    await stagedCsv.waitFor({ state: 'attached', timeout: 20_000 });
     await page.getByRole('button', { name: 'Εισαγωγή CSV' }).click();
     await page.getByText(/Άγνωστοι κωδικοί: NO-SUCH-SKU-E2E/).waitFor({ timeout: 20_000 });
-    const [afterImport] = await db.select({ priceCents: variants.priceCents }).from(variants).where(eq(variants.sku, variant.sku));
-    check('the CSV changes the known price and reports the unknown SKU', afterImport?.priceCents === nextPriceCents);
+    check('the CSV changes the known price and reports the unknown SKU', await priceStoredAs(nextPriceCents));
     await page.waitForFunction(() => document.querySelectorAll('input[type="hidden"][name="file"]').length === 0, undefined, { timeout: 10_000 });
-    check('the completed import clears the consumed upload token', (await page.locator('input[type="hidden"][name="file"]').count()) === 0);
+    check('the completed import clears the consumed upload token', (await stagedCsv.count()) === 0);
+
+    const secondPriceCents = nextPriceCents + 11;
+    await csvInput.setInputFiles({ name: 'second.csv', ...asCsv(`sku;price\n${variant.sku};${amount(secondPriceCents)}\n`) });
+    await stagedCsv.waitFor({ state: 'attached', timeout: 20_000 });
+    await page.getByRole('button', { name: 'Εισαγωγή CSV' }).click();
+    check('a second import works immediately after the first', await priceStoredAs(secondPriceCents));
+    await page.waitForFunction(() => document.querySelectorAll('input[type="hidden"][name="file"]').length === 0, undefined, { timeout: 10_000 });
 
     console.log('Photo and SDS upload');
     await page.goto(`${base}/admin/products/${product.id}`);
@@ -180,7 +281,42 @@ async function main() {
     check('the saved product keeps the uploaded photo on disk', Boolean(uploadedPhoto) && existsSync(fileFor(uploadedPhoto!)), uploadedPhoto);
     check('the saved product keeps the uploaded SDS on disk', sdsUrl.startsWith('/media/sds/') && existsSync(fileFor(sdsUrl)), sdsUrl);
 
+    // Both imported CSVs must be gone from the staging table. The one the owner cleared before importing
+    // may still be there — the hourly sweeper is what removes an upload nobody claimed — but it must
+    // never sit there claimed, which is what a half-finished import would look like. (The photo and SDS
+    // rows stay claimed on purpose: they are the claim records of a save that succeeded.)
+    const staged = await db.select({ kind: pendingUploads.kind, claimedAt: pendingUploads.claimedAt }).from(pendingUploads);
+    check('no CSV upload is left claimed', staged.filter((row) => row.kind.endsWith('-csv')).every((row) => row.claimedAt === null), staged.map((row) => `${row.kind}:${row.claimedAt ? 'claimed' : 'open'}`));
+
+    console.log('Sign out');
+    await page.goto(`${base}/admin`);
+    await page.getByRole('button', { name: 'Αποσύνδεση' }).click();
+    await page.waitForURL(`${base}/admin/login`, { timeout: 20_000 });
+    const afterLogout = await context.request.get(`${base}/admin`, { maxRedirects: 0 });
+    check('signing out closes the session', page.url() === `${base}/admin/login` && afterLogout.status() === 307);
+
     await context.close();
+
+    console.log('An administrator without an authenticator');
+    const secondContext = await browser.newContext();
+    const secondPage = await secondContext.newPage();
+    await secondPage.goto(`${base}/admin/login`);
+    await secondPage.locator('input[name="email"]').fill(unenrolledEmail);
+    await secondPage.locator('input[name="password"]').fill(password);
+    await secondPage.getByRole('button', { name: 'Σύνδεση' }).click();
+    await secondPage.waitForURL(`${base}/admin`, { timeout: 20_000 });
+    check('an account without 2FA still signs in with its password', secondPage.url() === `${base}/admin`);
+    await secondPage.goto(`${base}/admin/settings`);
+    const secondIdentity = secondPage.locator('#identity');
+    check('its confirmation form asks for no authenticator code', (await secondIdentity.locator('input[name="totp"]').count()) === 0);
+    await secondIdentity.locator('input[name="currentPassword"]').fill(password);
+    await secondIdentity.getByRole('button', { name: 'Επιβεβαίωση' }).click();
+    const secondAlert = secondIdentity.getByRole('alert');
+    await secondAlert.waitFor({ timeout: 10_000 });
+    check('it cannot obtain the privileged confirmation', ((await secondAlert.textContent()) ?? '').includes('2FA'));
+    const secondDownload = await secondContext.request.get(`${base}/admin/backup`, { maxRedirects: 0 });
+    check('…so it cannot download the database either', secondDownload.status() === 307 && Boolean(secondDownload.headers().location?.includes('sudo=1')));
+    await secondContext.close();
   } finally {
     await browser?.close().catch(() => undefined);
     if (server && server.exitCode === null) {
