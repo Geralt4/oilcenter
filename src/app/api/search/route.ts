@@ -3,7 +3,7 @@ import { matchCode, suggestProducts } from '@/lib/catalog';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 
 export async function GET(request: Request) {
-  const limited = rateLimit(`search:${await clientIp()}`, 120, 5 * 60 * 1000);
+  const limited = await rateLimit(`search:${await clientIp()}`, 120, 5 * 60 * 1000);
   if (!limited.ok) return NextResponse.json({ error: 'too_many_requests' }, { status: 429, headers: { 'Retry-After': String(limited.retryAfterSec) } });
   const q = (new URL(request.url).searchParams.get('q') ?? '').slice(0, 80);
   if (q.trim().length < 2) return NextResponse.json({ items: [] });

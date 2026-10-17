@@ -1,6 +1,6 @@
 'use server';
 
-import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
@@ -15,13 +15,13 @@ import { adminUsers, brands, categories, contactMessages, coupons, launchSignups
 import { orderStatusMail, sendMail } from '@/lib/email';
 import { buildHazard } from '@/lib/ghs';
 import { isValidGtin, normalizeGtin } from '@/lib/gtin';
-import { normalizeProductPhoto } from '@/lib/images';
 import { addOrderEvent, cancelOrder, getOrderByNumber, ORDER_STATUS_LABELS } from '@/lib/orders';
 import { describePriceImport, MAX_PRICE_CENTS, parseCsv, planPriceImport } from '@/lib/price-csv';
 import { clientIp, loginBudgets, rateLimit } from '@/lib/rate-limit';
 import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours, type ShopSettings } from '@/lib/settings';
 import { buildSearchText } from '@/lib/search-keywords';
 import { getSettings, saveSettingsGroup } from '@/lib/settings.server';
+import { claimUpload, discardStaged, moveClaimed, readStagedText } from '@/lib/uploads';
 import { parsePriceToCents, parseVolumeMl, slugify } from '@/lib/utils';
 
 /* Every action below starts with requireAdmin(): page-level protection alone would not cover direct action calls. */
@@ -60,7 +60,7 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
   // spraying — a few tries against MANY e-mails — which the per-account key alone would never catch.
   const limited = await loginBudgets('admin-login', 20, 15 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
-  const perAccount = rateLimit(`admin-login:${await clientIp()}:${email}`, 6, 15 * 60 * 1000);
+  const perAccount = await rateLimit(`admin-login:${await clientIp()}:${email}`, 6, 15 * 60 * 1000);
   if (!perAccount.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(perAccount.retryAfterSec / 60)} λεπτά.` };
 
   const [admin] = await db.select().from(adminUsers).where(eq(adminUsers.email, email));
@@ -84,7 +84,7 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
       return { ok: false, message: 'Η επαλήθευση δύο βημάτων είναι ελλιπώς ρυθμισμένη. Χρειάζεται αποκατάσταση από τον διακομιστή.' };
     }
     if (!attempted) return { ok: false, message: 'Συμπληρώστε τον 6ψήφιο κωδικό από την εφαρμογή επαλήθευσης.', fieldErrors: { totp: 'Υποχρεωτικό πεδίο' } };
-    const totpLimited = rateLimit(`admin-totp:${await clientIp()}:${email}`, 5, 15 * 60 * 1000);
+    const totpLimited = await rateLimit(`admin-totp:${await clientIp()}:${email}`, 5, 15 * 60 * 1000);
     if (!totpLimited.ok) return { ok: false, message: `Πολλές προσπάθειες με κωδικό. Δοκιμάστε ξανά σε ${Math.ceil(totpLimited.retryAfterSec / 60)} λεπτά.` };
     if (!(await consumeTotp(admin.id, admin.totpSecret, admin.email, attempted))) return { ok: false, message: 'Λάθος ή ήδη χρησιμοποιημένος κωδικός επαλήθευσης.' };
   }
@@ -98,7 +98,7 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
 /** Step 1: create (or replace) an unconfirmed secret. The owner scans the QR on the settings page. */
 export async function beginTotpEnrollment(fd: FormData): Promise<void> {
   const me = await requireAdmin();
-  const limited = rateLimit(`mfa:${await clientIp()}:${me.id}`, 8, 15 * 60 * 1000);
+  const limited = await rateLimit(`mfa:${await clientIp()}:${me.id}`, 8, 15 * 60 * 1000);
   if (!limited.ok) redirect('/admin/settings?mfa=rate');
   const [row] = await db.select({ secret: adminUsers.totpSecret, confirmedAt: adminUsers.totpConfirmedAt }).from(adminUsers).where(eq(adminUsers.id, me.id));
   // Replacing an ACTIVE secret silently would let a stolen session swap in its own authenticator. Require a
@@ -111,7 +111,7 @@ export async function beginTotpEnrollment(fd: FormData): Promise<void> {
 /** Step 2: prove the authenticator works before the factor starts being required at login. */
 export async function confirmTotpEnrollment(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   const me = await requireAdmin();
-  const limited = rateLimit(`mfa:${await clientIp()}:${me.id}`, 8, 15 * 60 * 1000);
+  const limited = await rateLimit(`mfa:${await clientIp()}:${me.id}`, 8, 15 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά σε λίγα λεπτά.' };
   const [row] = await db.select({ secret: adminUsers.totpSecret }).from(adminUsers).where(eq(adminUsers.id, me.id));
   if (!row?.secret) return { ok: false, message: 'Δεν υπάρχει εκκρεμής ρύθμιση. Πατήστε «Ενεργοποίηση» ξανά.' };
@@ -131,7 +131,7 @@ export async function confirmTotpEnrollment(_prev: AdminFormState, fd: FormData)
 /** Turning it OFF needs a current code: a stolen session alone must not be able to remove the factor. */
 export async function disableTotp(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   const me = await requireAdmin();
-  const limited = rateLimit(`mfa:${await clientIp()}:${me.id}`, 8, 15 * 60 * 1000);
+  const limited = await rateLimit(`mfa:${await clientIp()}:${me.id}`, 8, 15 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά σε λίγα λεπτά.' };
   const [row] = await db.select({ secret: adminUsers.totpSecret, confirmedAt: adminUsers.totpConfirmedAt }).from(adminUsers).where(eq(adminUsers.id, me.id));
   if (!row?.secret) return { ok: false, message: 'Η επαλήθευση δύο βημάτων δεν είναι ενεργή.' };
@@ -155,7 +155,7 @@ export async function disableTotp(_prev: AdminFormState, fd: FormData): Promise<
  */
 export async function confirmAdminIdentity(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   const me = await requireAdmin();
-  const limited = rateLimit(`sudo:${await clientIp()}:${me.id}`, 5, 15 * 60 * 1000);
+  const limited = await rateLimit(`sudo:${await clientIp()}:${me.id}`, 5, 15 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
   const [row] = await db.select().from(adminUsers).where(eq(adminUsers.id, me.id));
   if (!row || !(await verifyPassword(String(fd.get('currentPassword') ?? ''), row.passwordHash))) return { ok: false, message: 'Λάθος κωδικός.' };
@@ -163,9 +163,9 @@ export async function confirmAdminIdentity(_prev: AdminFormState, fd: FormData):
     if (!row.totpSecret) return { ok: false, message: 'Η επαλήθευση δύο βημάτων είναι ελλιπώς ρυθμισμένη. Χρειάζεται αποκατάσταση από τον διακομιστή.' };
     if (!(await consumeTotp(me.id, row.totpSecret, me.email, str(fd, 'totp')))) return { ok: false, message: 'Λάθος ή ήδη χρησιμοποιημένος κωδικός επαλήθευσης. Περιμένετε τον επόμενο κωδικό.' };
   }
-  await createSudoSession(me.id);
+  if (!(await createSudoSession())) return { ok: false, message: 'Η συνεδρία δεν υποστηρίζει επιβεβαίωση. Αποσυνδεθείτε και συνδεθείτε ξανά.' };
   revalidatePath('/admin/settings');
-  return { ok: true, message: 'Η ταυτότητα επιβεβαιώθηκε. Οι αλλαγές διαχειριστών είναι διαθέσιμες για 5 λεπτά.' };
+  return { ok: true, message: 'Η ταυτότητα επιβεβαιώθηκε για 5 λεπτά (μόνο σε αυτή τη συνεδρία).' };
 }
 
 // ─── Administrators ──────────────────────────────────────────────────────────
@@ -175,8 +175,8 @@ export async function confirmAdminIdentity(_prev: AdminFormState, fd: FormData):
  * for a colleague who lost theirs. Passwords are never shared between accounts.
  */
 export async function addAdmin(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
-  const me = await requireAdmin();
-  if (!(await hasSudoSession(me.id))) return { ok: false, message: 'Επιβεβαιώστε πρώτα την ταυτότητά σας (κωδικός + κωδικός εφαρμογής) στην ενότητα «Επιβεβαίωση ταυτότητας».' };
+  await requireAdmin();
+  if (!(await hasSudoSession())) return { ok: false, message: 'Επιβεβαιώστε πρώτα την ταυτότητά σας (κωδικός + κωδικός εφαρμογής) στην ενότητα «Επιβεβαίωση ταυτότητας».' };
   const email = str(fd, 'email').toLowerCase();
   const name = str(fd, 'adminName');
   const password = String(fd.get('adminPassword') ?? '');
@@ -195,7 +195,7 @@ export async function addAdmin(_prev: AdminFormState, fd: FormData): Promise<Adm
 /** Removing the LAST administrator would lock the shop out of its own panel. */
 export async function removeAdmin(fd: FormData): Promise<void> {
   const me = await requireAdmin();
-  if (!(await hasSudoSession(me.id))) redirect('/admin/settings?sudo=1');
+  if (!(await hasSudoSession())) redirect('/admin/settings?sudo=1');
   const id = int(fd, 'id');
   if (id === me.id) return; // never delete yourself; sign out is the way out
   // The count is part of the DELETE itself: two concurrent removals cannot both see "2 administrators".
@@ -210,7 +210,7 @@ export async function removeAdmin(fd: FormData): Promise<void> {
  */
 export async function resetAdminMfa(fd: FormData): Promise<void> {
   const me = await requireAdmin();
-  if (!(await hasSudoSession(me.id))) redirect('/admin/settings?sudo=1');
+  if (!(await hasSudoSession())) redirect('/admin/settings?sudo=1');
   const id = int(fd, 'id');
   if (id === me.id) return;
   await db
@@ -224,6 +224,7 @@ export async function logoutAdmin(): Promise<void> {
   // Revoke before the cookie goes: deleting the cookie alone would leave a stolen copy valid for up to 12 h.
   const admin = await getAdmin();
   if (admin) await revokeAllSessions('admin', admin.id);
+  await destroySudoSession();
   await destroySession('admin');
   redirect('/admin/login');
 }
@@ -314,35 +315,6 @@ async function uniqueSlug(base: string, ignoreId?: number): Promise<string> {
 }
 
 const MAX_PHOTOS = 12;
-const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
-
-/**
- * Photos for a product. Every file is decoded BEFORE anything is written: one photo that cannot be read refuses the
- * whole save with a message naming it, instead of crashing the editor or being dropped without a word.
- */
-async function storeUploads(files: File[], slug: string): Promise<{ urls: string[] } | { error: string }> {
-  const chosen = files.filter((f) => f.size > 0);
-  if (chosen.length > MAX_PHOTOS) return { error: `Έως ${MAX_PHOTOS} φωτογραφίες τη φορά (επιλέξατε ${chosen.length}).` };
-  const encoded: Buffer[] = [];
-  for (const file of chosen) {
-    if (file.size > MAX_PHOTO_BYTES) return { error: `Η φωτογραφία «${file.name}» ξεπερνά τα 20 MB.` };
-    try {
-      // Re-encoding through sharp both normalises the photo and guarantees the stored bytes really are an image.
-      encoded.push((await normalizeProductPhoto(Buffer.from(await file.arrayBuffer()))).data);
-    } catch {
-      return { error: `Η φωτογραφία «${file.name}» δεν διαβάζεται. Ανεβάστε την ως JPG ή PNG (τα αρχεία HEIC του iPhone δεν υποστηρίζονται).` };
-    }
-  }
-  const dir = path.resolve(process.env.DATA_DIR || './data', 'uploads', 'products');
-  await mkdir(dir, { recursive: true });
-  const urls: string[] = [];
-  for (const data of encoded) {
-    const name = `${slug.slice(0, 60)}-${randomToken(5).toLowerCase()}.webp`;
-    await writeFile(path.join(dir, name), data);
-    urls.push(`/media/products/${name}`);
-  }
-  return { urls };
-}
 
 /** drizzle wraps the driver's error: SQLite's own message («UNIQUE constraint failed: variants.sku») sits on `.cause` */
 function isUniqueViolation(err: unknown, column: string): boolean {
@@ -353,20 +325,16 @@ function isUniqueViolation(err: unknown, column: string): boolean {
   return false;
 }
 
-/** A safety data sheet. Stored only if it really is a PDF (by signature, not by what the browser claims) and of a sane size. */
-async function storeSds(file: File, slug: string): Promise<string | { error: string }> {
-  if (file.size > 10 * 1024 * 1024) return { error: 'Το δελτίο δεδομένων ασφαλείας ξεπερνά τα 10 MB.' };
-  const bytes = Buffer.from(await file.arrayBuffer());
-  if (bytes.subarray(0, 5).toString('latin1') !== '%PDF-') return { error: 'Το δελτίο δεδομένων ασφαλείας πρέπει να είναι αρχείο PDF.' };
+/** A safety data sheet link is produced from a claimed upload; no File objects pass through actions any more. */
+async function moveSds(file: string, slug: string): Promise<string> {
   const dir = path.resolve(process.env.DATA_DIR || './data', 'uploads', 'sds');
-  await mkdir(dir, { recursive: true });
   const name = `${slug.slice(0, 60)}-sds-${randomToken(5).toLowerCase()}.pdf`;
-  await writeFile(path.join(dir, name), bytes);
+  await moveClaimed(file, dir, name);
   return `/media/sds/${name}`;
 }
 
 export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
-  await requireAdmin();
+  const me = await requireAdmin();
   const id = int(fd, 'id') || null;
   const name = str(fd, 'name');
   if (name.length < 2) return { ok: false, message: 'Συμπληρώστε ονομασία.', fieldErrors: { name: 'Υποχρεωτικό πεδίο' } };
@@ -411,9 +379,13 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   };
 
   // Hazard labelling & safety data sheet (lib/ghs.ts). A newly uploaded PDF replaces whatever link was there.
-  const sdsFile = fd.get('sds');
-  const sdsUpload = sdsFile instanceof File && sdsFile.size > 0 ? await storeSds(sdsFile, slug) : null;
-  if (sdsUpload && typeof sdsUpload !== 'string') return { ok: false, message: sdsUpload.error };
+  const sdsToken = typeof fd.get('sds') === 'string' ? String(fd.get('sds')).trim() : '';
+  let sdsUpload: string | null = null;
+  if (sdsToken) {
+    const claimed = await claimUpload(sdsToken, 'sds', me.id);
+    if (!claimed) return { ok: false, message: 'Το δελτίο δεδομένων ασφαλείας έληξε ή δεν είναι διαθέσιμο. Ανεβάστε το ξανά.' };
+    sdsUpload = await moveSds(claimed.file, slug);
+  }
   const sdsLink = str(fd, 'sdsUrl');
   if (sdsLink && !sdsLink.startsWith('/media/sds/') && !/^https:\/\/[^\s]+$/i.test(sdsLink)) {
     if (sdsUpload) await removeUpload(sdsUpload);
@@ -425,12 +397,25 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   });
   const [previous] = id ? await db.select({ hazard: products.hazard }).from(products).where(eq(products.id, id)) : [];
 
-  const stored = await storeUploads(fd.getAll('images').filter((f): f is File => f instanceof File), slug);
-  if ('error' in stored) {
+  // Photos were normalised to 1000×1000 WebP by the upload endpoint; here only the single-use tokens are claimed.
+  const photoTokens = fd.getAll('images').filter((v): v is string => typeof v === 'string' && v.length > 0);
+  if (photoTokens.length > MAX_PHOTOS) {
     if (sdsUpload) await removeUpload(sdsUpload);
-    return { ok: false, message: stored.error };
+    return { ok: false, message: `Έως ${MAX_PHOTOS} φωτογραφίες τη φορά.` };
   }
-  const uploads = stored.urls;
+  const uploads: string[] = [];
+  const productsDir = path.resolve(process.env.DATA_DIR || './data', 'uploads', 'products');
+  for (const token of photoTokens) {
+    const claimed = await claimUpload(token, 'photo', me.id);
+    if (!claimed) {
+      for (const url of uploads) await removeUpload(url);
+      if (sdsUpload) await removeUpload(sdsUpload);
+      return { ok: false, message: 'Μία φωτογραφία έληξε ή δεν είναι διαθέσιμη. Ανεβάστε την ξανά.' };
+    }
+    const name = `${slug.slice(0, 60)}-${randomToken(5).toLowerCase()}.webp`;
+    await moveClaimed(claimed.file, productsDir, name);
+    uploads.push(`/media/products/${name}`);
+  }
   // files written for a save that then fails must not stay behind
   const discardUploads = async () => {
     for (const url of uploads) await removeUpload(url);
@@ -490,8 +475,9 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   if (previous?.hazard?.sdsUrl && previous.hazard.sdsUrl !== hazard?.sdsUrl) await removeUpload(previous.hazard.sdsUrl);
   revalidatePath('/admin/products');
   revalidatePath(`/admin/products/${productId}`);
+  // Reload after every save: the form's upload tokens have just been claimed, and a reload clears them.
   if (!id) redirect(`/admin/products/${productId}?created=1`);
-  return { ok: true, message: 'Το προϊόν αποθηκεύτηκε.' };
+  redirect(`/admin/products/${productId}?saved=1`);
 }
 
 export async function deleteProduct(fd: FormData): Promise<void> {
@@ -592,13 +578,17 @@ export async function updatePrices(input: PriceUpdate[]): Promise<PriceUpdateRes
  * Unknown SKUs are reported, never created. An empty cell changes nothing: the file that was just exported can be uploaded as it is.
  */
 export async function importPricesCsv(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
-  await requireAdmin();
-  const file = fd.get('file');
-  if (!(file instanceof File) || !file.size) return { ok: false, message: 'Επιλέξτε αρχείο CSV.' };
-  if (file.size > 2 * 1024 * 1024) return { ok: false, message: 'Το αρχείο είναι πολύ μεγάλο.' };
+  const me = await requireAdmin();
+  const token = typeof fd.get('file') === 'string' ? String(fd.get('file')) : '';
+  if (!token) return { ok: false, message: 'Επιλέξτε αρχείο CSV.' };
+  const claimed = await claimUpload(token, 'price-csv', me.id);
+  if (!claimed) return { ok: false, message: 'Το αρχείο έληξε ή δεν είναι διαθέσιμο. Ανεβάστε το ξανά.' };
+  const text = await readStagedText(claimed.file).catch(() => null);
+  await discardStaged(claimed.file);
+  if (text === null) return { ok: false, message: 'Το αρχείο δεν διαβάζεται. Ανεβάστε το ξανά.' };
 
   const rows = await db.select({ id: variants.id, sku: variants.sku, priceCents: variants.priceCents, priceVerified: variants.priceVerified, stock: variants.stock, trackStock: variants.trackStock, availability: variants.availability }).from(variants);
-  const plan = planPriceImport(await file.text(), new Map(rows.map(({ sku, ...v }) => [sku, v])));
+  const plan = planPriceImport(text, new Map(rows.map(({ sku, ...v }) => [sku, v])));
   if (plan.error !== undefined) return { ok: false, message: plan.error };
 
   // all or nothing: half a price list is worse than none
@@ -903,11 +893,15 @@ export async function updateCodes(input: CodeUpdate[]): Promise<CodeUpdateResult
 
 /** CSV columns: sku;ean;mpn (either of the last two may be missing) — for a list sent by a distributor. Empty cells change nothing. */
 export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
-  await requireAdmin();
-  const file = fd.get('file');
-  if (!(file instanceof File) || !file.size) return { ok: false, message: 'Επιλέξτε αρχείο CSV.' };
-  if (file.size > 2 * 1024 * 1024) return { ok: false, message: 'Το αρχείο είναι πολύ μεγάλο.' };
-  const { header, rows: lines } = parseCsv(await file.text());
+  const me = await requireAdmin();
+  const token = typeof fd.get('file') === 'string' ? String(fd.get('file')) : '';
+  if (!token) return { ok: false, message: 'Επιλέξτε αρχείο CSV.' };
+  const claimed = await claimUpload(token, 'code-csv', me.id);
+  if (!claimed) return { ok: false, message: 'Το αρχείο έληξε ή δεν είναι διαθέσιμο. Ανεβάστε το ξανά.' };
+  const text = await readStagedText(claimed.file).catch(() => null);
+  await discardStaged(claimed.file);
+  if (text === null) return { ok: false, message: 'Το αρχείο δεν διαβάζεται. Ανεβάστε το ξανά.' };
+  const { header, rows: lines } = parseCsv(text);
   const col = { sku: header.indexOf('sku'), ean: header.findIndex((h) => h === 'ean' || h.startsWith('barcode') || h === 'gtin'), mpn: header.findIndex((h) => h === 'mpn' || h.startsWith('κωδ')) };
   if (col.sku < 0 || (col.ean < 0 && col.mpn < 0)) return { ok: false, message: 'Η πρώτη γραμμή πρέπει να έχει στήλη «sku» και τουλάχιστον μία από τις «ean», «mpn».' };
 

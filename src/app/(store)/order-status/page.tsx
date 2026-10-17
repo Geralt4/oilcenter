@@ -18,7 +18,7 @@ async function lookup(formData: FormData) {
   const number = String(formData.get('number') ?? '').trim().toUpperCase().replace(/\s/g, '');
   const email = String(formData.get('email') ?? '').trim().toLowerCase();
   // Same answer for "no such order" and "wrong e-mail", and a rate limit: no way to probe order numbers.
-  const limited = rateLimit(`lookup:${await clientIp()}`, 8, 10 * 60 * 1000);
+  const limited = await rateLimit(`lookup:${await clientIp()}`, 8, 10 * 60 * 1000);
   if (!limited.ok) redirect('/order-status?error=rate');
   const [order] = number && email ? await db.select({ number: orders.number, token: orders.accessToken }).from(orders).where(and(eq(orders.number, number), eq(orders.email, email))) : [];
   if (!order) redirect('/order-status?error=notfound');

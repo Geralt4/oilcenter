@@ -7,7 +7,7 @@ import { productImages, products, variants } from '@/lib/db/schema';
 
 export const metadata = { title: 'Επεξεργασία προϊόντος' };
 
-export default async function AdminProductPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ created?: string }> }) {
+export default async function AdminProductPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ created?: string; saved?: string }> }) {
   await requireAdmin();
   const [{ id: raw }, sp] = await Promise.all([params, searchParams]);
   if (raw === 'new') return <ProductEditor />;
@@ -19,5 +19,5 @@ export default async function AdminProductPage({ params, searchParams }: { param
     with: { images: { orderBy: [asc(productImages.sort), asc(productImages.id)] }, variants: { orderBy: [asc(variants.sort), asc(variants.id)] } },
   });
   if (!product) notFound();
-  return <ProductEditor product={product} created={sp.created === '1'} />;
+  return <ProductEditor product={product} created={sp.created === '1'} saved={sp.saved === '1'} />;
 }

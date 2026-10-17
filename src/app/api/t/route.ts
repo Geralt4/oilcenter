@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     // robots, browsers that asked not to be tracked, and the owner's own visits are not counted
     if (isBot(userAgent) || request.headers.get('sec-gpc') === '1' || request.headers.get('dnt') === '1') return done;
     const ip = await clientIp();
-    if (!rateLimit(`stats:${ip}`, 180, 5 * 60 * 1000).ok) return done;
+    if (!(await rateLimit(`stats:${ip}`, 180, 5 * 60 * 1000)).ok) return done;
 
     const event = StatEvent.safeParse(await request.json().catch(() => null));
     if (!event.success) return done;

@@ -19,6 +19,7 @@ export async function register() {
 
   const { ensureDailyBackup } = await import('@/lib/backup');
   const { ensureOffsiteBackup, offsiteConfigured, pushSnapshotNow } = await import('@/lib/backup-offsite');
+  const { sweepStaging } = await import('@/lib/uploads');
 
   // At boot (i.e. once per deploy) force a NEW snapshot: a deploy usually follows setup changes, and the
   // day's earlier snapshot predates them. Hourly runs then keep the ordinary daily copy current.
@@ -26,13 +27,18 @@ export async function register() {
     ensureDailyBackup()
       .then((result) => {
         if (result === 'created') console.log('[backup] daily database snapshot written');
-        if (!offsiteConfigured()) return;
-        const offsite = fresh ? pushSnapshotNow().then(({ object }) => (object ? 'uploaded' : 'exists')) : ensureOffsiteBackup();
-        return offsite
-          .then((outcome) => {
-            if (outcome === 'uploaded') console.log(`[backup] off-site copy uploaded to Backblaze B2${fresh ? ' (fresh boot snapshot)' : ''}`);
-          })
-          .catch((err) => console.error('[backup] OFFSITE upload FAILED — local snapshot is safe, the off-site copy is not current:', err instanceof Error ? err.message : err));
+        // Expired/abandoned admin uploads are cleaned up on the same hourly cadence.
+        return sweepStaging()
+          .catch((err) => console.error('[uploads] staging sweep failed', err instanceof Error ? err.message : err))
+          .then(() => {
+            if (!offsiteConfigured()) return;
+            const offsite = fresh ? pushSnapshotNow().then(({ object }) => (object ? 'uploaded' : 'exists')) : ensureOffsiteBackup();
+            return offsite
+              .then((outcome) => {
+                if (outcome === 'uploaded') console.log(`[backup] off-site copy uploaded to Backblaze B2${fresh ? ' (fresh boot snapshot)' : ''}`);
+              })
+              .catch((err) => console.error('[backup] OFFSITE upload FAILED — local snapshot is safe, the off-site copy is not current:', err instanceof Error ? err.message : err));
+          });
       })
       .catch((err) => console.error('[backup] snapshot FAILED', err));
 

@@ -32,7 +32,7 @@ export async function sendQuoteRequest(_prev: QuoteState, formData: FormData): P
   // counts against the strict one below — four typos used to lock a visitor out with nothing sent.
   const ip = await clientIp();
   const tooMany = { ok: false, message: 'Λάβαμε ήδη αρκετά μηνύματα από εσάς. Δοκιμάστε ξανά αργότερα ή καλέστε μας.' };
-  if (!rateLimit(`quote-try:${ip}`, 20, 15 * 60 * 1000).ok) return tooMany;
+  if (!(await rateLimit(`quote-try:${ip}`, 20, 15 * 60 * 1000)).ok) return tooMany;
   if (formTooBig(formData)) return { ok: false, message: 'Το αίτημα είναι ασυνήθιστα μεγάλο.' };
 
   const thanks = 'Ευχαριστούμε! Λάβαμε το αίτημά σας και θα επικοινωνήσουμε μαζί σας με προσφορά.';
@@ -46,7 +46,7 @@ export async function sendQuoteRequest(_prev: QuoteState, formData: FormData): P
   }
 
   const d = parsed.data;
-  if (!rateLimit(`quote:${ip}`, 4, 15 * 60 * 1000).ok) return tooMany;
+  if (!(await rateLimit(`quote:${ip}`, 4, 15 * 60 * 1000)).ok) return tooMany;
   await saveEnquiry({
     kind: 'quote',
     name: d.name,

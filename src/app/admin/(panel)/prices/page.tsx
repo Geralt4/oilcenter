@@ -3,6 +3,7 @@ import { asc, desc, eq, max } from 'drizzle-orm';
 import { Download } from 'lucide-react';
 import { importPricesCsv } from '@/app/admin/actions';
 import { AdminForm } from '@/components/admin/admin-form';
+import { UploadField } from '@/components/admin/upload-field';
 import { PriceEditor, type PriceRow } from '@/components/admin/price-editor';
 import { PageHeader } from '@/components/admin/ui';
 import { requireAdmin } from '@/lib/auth/session';
@@ -98,8 +99,8 @@ export default async function AdminPricesPage({ searchParams }: { searchParams: 
           </div>
           <a href="/admin/prices/export" className="flex h-10 items-center gap-2 rounded-xl border border-ink-200 bg-white px-3.5 text-sm font-semibold text-ink-900 hover:bg-ink-50"><Download className="h-4 w-4" />Εξαγωγή CSV</a>
         </div>
-        <AdminForm action={importPricesCsv} submitLabel="Εισαγωγή CSV" variant="dark" size="sm" className="mt-4">
-          <input type="file" name="file" accept=".csv,text/csv" required className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-100 file:px-4 file:text-sm file:font-semibold file:text-ink-900 hover:file:bg-ink-200" />
+        <AdminForm action={importPricesCsv} submitLabel="Εισαγωγή CSV" variant="dark" size="sm" className="mt-4" resetOnSuccess>
+          <UploadField name="file" kind="price-csv" accept=".csv,text/csv" maxTotalMb={2} what="αρχεία" className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-100 file:px-4 file:text-sm file:font-semibold file:text-ink-900 hover:file:bg-ink-200" />
         </AdminForm>
       </section>
     </>

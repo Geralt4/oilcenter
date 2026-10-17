@@ -19,7 +19,7 @@ export type SignupState = { ok: boolean; message: string } | null;
 
 /** "Tell me when online orders open" — only while ordering is closed and the owner has the sign-up switched on. */
 export async function signupForLaunch(_prev: SignupState, formData: FormData): Promise<SignupState> {
-  const limited = rateLimit(`launch-signup:${await clientIp()}`, 5, 15 * 60 * 1000);
+  const limited = await rateLimit(`launch-signup:${await clientIp()}`, 5, 15 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά σε λίγο.' };
   if (formTooBig(formData, 32)) return { ok: false, message: 'Η εγγραφή δεν είναι διαθέσιμη αυτή τη στιγμή.' };
 

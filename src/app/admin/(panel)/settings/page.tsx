@@ -21,7 +21,7 @@ export const metadata = { title: 'Ρυθμίσεις' };
 
 export default async function AdminSettingsPage({ searchParams }: { searchParams: Promise<{ sudo?: string; mfa?: string }> }) {
   const admin = await requireAdmin();
-  const [{ sudo: sudoParam, mfa: mfaParam }, sudo] = await Promise.all([searchParams, hasSudoSession(admin.id)]);
+  const [{ sudo: sudoParam, mfa: mfaParam }, sudo] = await Promise.all([searchParams, hasSudoSession()]);
   const [s, backups, mfa, admins] = await Promise.all([
     getSettings(),
     listBackups(),
@@ -51,8 +51,9 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
       )}
 
       <Card title="Επιβεβαίωση ταυτότητας" description="Η προσθήκη ή αφαίρεση διαχειριστών και η επαναφορά 2FA απαιτούν φρέσκια επιβεβαίωση, ώστε μια κλεμμένη συνεδρία να μην αρκεί. Η επιβεβαίωση ισχύει για 5 λεπτά." className="mb-6 max-w-xl">
+        <div id="identity">
         {sudo ? (
-          <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-medium text-emerald-800">Η ταυτότητα είναι επιβεβαιωμένη για τα επόμενα 5 λεπτά.</p>
+          <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-medium text-emerald-800">Η ταυτότητα είναι επιβεβαιωμένη για αυτή τη συνεδρία (έως 5 λεπτά από την επιβεβαίωση).</p>
         ) : (
           <AdminForm action={confirmAdminIdentity} submitLabel="Επιβεβαίωση" variant="dark" resetOnSuccess>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -61,6 +62,7 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
             </div>
           </AdminForm>
         )}
+        </div>
       </Card>
 
       <AdminForm action={saveSettings} submitLabel="Αποθήκευση ρυθμίσεων" stickyBar className="space-y-6">
@@ -305,10 +307,17 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
                   ? 'Δεν υπάρχει ακόμη αυτόματο αντίγραφο (δημιουργείται μόνο στο δημοσιευμένο site, λίγο μετά την εκκίνηση).'
                   : `Τελευταίο αυτόματο αντίγραφο: ${formatDate(new Date(`${backups[0].day}T12:00:00`))} · ${backups.length} ${backups.length === 1 ? 'αποθηκευμένο' : 'αποθηκευμένα'}.`}
               </p>
-              <a href="/admin/backup" className={buttonClass({ variant: 'dark', className: 'mt-4' })}>
-                <Download className="h-4 w-4" />
-                Λήψη αντιγράφου τώρα
-              </a>
+              {sudo ? (
+                <a href="/admin/backup" className={buttonClass({ variant: 'dark', className: 'mt-4' })}>
+                  <Download className="h-4 w-4" />
+                  Λήψη αντιγράφου τώρα
+                </a>
+              ) : (
+                <p className="mt-4 text-sm text-ink-600">
+                  Η λήψη περιέχει όλη τη βάση (στοιχεία πελατών, hashes κωδικών, κλειδιά 2FA) και απαιτεί φρέσκια επιβεβαίωση ταυτότητας:{' '}
+                  <a href="#identity" className="font-semibold text-petrol-500 underline underline-offset-2">επιβεβαιώστε πρώτα εδώ</a> (ισχύει 5 λεπτά).
+                </p>
+              )}
               <p className="mt-3 text-xs text-ink-500">Το αρχείο περιέχει στοιχεία πελατών. Φυλάξτε το σε ασφαλές μέρος και μην το στέλνετε με e-mail.</p>
               <p className="mt-4 border-t border-line pt-3 text-sm text-ink-700">
                 {!offsite

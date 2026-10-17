@@ -170,5 +170,8 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api/health|api/payments/).*)'],
+  // /api/admin/upload is deliberately outside the proxy: it authenticates itself, and the proxy would
+  // otherwise buffer the whole photo/PDF body a second time. /api/health and payment callbacks are
+  // server-to-server and need no CSP or gate.
+  matcher: ['/((?!api/health|api/payments/|api/admin/upload).*)'],
 };

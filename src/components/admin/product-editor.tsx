@@ -4,7 +4,7 @@ import { asc } from 'drizzle-orm';
 import { ExternalLink, Star, Trash2, TriangleAlert } from 'lucide-react';
 import { deleteProduct, imageAction, saveProduct } from '@/app/admin/actions';
 import { AdminForm, ConfirmButton } from '@/components/admin/admin-form';
-import { FileInput } from '@/components/admin/file-input';
+import { UploadField } from '@/components/admin/upload-field';
 import { Card, Check, Field, PageHeader } from '@/components/admin/ui';
 import { VariantsEditor, type VariantRow } from '@/components/admin/variants-editor';
 import { BASE_TYPE_LABELS } from '@/lib/catalog';
@@ -13,9 +13,9 @@ import { brands, categories, type Product, type ProductImage, type Variant } fro
 import { GHS_PICTOGRAMS, GHS_PICTOGRAM_CODES, SIGNAL_WORDS, unknownCodes } from '@/lib/ghs';
 import { centsToInput } from '@/lib/utils';
 
-type Props = { product?: Product & { images: ProductImage[]; variants: Variant[] }; created?: boolean };
+type Props = { product?: Product & { images: ProductImage[]; variants: Variant[] }; created?: boolean; saved?: boolean };
 
-export async function ProductEditor({ product, created }: Props) {
+export async function ProductEditor({ product, created, saved }: Props) {
   const [brandRows, categoryRows] = await Promise.all([db.select().from(brands).orderBy(asc(brands.name)), db.select().from(categories).orderBy(asc(categories.sort))]);
   const parents = new Map(categoryRows.map((c) => [c.id, c.name]));
   const hazard = product?.hazard ?? null;
@@ -36,6 +36,7 @@ export async function ProductEditor({ product, created }: Props) {
       </PageHeader>
 
       {created && <p role="status" className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">Το προϊόν δημιουργήθηκε.</p>}
+      {saved && !created && <p role="status" className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">Το προϊόν αποθηκεύτηκε.</p>}
       {product?.internalNotes && (
         <div className="mb-5 flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
           <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
@@ -84,7 +85,7 @@ export async function ProductEditor({ product, created }: Props) {
         </Card>
 
         <Card title="Προσθήκη φωτογραφιών" description="Τραβήξτε το προϊόν σε ανοιχτόχρωμο φόντο. Το σύστημα καθαρίζει το φόντο, κεντράρει και φέρνει όλες τις φωτογραφίες στο ίδιο μέγεθος.">
-          <FileInput name="images" accept="image/jpeg,image/png,image/webp" multiple maxFiles={12} maxTotalMb={20} what="φωτογραφίες" className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-900 file:px-4 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-700" />
+          <UploadField name="images" kind="photo" accept="image/jpeg,image/png,image/webp" multiple maxFiles={12} maxTotalMb={20} what="φωτογραφίες" className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-900 file:px-4 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-700" />
           <p className="mt-2 text-xs text-ink-500">Έως 12 φωτογραφίες και 20 MB συνολικά σε κάθε αποθήκευση· αν έχετε περισσότερες, ανεβάστε τες σε δύο δόσεις. Αν το προϊόν έχει πολλές συσκευασίες, μετά την αποθήκευση διαλέξτε παραπάνω ποια φωτογραφία δείχνει καθεμία.</p>
         </Card>
 
@@ -125,7 +126,7 @@ export async function ProductEditor({ product, created }: Props) {
               <Field label="Δελτίο δεδομένων ασφαλείας (SDS): σύνδεσμος" hint={hazard?.sdsUrl?.startsWith('/media/') ? 'Ανεβασμένο αρχείο. Σβήστε το πεδίο για να αφαιρεθεί.' : 'Η σελίδα ή το PDF του κατασκευαστή (https://…). Ή ανεβάστε το PDF δίπλα.'}>{/* keyed by the stored value: after a PDF upload the server replaces the link, and a box still showing the old one would send it back with the next save — undoing the upload */}
                 <input key={hazard?.sdsUrl ?? ''} name="sdsUrl" inputMode="url" autoCapitalize="none" spellCheck={false} defaultValue={hazard?.sdsUrl ?? ''} placeholder="https://…" className="field" /></Field>
               <Field label="…ή ανεβάστε το PDF" hint="Το PDF που σας δίνει ο κατασκευαστής ή ο αντιπρόσωπος, έως 10 MB. Αντικαθιστά τον σύνδεσμο.">
-                <FileInput name="sds" accept="application/pdf,.pdf" maxTotalMb={10} className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-900 file:px-4 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-700" />
+                <UploadField name="sds" kind="sds" accept="application/pdf,.pdf" maxTotalMb={10} what="αρχεία" className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-900 file:px-4 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-700" />
               </Field>
             </div>
             {hazard?.sdsUrl && <p className="text-sm"><a href={hazard.sdsUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-petrol-500 underline underline-offset-2">Άνοιγμα του τρέχοντος δελτίου</a></p>}

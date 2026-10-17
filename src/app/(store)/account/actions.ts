@@ -40,7 +40,7 @@ function safeNext(value: FormDataEntryValue | null): string {
 export async function registerCustomer(_prev: FormState, formData: FormData): Promise<FormState> {
   // the pages are hidden in catalogue mode (lib/catalogue-mode.ts); the action must not be a way around that
   if (!(await canOrderNow())) return { ok: false, message: 'Οι λογαριασμοί πελατών θα ανοίξουν μαζί με τις online παραγγελίες.' };
-  const limited = rateLimit(`register:${await clientIp()}`, 6, 30 * 60 * 1000);
+  const limited = await rateLimit(`register:${await clientIp()}`, 6, 30 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.' };
 
   const parsed = z
@@ -71,7 +71,7 @@ export async function loginCustomer(_prev: FormState, formData: FormData): Promi
   // Two budgets: per-IP+email stops hammering one account; the IP-wide pool stops password spraying
   // — a few tries against MANY e-mails — which the per-account key alone would never catch.
   const ip = await clientIp();
-  const perAccount = rateLimit(`login:${ip}:${parsed.data.email}`, 8, 15 * 60 * 1000);
+  const perAccount = await rateLimit(`login:${ip}:${parsed.data.email}`, 8, 15 * 60 * 1000);
   if (!perAccount.ok) return { ok: false, message: `Πολλές αποτυχημένες προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(perAccount.retryAfterSec / 60)} λεπτά.` };
   const limited = await loginBudgets('login', 20, 15 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: `Πολλές αποτυχημένες προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
@@ -97,7 +97,7 @@ export async function requestPasswordReset(_prev: FormState, formData: FormData)
   // the pages are hidden in catalogue mode (lib/catalogue-mode.ts); the action must not be a way around that
   if (!(await accountsAvailable())) return { ok: false, message: 'Οι λογαριασμοί πελατών θα ανοίξουν μαζί με τις online παραγγελίες.' };
   const done: FormState = { ok: true, message: 'Αν υπάρχει λογαριασμός με αυτό το e-mail, σας στείλαμε οδηγίες επαναφοράς.' };
-  const limited = rateLimit(`reset:${await clientIp()}`, 5, 30 * 60 * 1000);
+  const limited = await rateLimit(`reset:${await clientIp()}`, 5, 30 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.' };
   const parsed = email.safeParse(formData.get('email'));
   if (!parsed.success) return { ok: false, message: 'Μη έγκυρο e-mail.' };

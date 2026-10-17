@@ -1,31 +1,56 @@
-import { headers } from 'next/headers';
+import { createHash } from 'node:crypto';
+import { sql } from 'drizzle-orm';
+import { db } from '@/lib/db';
 
 /*
- * Small in-memory sliding-window limiter for login, checkout and the contact form.
- * Good enough for a single Node process; behind several instances move this to the database.
+ * Persistent fixed-window limiter.
+ *
+ * Counters live in SQLite (rate_limits), so a deploy or crash does NOT hand an attacker a fresh set
+ * of attempts. The consume-and-read is one UPSERT ... RETURNING: two concurrent try-alls cannot both
+ * take the last slot, and SQLite serialises the writes.
+ *
+ * Fixed windows allow a burst of up to 2× the limit around a window boundary; that is the deliberate
+ * trade for a single atomic statement. Every caller here uses windows of 30 minutes or less, and the
+ * attempt budget is low enough that the boundary burst is not meaningful.
+ *
+ * Keys are hashed before storage: the table never contains an IP address or an e-mail address.
  */
-const buckets = new Map<string, { hits: number[]; windowMs: number }>();
+
+const SWEEP_AGE_MS = 2 * 60 * 60 * 1000; // every caller uses windows <= 30 min
 let lastSweep = 0;
 
-export function rateLimit(key: string, limit: number, windowMs: number): { ok: boolean; retryAfterSec: number } {
+export type LimitResult = { ok: boolean; retryAfterSec: number };
+
+export async function rateLimit(key: string, limit: number, windowMs: number): Promise<LimitResult> {
+  const hashed = createHash('sha256').update(key).digest('hex');
   const now = Date.now();
-  const hits = (buckets.get(key)?.hits ?? []).filter((t) => now - t < windowMs);
-  if (hits.length >= limit) {
-    buckets.set(key, { hits, windowMs });
-    return { ok: false, retryAfterSec: Math.ceil((windowMs - (now - hits[0])) / 1000) };
-  }
-  hits.push(now);
-  buckets.set(key, { hits, windowMs });
-  // Housekeeping, at most once a minute. Each bucket is judged by ITS OWN window: a 5-minute limiter passing by must
-  // not throw away the still-running hour of a login limiter.
-  if (buckets.size > 5000 && now - lastSweep > 60_000) {
+  const cutoff = now - windowMs;
+
+  const rows = await db.all<{ hits: number; window_start: number }>(sql`
+    INSERT INTO rate_limits ("key", window_start, hits) VALUES (${hashed}, ${now}, 1)
+    ON CONFLICT("key") DO UPDATE SET
+      hits = CASE WHEN rate_limits.window_start <= ${cutoff} THEN 1 ELSE rate_limits.hits + 1 END,
+      window_start = CASE WHEN rate_limits.window_start <= ${cutoff} THEN ${now} ELSE rate_limits.window_start END
+    RETURNING hits, window_start
+  `);
+
+  const row = rows[0];
+  if (!row) return { ok: true, retryAfterSec: 0 };
+  const hits = Number(row.hits);
+  const windowStart = Number(row.window_start);
+
+  if (now - lastSweep > 60_000) {
     lastSweep = now;
-    for (const [k, b] of buckets) if (!b.hits.some((t) => now - t < b.windowMs)) buckets.delete(k);
+    // Housekeeping is best-effort; it must never turn a denied login into an allowed one.
+    await db.run(sql`DELETE FROM rate_limits WHERE window_start < ${now - SWEEP_AGE_MS}`).catch(() => undefined);
   }
-  return { ok: true, retryAfterSec: 0 };
+
+  if (hits <= limit) return { ok: true, retryAfterSec: 0 };
+  return { ok: false, retryAfterSec: Math.max(1, Math.ceil((windowStart + windowMs - now) / 1000)) };
 }
 
 export async function clientIp(): Promise<string> {
+  const { headers } = await import('next/headers');
   const h = await headers();
   const xff = h.get('x-forwarded-for');
   if (xff) {
@@ -48,10 +73,7 @@ export async function clientIp(): Promise<string> {
  * Checked BEFORE the credential is verified; a failed attempt is what a budget is for, and a successful one
  * spending a hit costs a real user nothing in practice.
  */
-export async function loginBudgets(name: string, ipLimit: number, windowMs: number): Promise<{ ok: boolean; retryAfterSec: number }> {
+export async function loginBudgets(name: string, ipLimit: number, windowMs: number): Promise<LimitResult> {
   const ip = await clientIp();
-  const perIp = rateLimit(`${name}:ip:${ip}`, ipLimit, windowMs);
-  // The per-IP pool answers first: its message ("try again in N minutes") is the one that matters.
-  if (!perIp.ok) return perIp;
-  return { ok: true, retryAfterSec: 0 };
+  return rateLimit(`${name}:ip:${ip}`, ipLimit, windowMs);
 }

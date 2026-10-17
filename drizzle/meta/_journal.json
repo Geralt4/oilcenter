@@ -78,6 +78,20 @@
       "when": 1792248150965,
       "tag": "0010_wealthy_blockbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1792249393006,
+      "tag": "0011_magical_trauma",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1792249454795,
+      "tag": "0012_massive_northstar",
+      "breakpoints": true
     }
   ]
 }

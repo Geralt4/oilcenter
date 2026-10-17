@@ -75,15 +75,29 @@ async function main() {
   fileFd.set('f', new File([new Uint8Array(300 * 1024)], 'a.txt'));
   check('file bytes count toward the limit too', formTooBig(fileFd));
 
-  console.log('Login budgets');
+  console.log('Login budgets (persistent)');
   const { rateLimit } = await import('../src/lib/rate-limit');
   // The per-IP pool is what stops spraying; simulate it directly (no request context here for clientIp()).
-  for (let i = 0; i < 20; i++) rateLimit('login:ip:9.9.9.9', 20, 15 * 60 * 1000);
-  const exhausted = rateLimit('login:ip:9.9.9.9', 20, 15 * 60 * 1000);
+  for (let i = 0; i < 20; i++) await rateLimit('login:ip:9.9.9.9', 20, 15 * 60 * 1000);
+  const exhausted = await rateLimit('login:ip:9.9.9.9', 20, 15 * 60 * 1000);
   check('the 21st login attempt from one IP is refused', !exhausted.ok, exhausted);
   // ...while each separate account still has its own budget
-  const otherAccount = rateLimit('login:9.9.9.9:other@example.com', 8, 15 * 60 * 1000);
+  const otherAccount = await rateLimit('login:9.9.9.9:other@example.com', 8, 15 * 60 * 1000);
   check('per-account budget is independent of the IP pool', otherAccount.ok, otherAccount);
+  // The counter is in SQLite: inspect the row directly (raw keys are hashed, never stored).
+  const { client } = await import('../src/lib/db');
+  const stored = await client.execute('select count(*) as n from rate_limits');
+  check('limit counters are persisted in the database', Number(stored.rows[0]?.n ?? 0) >= 2, stored.rows[0]);
+
+  // A fresh process against the SAME database simulates a deploy/restart.
+  const { execFileSync } = await import('node:child_process');
+  const probe = (mode: string, key: string) =>
+    JSON.parse(execFileSync('npx', ['tsx', 'scripts/limiter-probe.ts', mode, key, '2'], { encoding: 'utf8', env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })) as { ok: boolean };
+  const exhaustedBefore = probe('exhaust', 'restart-probe');
+  const afterRestart = probe('check', 'restart-probe');
+  check('an exhausted budget stays exhausted in a fresh process (restart)', !exhaustedBefore.ok && !afterRestart.ok, { exhaustedBefore, afterRestart });
+  const freshKey = probe('check', 'restart-probe-untouched');
+  check('a different key still has its own budget after the restart', freshKey.ok, freshKey);
 
   console.log('Startup configuration checks');
   const { checkProductionConfig } = await import('../src/lib/startup-check');
@@ -186,6 +200,25 @@ async function main() {
   check('an oversized streamed body is refused', !bigBody.ok && bigBody.tooLarge);
   const badJson = await readJsonLimited(new Request('http://localhost/x', { method: 'POST', body: '{not json' }), 1024);
   check('malformed JSON is refused separately from an oversized body', !badJson.ok && !badJson.tooLarge);
+
+  console.log('Staged admin uploads');
+  const path = (await import('node:path')).default;
+  process.env.DATA_DIR = path.join(dir, 'data');
+  const { stageUpload, claimUpload, readBodyLimited } = await import('../src/lib/uploads');
+  const { pendingUploads } = await import('../src/lib/db/schema');
+  const token = await stageUpload(1, 'photo', 'x.jpg', Buffer.from('synthetic-webp-bytes'));
+  check('a staged upload can be claimed once', Boolean(await claimUpload(token, 'photo', 1)));
+  check('the same upload cannot be claimed twice', (await claimUpload(token, 'photo', 1)) === null);
+  const foreign = await stageUpload(1, 'photo', 'y.jpg', Buffer.alloc(4));
+  check('another administrator cannot claim it', (await claimUpload(foreign, 'photo', 2)) === null);
+  check('a different kind cannot claim it', (await claimUpload(foreign, 'sds', 1)) === null);
+  const expiredToken = await stageUpload(1, 'price-csv', 'z.csv', Buffer.from('a'));
+  await db.update(pendingUploads).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(pendingUploads.token, expiredToken));
+  check('an expired upload cannot be claimed', (await claimUpload(expiredToken, 'price-csv', 1)) === null);
+  const smallStream = new Request('http://localhost/x', { method: 'POST', body: '12345' });
+  check('a streamed body within the upload cap is read', (await readBodyLimited(smallStream.body, 10))?.toString() === '12345');
+  const largeStream = new Request('http://localhost/x', { method: 'POST', body: 'x'.repeat(100) });
+  check('a streamed body over the upload cap is refused', (await readBodyLimited(largeStream.body, 10)) === null);
 }
 
 main()

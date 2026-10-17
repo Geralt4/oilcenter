@@ -22,7 +22,7 @@ export async function sendContactMessage(_prev: ContactState, formData: FormData
   // counts against the strict one below — four typos used to lock a visitor out with nothing sent.
   const ip = await clientIp();
   const tooMany = { ok: false, message: 'Λάβαμε ήδη αρκετά μηνύματα από εσάς. Δοκιμάστε ξανά αργότερα ή καλέστε μας.' };
-  if (!rateLimit(`contact-try:${ip}`, 20, 15 * 60 * 1000).ok) return tooMany;
+  if (!(await rateLimit(`contact-try:${ip}`, 20, 15 * 60 * 1000)).ok) return tooMany;
   if (formTooBig(formData)) return { ok: false, message: 'Το μήνυμα είναι ασυνήθιστα μεγάλο.' };
 
   const parsed = Schema.safeParse(Object.fromEntries(formData));
@@ -34,7 +34,7 @@ export async function sendContactMessage(_prev: ContactState, formData: FormData
   }
 
   const { website: _w, ...data } = parsed.data;
-  if (!rateLimit(`contact:${ip}`, 4, 15 * 60 * 1000).ok) return tooMany;
+  if (!(await rateLimit(`contact:${ip}`, 4, 15 * 60 * 1000)).ok) return tooMany;
   await saveEnquiry({ kind: 'contact', ...data });
   return { ok: true, message: 'Ευχαριστούμε! Λάβαμε το μήνυμά σας και θα επικοινωνήσουμε σύντομα μαζί σας.' };
 }

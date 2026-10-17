@@ -26,7 +26,7 @@ export async function GET(request: Request) {
   if (!/^\d{10,20}$/.test(orderCode)) return home;
 
   // A miss here re-reads the transaction from Viva, so throttle by IP to avoid hammering their API.
-  if (!rateLimit(`viva-return:${await clientIp()}`, 20, 10 * 60 * 1000).ok) return lookup;
+  if (!(await rateLimit(`viva-return:${await clientIp()}`, 20, 10 * 60 * 1000)).ok) return lookup;
   if (!transactionId || url.searchParams.has('failed')) return lookup;
 
   const [order] = await db.select().from(orders).where(and(eq(orders.paymentProvider, 'viva'), eq(orders.paymentRef, orderCode)));

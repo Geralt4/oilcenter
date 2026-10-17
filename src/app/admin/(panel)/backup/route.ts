@@ -1,12 +1,22 @@
 import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { getAdmin } from '@/lib/auth/session';
+import { redirect } from 'next/navigation';
+import { getAdmin, hasSudoSession } from '@/lib/auth/session';
 import { randomToken } from '@/lib/auth/password';
 import { backupsDir, backupsSupported, writeSnapshot } from '@/lib/backup';
+import { clientIp, rateLimit } from '@/lib/rate-limit';
 
-/** A fresh, gzipped snapshot of the whole database as a download. Admin only: it holds customer details and password hashes. */
+/**
+ * A fresh, gzipped snapshot of the whole database as a download. It holds customer details, password
+ * hashes and authenticator secrets, so a logged-in session alone is not enough: the administrator must
+ * have re-entered password + code within the last five minutes, in THIS session.
+ */
 export async function GET() {
-  if (!(await getAdmin())) return new Response('Unauthorized', { status: 401 });
+  const admin = await getAdmin();
+  if (!admin) return new Response('Unauthorized', { status: 401 });
+  if (!(await hasSudoSession())) redirect('/admin/settings?sudo=1');
+  const limited = await rateLimit(`admin-download:${await clientIp()}:${admin.id}`, 5, 10 * 60 * 1000);
+  if (!limited.ok) return new Response('Too many download attempts. Try again later.', { status: 429, headers: { 'Retry-After': String(limited.retryAfterSec) } });
   if (!backupsSupported()) return new Response('Snapshots are only available for a local SQLite database.', { status: 501 });
 
   const temp = path.join(backupsDir(), `download-${randomToken(8).toLowerCase()}.db.gz`);

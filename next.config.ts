@@ -11,15 +11,14 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ['@libsql/client', 'libsql', 'sharp', 'nodemailer'],
   experimental: {
     serverActions: {
-      // Admin product form uploads photos straight from a phone camera. Next applies one body-size limit
-      // to ALL server actions, so this ceiling also covers the public forms (contact, checkout, …); those
-      // reject oversized submissions themselves right after the rate limit (lib/form-size.ts), before any
-      // field is parsed, so the practical exposure is small.
-      bodySizeLimit: '32mb',
+      // Large admin files no longer travel through server actions: photos/SDS/CSV upload to
+      // /api/admin/upload, which enforces its own streamed limits. Everything that remains here is
+      // metadata and public text forms, so the framework-level ceiling can be small.
+      bodySizeLimit: '256kb',
     },
-    // src/proxy.ts runs in front of /admin too, and Next buffers a request body for the proxy only up to this size
-    // (10 MB by default): without it a save with a few phone photos reached the action cut short.
-    proxyClientMaxBodySize: '32mb',
+    // The proxy clones and buffers bodies for the routes it matches. Large uploads are excluded from
+    // the matcher (see src/proxy.ts), so this only needs to cover ordinary admin/public forms.
+    proxyClientMaxBodySize: '1mb',
   },
   images: {
     formats: ['image/avif', 'image/webp'],

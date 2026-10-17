@@ -10,7 +10,7 @@ const Body = z.object({
 
 /** Re-prices a browser cart against the database. The response is what the drawer / cart page display. */
 export async function POST(request: Request) {
-  const limited = rateLimit(`cart:${await clientIp()}`, 60, 5 * 60 * 1000);
+  const limited = await rateLimit(`cart:${await clientIp()}`, 60, 5 * 60 * 1000);
   if (!limited.ok) return NextResponse.json({ error: 'too_many_requests' }, { status: 429, headers: { 'Retry-After': String(limited.retryAfterSec) } });
 
   // 100 cart lines cannot legitimately serialise past 32 KB; the cap is enforced while streaming.

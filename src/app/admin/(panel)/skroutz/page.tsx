@@ -3,6 +3,7 @@ import { asc, eq } from 'drizzle-orm';
 import { Download, ExternalLink, TriangleAlert } from 'lucide-react';
 import { importCodesCsv, saveSkroutzSettings } from '@/app/admin/actions';
 import { AdminForm } from '@/components/admin/admin-form';
+import { UploadField } from '@/components/admin/upload-field';
 import { CodesEditor, type CodeRow } from '@/components/admin/codes-editor';
 import { CopyField } from '@/components/admin/copy-field';
 import { Card, Check, Field, PageHeader } from '@/components/admin/ui';
@@ -127,8 +128,8 @@ export default async function AdminSkroutzPage() {
           <details className="mt-5 text-sm">
             <summary className="cursor-pointer font-semibold text-ink-900">Έχετε λίστα από προμηθευτή; Εισαγωγή από CSV</summary>
             <p className="mt-2 text-ink-600">Στήλες: <code className="tabular rounded bg-ink-100 px-1">sku;ean;mpn</code> (αρκεί μία από τις δύο τελευταίες). Οι κωδικοί <code className="tabular rounded bg-ink-100 px-1">sku</code> είναι αυτοί της <a href="/admin/prices/export" className="font-medium text-petrol-500 underline underline-offset-2">εξαγωγής τιμών</a>. Τα κενά κελιά δεν αλλάζουν τίποτα.</p>
-            <AdminForm action={importCodesCsv} submitLabel="Εισαγωγή CSV" variant="dark" size="sm" className="mt-3">
-              <input type="file" name="file" accept=".csv,text/csv" required className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-100 file:px-4 file:text-sm file:font-semibold file:text-ink-900 hover:file:bg-ink-200" />
+            <AdminForm action={importCodesCsv} submitLabel="Εισαγωγή CSV" variant="dark" size="sm" className="mt-3" resetOnSuccess>
+              <UploadField name="file" kind="code-csv" accept=".csv,text/csv" maxTotalMb={2} what="αρχεία" className="block w-full cursor-pointer text-sm text-ink-700 file:mr-4 file:h-10 file:cursor-pointer file:rounded-xl file:border-0 file:bg-ink-100 file:px-4 file:text-sm file:font-semibold file:text-ink-900 hover:file:bg-ink-200" />
             </AdminForm>
           </details>
         </div>

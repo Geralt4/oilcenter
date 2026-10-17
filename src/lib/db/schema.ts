@@ -213,6 +213,27 @@ export const adminUsers = sqliteTable(
   (t) => [uniqueIndex('admin_users_email_uq').on(t.email)],
 );
 
+// ─── Request / login throttling (persistent across restarts) ─────────────────
+export const rateLimits = sqliteTable('rate_limits', {
+  /** sha256 of the logical key (IP, e-mail, account id) — raw addresses are never stored */
+  key: text('key').primaryKey(),
+  /** start of the current fixed window (unix ms) */
+  windowStart: integer('window_start').notNull(),
+  hits: integer('hits').notNull().default(0),
+});
+
+// ─── Staged admin uploads (claimed by a save/import) ─────────────────────────
+export const pendingUploads = sqliteTable('pending_uploads', {
+  token: text('token').primaryKey(),
+  adminId: integer('admin_id').notNull(),
+  kind: text('kind').$type<'photo' | 'sds' | 'price-csv' | 'code-csv'>().notNull(),
+  originalName: text('original_name'),
+  bytes: integer('bytes').notNull(),
+  createdAt: createdAt(),
+  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+  claimedAt: integer('claimed_at', { mode: 'timestamp_ms' }),
+});
+
 // ─── Orders ──────────────────────────────────────────────────────────────────
 export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'ready_for_pickup' | 'completed' | 'cancelled';
 export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';

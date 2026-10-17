@@ -19,7 +19,7 @@ export type PlaceOrderResult =
   | { ok: false; message: string; fieldErrors?: Record<string, string>; cartChanged?: boolean };
 
 export async function placeOrder(raw: unknown): Promise<PlaceOrderResult> {
-  const limited = rateLimit(`checkout:${await clientIp()}`, 8, 10 * 60 * 1000);
+  const limited = await rateLimit(`checkout:${await clientIp()}`, 8, 10 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά ή καλέστε μας.` };
 
   // Pre-launch the checkout is closed to the public. The page already hides the form; this is the check that counts.
@@ -73,7 +73,7 @@ export async function placeOrder(raw: unknown): Promise<PlaceOrderResult> {
 
 /** Lets the buyer try the card again from the order page after a failed / abandoned payment. */
 export async function retryCardPayment(number: string, token: string): Promise<{ ok: true; redirectUrl: string } | { ok: false; message: string }> {
-  const limited = rateLimit(`pay:${await clientIp()}`, 6, 10 * 60 * 1000);
+  const limited = await rateLimit(`pay:${await clientIp()}`, 6, 10 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά σε λίγο.' };
   if (!commerceEnabled()) return { ok: false, message: 'Η πληρωμή με κάρτα είναι απενεργοποιημένη.' };
 
@@ -91,7 +91,7 @@ export async function retryCardPayment(number: string, token: string): Promise<{
 }
 
 export async function checkCoupon(code: string, lines: Array<{ variantId: number; quantity: number }>): Promise<{ coupon: AppliedCoupon | null; error: string | null }> {
-  const limited = rateLimit(`coupon:${await clientIp()}`, 15, 10 * 60 * 1000);
+  const limited = await rateLimit(`coupon:${await clientIp()}`, 15, 10 * 60 * 1000);
   if (!limited.ok) return { coupon: null, error: 'Πολλές προσπάθειες. Δοκιμάστε ξανά σε λίγο.' };
   const resolved = await resolveCartLines(Array.isArray(lines) ? lines.slice(0, 100) : []);
   const subtotal = resolved.reduce((s, l) => s + l.lineTotalCents, 0);

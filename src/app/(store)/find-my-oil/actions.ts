@@ -37,7 +37,7 @@ export async function sendVehicleEnquiry(_prev: OilFinderState, formData: FormDa
   // counts against the strict one below — four typos used to lock a visitor out with nothing sent.
   const ip = await clientIp();
   const tooMany = { ok: false, message: 'Λάβαμε ήδη αρκετά μηνύματα από εσάς. Δοκιμάστε ξανά αργότερα ή καλέστε μας.' };
-  if (!rateLimit(`oil-finder-try:${ip}`, 20, 15 * 60 * 1000).ok) return tooMany;
+  if (!(await rateLimit(`oil-finder-try:${ip}`, 20, 15 * 60 * 1000)).ok) return tooMany;
   if (formTooBig(formData)) return { ok: false, message: 'Η φόρμα είναι ασυνήθιστα μεγάλη.' };
 
   const thanks = 'Ευχαριστούμε! Θα σας καλέσουμε με το λιπαντικό που ζητά ο κατασκευαστής του οχήματός σας.';
@@ -55,7 +55,7 @@ export async function sendVehicleEnquiry(_prev: OilFinderState, formData: FormDa
   const product = d.product ? await getProductBySlug(d.product) : null;
   const productName = product ? [product.brand?.name, product.name].filter(Boolean).join(' ') : null;
 
-  if (!rateLimit(`oil-finder:${ip}`, 4, 15 * 60 * 1000).ok) return tooMany;
+  if (!(await rateLimit(`oil-finder:${ip}`, 4, 15 * 60 * 1000)).ok) return tooMany;
   await saveEnquiry({
     kind: 'oil-finder',
     name: d.name,
