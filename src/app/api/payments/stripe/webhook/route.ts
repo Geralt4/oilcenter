@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
+import { commerceEnabled } from '@/lib/commerce-flag';
 import { db } from '@/lib/db';
 import { orders } from '@/lib/db/schema';
 import { settleCardPayment } from '@/lib/payments/settle';
@@ -7,6 +8,7 @@ import { stripe, stripeConfigured } from '@/lib/payments/stripe';
 
 /** Signature-verified with STRIPE_WEBHOOK_SECRET; needs the RAW body, so it is read with request.text(). */
 export async function POST(request: Request) {
+  if (!commerceEnabled()) return NextResponse.json({ error: 'commerce_disabled' }, { status: 503 });
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!stripeConfigured() || !secret) return NextResponse.json({ error: 'not_configured' }, { status: 503 });
 

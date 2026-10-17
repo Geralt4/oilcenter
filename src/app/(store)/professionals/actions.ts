@@ -1,6 +1,7 @@
 'use server';
 
 import { z } from 'zod';
+import { formTooBig } from '@/lib/form-size';
 import { looksLikePhone, saveEnquiry } from '@/lib/enquiries';
 import { BUSINESS_TYPES, isValidAfm, type BusinessType } from '@/lib/quote';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
@@ -32,6 +33,7 @@ export async function sendQuoteRequest(_prev: QuoteState, formData: FormData): P
   const ip = await clientIp();
   const tooMany = { ok: false, message: 'Λάβαμε ήδη αρκετά μηνύματα από εσάς. Δοκιμάστε ξανά αργότερα ή καλέστε μας.' };
   if (!rateLimit(`quote-try:${ip}`, 20, 15 * 60 * 1000).ok) return tooMany;
+  if (formTooBig(formData)) return { ok: false, message: 'Το αίτημα είναι ασυνήθιστα μεγάλο.' };
 
   const thanks = 'Ευχαριστούμε! Λάβαμε το αίτημά σας και θα επικοινωνήσουμε μαζί σας με προσφορά.';
   const parsed = Schema.safeParse(Object.fromEntries(formData));

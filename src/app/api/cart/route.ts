@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { resolveCartLines } from '@/lib/catalog';
+import { clientIp, rateLimit } from '@/lib/rate-limit';
 
 const Body = z.object({
   lines: z.array(z.object({ variantId: z.number().int().positive(), quantity: z.number().int().positive().max(999) })).max(100),
@@ -8,6 +9,9 @@ const Body = z.object({
 
 /** Re-prices a browser cart against the database. The response is what the drawer / cart page display. */
 export async function POST(request: Request) {
+  const limited = rateLimit(`cart:${await clientIp()}`, 60, 5 * 60 * 1000);
+  if (!limited.ok) return NextResponse.json({ error: 'too_many_requests' }, { status: 429, headers: { 'Retry-After': String(limited.retryAfterSec) } });
+
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'invalid_cart' }, { status: 400 });
 

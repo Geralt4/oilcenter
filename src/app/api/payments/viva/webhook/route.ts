@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
+import { commerceEnabled } from '@/lib/commerce-flag';
 import { db } from '@/lib/db';
 import { orders } from '@/lib/db/schema';
 import { settleCardPayment } from '@/lib/payments/settle';
@@ -7,6 +8,7 @@ import { vivaRetrieveTransaction, vivaWebhookVerificationKey } from '@/lib/payme
 
 /** Viva verifies the endpoint once with a GET that must answer {"Key": "<verification key>"}. */
 export async function GET() {
+  if (!commerceEnabled()) return NextResponse.json({ error: 'commerce_disabled' }, { status: 503 });
   try {
     return NextResponse.json({ Key: await vivaWebhookVerificationKey() });
   } catch (err) {
@@ -21,6 +23,7 @@ export async function GET() {
  * makes a forged webhook harmless.
  */
 export async function POST(request: Request) {
+  if (!commerceEnabled()) return NextResponse.json({ error: 'commerce_disabled' }, { status: 503 });
   const text = await request.text();
   let payload: { EventTypeId?: number; EventData?: { TransactionId?: string } };
   try {

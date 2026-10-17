@@ -1,6 +1,7 @@
 'use server';
 
 import { z } from 'zod';
+import { formTooBig } from '@/lib/form-size';
 import { getProductBySlug } from '@/lib/catalog';
 import { looksLikePhone, saveEnquiry } from '@/lib/enquiries';
 import { FUELS, NEEDS, VEHICLE_TYPES, type Fuel, type Need, type VehicleType } from '@/lib/oil-finder';
@@ -37,6 +38,7 @@ export async function sendVehicleEnquiry(_prev: OilFinderState, formData: FormDa
   const ip = await clientIp();
   const tooMany = { ok: false, message: 'Λάβαμε ήδη αρκετά μηνύματα από εσάς. Δοκιμάστε ξανά αργότερα ή καλέστε μας.' };
   if (!rateLimit(`oil-finder-try:${ip}`, 20, 15 * 60 * 1000).ok) return tooMany;
+  if (formTooBig(formData)) return { ok: false, message: 'Η φόρμα είναι ασυνήθιστα μεγάλη.' };
 
   const thanks = 'Ευχαριστούμε! Θα σας καλέσουμε με το λιπαντικό που ζητά ο κατασκευαστής του οχήματός σας.';
   const parsed = Schema.safeParse(Object.fromEntries(formData));

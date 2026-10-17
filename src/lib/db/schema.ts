@@ -200,6 +200,10 @@ export const adminUsers = sqliteTable(
     passwordHash: text('password_hash').notNull(),
     name: text('name').notNull().default(''),
     lastLoginAt: integer('last_login_at', { mode: 'timestamp_ms' }),
+    /** TOTP secret (base32). Set before confirmation, null = MFA not set up. */
+    totpSecret: text('totp_secret'),
+    /** when the owner confirmed a working authenticator; null = not enforced yet */
+    totpConfirmedAt: integer('totp_confirmed_at', { mode: 'timestamp_ms' }),
     /** bumped on password change so existing session cookies stop validating */
     tokenVersion: integer('token_version').notNull().default(0),
     createdAt: createdAt(),

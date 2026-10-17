@@ -4,10 +4,11 @@ import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq, inArray, ne, notInArray } from 'drizzle-orm';
+import { and, eq, inArray, ne, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AVAILABILITY, type Availability } from '@/lib/availability';
 import { hashPassword, randomToken, verifyPassword } from '@/lib/auth/password';
+import { newTotpSecret, verifyTotp } from '@/lib/auth/totp';
 import { createSession, destroySession, getAdmin, requireAdmin, revokeAllSessions } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, variants, type BaseType, type OrderStatus } from '@/lib/db/schema';
@@ -17,7 +18,7 @@ import { isValidGtin, normalizeGtin } from '@/lib/gtin';
 import { normalizeProductPhoto } from '@/lib/images';
 import { addOrderEvent, cancelOrder, getOrderByNumber, ORDER_STATUS_LABELS } from '@/lib/orders';
 import { describePriceImport, MAX_PRICE_CENTS, parseCsv, planPriceImport } from '@/lib/price-csv';
-import { clientIp, rateLimit } from '@/lib/rate-limit';
+import { clientIp, loginBudgets, rateLimit } from '@/lib/rate-limit';
 import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours, type ShopSettings } from '@/lib/settings';
 import { buildSearchText } from '@/lib/search-keywords';
 import { getSettings, saveSettingsGroup } from '@/lib/settings.server';
@@ -41,16 +42,127 @@ const int = (fd: FormData, key: string, fallback = 0) => {
 export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   const email = str(fd, 'email').toLowerCase();
   const password = String(fd.get('password') ?? '');
-  const limited = rateLimit(`admin-login:${await clientIp()}`, 6, 15 * 60 * 1000);
+  // Two budgets: per-IP+email (below) stops hammering one account; the IP-wide pool here stops password
+  // spraying — a few tries against MANY e-mails — which the per-account key alone would never catch.
+  const limited = await loginBudgets('admin-login', 20, 15 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
+  const perAccount = rateLimit(`admin-login:${await clientIp()}:${email}`, 6, 15 * 60 * 1000);
+  if (!perAccount.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(perAccount.retryAfterSec / 60)} λεπτά.` };
 
   const [admin] = await db.select().from(adminUsers).where(eq(adminUsers.email, email));
   const valid = await verifyPassword(password, admin?.passwordHash ?? 'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAA');
-  if (!admin || !valid) return { ok: false, message: 'Λάθος e-mail ή κωδικός.' };
+  if (!admin || !valid) {
+    // The e-mail the visitor typed, never the password. Kept to one line: log floods hunt for noise.
+    // At 6 tries/15 min/account this stays rare in normal use — 2+ logged failures in a window means
+    // someone is knocking, and the platform log is where the owner (or an alert rule) will see it.
+    const ip = await clientIp();
+    console.warn(`[admin-login] FAILED attempt email=${JSON.stringify(email)} ip=${ip}`);
+    return { ok: false, message: 'Λάθος e-mail ή κωδικός.' };
+  }
+
+  // Second factor. Checked after the password so a wrong code alone reveals nothing; a separate budget
+  // stops someone who ALREADY knows the password from brute-forcing the 6-digit code.
+  if (admin.totpConfirmedAt) {
+    const attempted = str(fd, 'totp').replace(/\s/g, '');
+    if (!admin.totpSecret) {
+      // Fail closed: a confirmed factor with no secret cannot be verified by anyone.
+      console.error('[admin-login] MFA confirmed but totp_secret is empty — refusing login');
+      return { ok: false, message: 'Η επαλήθευση δύο βημάτων είναι ελλιπώς ρυθμισμένη. Χρειάζεται αποκατάσταση από τον διακομιστή.' };
+    }
+    if (!attempted) return { ok: false, message: 'Συμπληρώστε τον 6ψήφιο κωδικό από την εφαρμογή επαλήθευσης.', fieldErrors: { totp: 'Υποχρεωτικό πεδίο' } };
+    const totpLimited = rateLimit(`admin-totp:${await clientIp()}:${email}`, 5, 15 * 60 * 1000);
+    if (!totpLimited.ok) return { ok: false, message: `Πολλές προσπάθειες με κωδικό. Δοκιμάστε ξανά σε ${Math.ceil(totpLimited.retryAfterSec / 60)} λεπτά.` };
+    if (!verifyTotp(admin.totpSecret, admin.email, attempted)) return { ok: false, message: 'Λάθος κωδικός επαλήθευσης.' };
+  }
 
   await db.update(adminUsers).set({ lastLoginAt: new Date() }).where(eq(adminUsers.id, admin.id));
   await createSession('admin', admin.id, admin.tokenVersion);
   redirect('/admin');
+}
+
+// ─── Admin second factor (TOTP) ─────────────────────────────────────────────
+/** Step 1: create (or replace) an unconfirmed secret. The owner scans the QR on the settings page. */
+export async function beginTotpEnrollment(fd: FormData): Promise<void> {
+  const me = await requireAdmin();
+  const [row] = await db.select({ secret: adminUsers.totpSecret, confirmedAt: adminUsers.totpConfirmedAt }).from(adminUsers).where(eq(adminUsers.id, me.id));
+  // Replacing an ACTIVE secret silently would let a stolen session swap in its own authenticator. Require a
+  // current code first (the UI only offers "enable" when nothing is active; this guards direct action calls).
+  if (row?.confirmedAt && (!row.secret || !verifyTotp(row.secret, me.email, str(fd, 'totp')))) redirect('/admin/settings');
+  await db.update(adminUsers).set({ totpSecret: newTotpSecret(), totpConfirmedAt: null }).where(eq(adminUsers.id, me.id));
+  revalidatePath('/admin/settings');
+}
+
+/** Step 2: prove the authenticator works before the factor starts being required at login. */
+export async function confirmTotpEnrollment(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
+  const me = await requireAdmin();
+  const [row] = await db.select({ secret: adminUsers.totpSecret }).from(adminUsers).where(eq(adminUsers.id, me.id));
+  if (!row?.secret) return { ok: false, message: 'Δεν υπάρχει εκκρεμής ρύθμιση. Πατήστε «Ενεργοποίηση» ξανά.' };
+  if (!verifyTotp(row.secret, me.email, str(fd, 'totp'))) return { ok: false, message: 'Ο κωδικός δεν είναι σωστός. Βεβαιωθείτε ότι το ρολόι του κινητού είναι αυτόματο και δοκιμάστε τον νέο κωδικό.' };
+  await db.update(adminUsers).set({ totpConfirmedAt: new Date() }).where(eq(adminUsers.id, me.id));
+  revalidatePath('/admin/settings');
+  return { ok: true, message: 'Η επαλήθευση δύο βημάτων ενεργοποιήθηκε. Από την επόμενη σύνδεση θα ζητείται ο κωδικός της εφαρμογής.' };
+}
+
+/** Turning it OFF needs a current code: a stolen session alone must not be able to remove the factor. */
+export async function disableTotp(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
+  const me = await requireAdmin();
+  const [row] = await db.select({ secret: adminUsers.totpSecret, confirmedAt: adminUsers.totpConfirmedAt }).from(adminUsers).where(eq(adminUsers.id, me.id));
+  if (!row?.secret) return { ok: false, message: 'Η επαλήθευση δύο βημάτων δεν είναι ενεργή.' };
+  // A pending (never confirmed) enrollment can simply be cancelled; an active one needs proof of possession.
+  if (row.confirmedAt && !verifyTotp(row.secret, me.email, str(fd, 'totp'))) return { ok: false, message: 'Λάθος κωδικός επαλήθευσης.' };
+  await db.update(adminUsers).set({ totpSecret: null, totpConfirmedAt: null }).where(eq(adminUsers.id, me.id));
+  revalidatePath('/admin/settings');
+  return { ok: true, message: row.confirmedAt ? 'Η επαλήθευση δύο βημάτων απενεργοποιήθηκε.' : 'Η εκκρεμής ρύθμιση ακυρώθηκε.' };
+}
+
+// ─── Administrators ──────────────────────────────────────────────────────────
+/**
+ * A second administrator (the developer/maintainer). Each account carries its own password and its own
+ * authenticator, so the shop never depends on one person's phone — and the other admin can reset MFA
+ * for a colleague who lost theirs. Passwords are never shared between accounts.
+ */
+export async function addAdmin(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
+  await requireAdmin();
+  const email = str(fd, 'email').toLowerCase();
+  const name = str(fd, 'adminName');
+  const password = String(fd.get('adminPassword') ?? '');
+  if (!/^\S+@\S+\.\S+$/.test(email)) return { ok: false, message: 'Γράψτε ένα έγκυρο e-mail.', fieldErrors: { email: 'Μη έγκυρο e-mail' } };
+  if (password.length < 10) return { ok: false, message: 'Ο προσωρινός κωδικός χρειάζεται τουλάχιστον 10 χαρακτήρες.', fieldErrors: { adminPassword: 'Τουλάχιστον 10 χαρακτήρες' } };
+  try {
+    await db.insert(adminUsers).values({ email, passwordHash: await hashPassword(password), name: name.slice(0, 80) || 'Διαχειριστής' });
+  } catch (err) {
+    if (isUniqueViolation(err, 'admin_users.email')) return { ok: false, message: 'Υπάρχει ήδη διαχειριστής με αυτό το e-mail.' };
+    throw err;
+  }
+  revalidatePath('/admin/settings');
+  return { ok: true, message: `Ο διαχειριστής ${email} προστέθηκε. Συνδεθείτε μαζί του μία φορά, αλλάξτε τον κωδικό και ενεργοποιήστε τη δική σας εφαρμογή επαλήθευσης.` };
+}
+
+/** Removing the LAST administrator would lock the shop out of its own panel. */
+export async function removeAdmin(fd: FormData): Promise<void> {
+  const me = await requireAdmin();
+  const id = int(fd, 'id');
+  if (id === me.id) return; // never delete yourself; sign out is the way out
+  const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(adminUsers);
+  if (n <= 1) return;
+  await db.delete(adminUsers).where(eq(adminUsers.id, id));
+  revalidatePath('/admin/settings');
+}
+
+/**
+ * Recovery for an administrator who lost their phone: clears the factor on ANOTHER account and signs that
+ * account out. Your own account cannot be reset here — for yourself the code is still required, which keeps
+ * a stolen session from stripping your own second factor. Locked out entirely? `npm run admin:reset-mfa`.
+ */
+export async function resetAdminMfa(fd: FormData): Promise<void> {
+  const me = await requireAdmin();
+  const id = int(fd, 'id');
+  if (id === me.id) return;
+  await db
+    .update(adminUsers)
+    .set({ totpSecret: null, totpConfirmedAt: null, tokenVersion: sql`${adminUsers.tokenVersion} + 1` })
+    .where(eq(adminUsers.id, id));
+  revalidatePath('/admin/settings');
 }
 
 export async function logoutAdmin(): Promise<void> {

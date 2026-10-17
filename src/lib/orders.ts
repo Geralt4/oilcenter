@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { coupons, orderEvents, orderItems, orders, variants, type Order, type OrderStatus } from '@/lib/db/schema';
 import { randomToken } from '@/lib/auth/password';
 import { resolveCartLines } from '@/lib/catalog';
+import { commerceEnabled } from '@/lib/commerce-flag';
 import { availablePaymentMethods, computeTotals, type AppliedCoupon } from '@/lib/pricing';
 import type { ShopSettings } from '@/lib/settings';
 import { isGreekPostalCode, isValidAfm } from '@/lib/utils';
@@ -79,9 +80,15 @@ export async function findCoupon(code: string | undefined | null, subtotalCents:
 // ─── Create ──────────────────────────────────────────────────────────────────
 export type CreateOrderResult =
   | { ok: true; order: Order }
-  | { ok: false; reason: 'cart_changed' | 'invalid_method' | 'coupon'; message: string };
+  | { ok: false; reason: 'cart_changed' | 'invalid_method' | 'coupon' | 'commerce_disabled'; message: string };
 
 export async function createOrder(input: CheckoutInput, settings: ShopSettings, opts: { customerId: number | null; cardProviderConfigured: boolean }): Promise<CreateOrderResult> {
+  // 0. Deployment switch: with COMMERCE_ENABLED=false nothing in the application can create an order,
+  //    not even a logged-in admin placing a "test" one (src/lib/commerce-flag.ts).
+  if (!commerceEnabled()) {
+    return { ok: false, reason: 'commerce_disabled', message: `Οι online παραγγελίες δεν έχουν ανοίξει ακόμη. Για αγορές καλέστε μας στο ${settings.shop.phone}.` };
+  }
+
   // 1. Authoritative lines: DB prices, DB stock. Anything the browser believed about money is ignored.
   const lines = await resolveCartLines(input.lines);
   if (lines.length === 0 || lines.some((l) => l.issue !== null)) {

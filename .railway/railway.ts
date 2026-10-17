@@ -36,7 +36,8 @@ export default defineRailway(() => {
     // `railway config pull` and copy the lines it adds here, or the next apply removes them again.
     // Every variable of .env.example that can be set on Railway, whether or not it is set today.
     // A variable that is set there but missing here is DELETED by the next apply — losing
-    // SITE_PASSWORD that way would silently open the pre-launch password gate.
+    // SITE_PASSWORD that way would silently open the pre-launch password gate. DATABASE_URL and
+    // DATA_DIR are not listed: they come from the Dockerfile's ENV, not from service variables.
     env: keep(
       "PORT",
       "ADMIN_EMAIL",
@@ -45,6 +46,13 @@ export default defineRailway(() => {
       "SITE_URL",
       "SITE_USER",
       "SITE_PASSWORD",
+      "COMMERCE_ENABLED",
+      "TRUSTED_PROXY_HOPS",
+      "DATABASE_AUTH_TOKEN",
+      "B2_KEY_ID",
+      "B2_APP_KEY",
+      "B2_BUCKET",
+      "BACKUP_ENCRYPTION_KEY",
       "RESEND_API_KEY",
       "SMTP_HOST",
       "SMTP_PORT",

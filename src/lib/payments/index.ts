@@ -1,3 +1,4 @@
+import { commerceEnabled } from '@/lib/commerce-flag';
 import { siteUrl } from '@/lib/site-url';
 import { stripeConfigured, stripeCreateCheckout } from './stripe';
 import { vivaConfigured, vivaCreateOrder } from './viva';
@@ -25,6 +26,8 @@ export async function startCardPayment(order: {
 }): Promise<{ provider: CardProvider; ref: string; redirectUrl: string }> {
   const provider = cardProvider();
   if (!provider) throw new Error('No card payment provider is configured');
+  // Deployment switch: with COMMERCE_ENABLED=false no gateway session is ever created (src/lib/commerce-flag.ts).
+  if (!commerceEnabled()) throw new Error('Card payments are switched off (COMMERCE_ENABLED=false)');
 
   if (provider === 'viva') {
     const { orderCode, redirectUrl } = await vivaCreateOrder({

@@ -29,11 +29,18 @@ COPY --from=build /app/src ./src
 # No VOLUME instruction on purpose: several hosts (e.g. Railway) reject it. Mount the platform's
 # persistent volume at /app/data instead.
 #
-# The container runs as root. Dropping to an unprivileged USER is desirable, but two things must be handled
-# first, or the app breaks on start: (1) the startup command below runs the migrate/seed/patch scripts through
-# tsx (a dev dependency kept in the image on purpose), and (2) the mounted /app/data volume must be writable by
-# that user — on some hosts the mount is root-owned, so this needs a chown/init step for the specific platform.
+# The web process never runs as root: docker/entrypoint.sh starts as root only to give /app/data to
+# the `node` user (host mounts can be root-owned), then re-execs everything — migrations, seeds, the
+# Next.js server — as `node` through gosu. gosu (not su/sudo) keeps signal handling and no-new-privs
+# behaviour intact, and it is the only extra package in the runtime image.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends gosu \
+  && rm -rf /var/lib/apt/lists/*
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 755 /usr/local/bin/entrypoint.sh
 EXPOSE 3000
 # Migrations are idempotent; the seed only fills an EMPTY catalogue and never touches orders; data patches
-# (scripts/patches.ts) run once per database.
+# (scripts/patches.ts) run once per database. tsx (a dev dependency) stays in the image on purpose: the
+# startup command runs the migration scripts through it.
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["sh", "-c", "npm run db:migrate && npm run db:seed && npm run db:patch && npm run start"]

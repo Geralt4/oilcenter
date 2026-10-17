@@ -3,6 +3,7 @@
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import { launchSignups } from '@/lib/db/schema';
+import { formTooBig } from '@/lib/form-size';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 import { getSettings } from '@/lib/settings.server';
 import { recordSignup } from '@/lib/stats';
@@ -20,6 +21,7 @@ export type SignupState = { ok: boolean; message: string } | null;
 export async function signupForLaunch(_prev: SignupState, formData: FormData): Promise<SignupState> {
   const limited = rateLimit(`launch-signup:${await clientIp()}`, 5, 15 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά σε λίγο.' };
+  if (formTooBig(formData, 32)) return { ok: false, message: 'Η εγγραφή δεν είναι διαθέσιμη αυτή τη στιγμή.' };
 
   const { storefront } = await getSettings();
   if (storefront.ordersEnabled || !storefront.launchSignup) return { ok: false, message: 'Η εγγραφή δεν είναι διαθέσιμη αυτή τη στιγμή.' };

@@ -6,19 +6,20 @@ import { buttonClass } from '@/components/ui/button';
 import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { mailConfigured } from '@/lib/email';
-import { categories, orders, products, variants } from '@/lib/db/schema';
+import { adminUsers, categories, orders, products, variants } from '@/lib/db/schema';
 import { hazardPriorityCategoryIds, needsHazardCheck } from '@/lib/ghs';
 import { releaseAbandonedCardOrders } from '@/lib/orders';
 import { cardProvider } from '@/lib/payments';
 import { getSettings } from '@/lib/settings.server';
 import { cn, formatDateTime, formatPrice } from '@/lib/utils';
 import { backupStatus } from '@/lib/backup';
+import { offsiteConfigured, offsiteIsFresh, offsiteStatus } from '@/lib/backup-offsite';
 
 const DAY = 24 * 60 * 60 * 1000;
 const daysAgo = (days: number) => new Date(Date.now() - days * DAY);
 
 export default async function AdminDashboard() {
-  await requireAdmin();
+  const me = await requireAdmin();
   await releaseAbandonedCardOrders();
   const settings = await getSettings();
   const real = and(eq(orders.isTest, false), ne(orders.status, 'cancelled'));
@@ -44,6 +45,13 @@ export default async function AdminDashboard() {
   const { shop, payments, storefront } = settings;
   // a snapshot is written once a day (lib/backup.ts); if the newest one is older than yesterday, something is failing quietly
   const { newest: newestBackup, fresh: backupFresh } = await backupStatus();
+  const [mfaRow, offsiteOn, offsiteLast] = await Promise.all([
+    db.select({ confirmedAt: adminUsers.totpConfirmedAt }).from(adminUsers).where(eq(adminUsers.id, me.id)).then((r) => r[0]),
+    Promise.resolve(offsiteConfigured()),
+    offsiteStatus(),
+  ]);
+  // > 36 h without a successful upload = at least one nightly run missed; surface it before the owner relies on it
+  const offsiteFresh = offsiteIsFresh(offsiteLast);
   const checklist = [
     { done: unverified.n === 0, label: 'Επιβεβαίωση τιμών', detail: unverified.n ? `${unverified.n} συσκευασίες δεν έχουν επιβεβαιωμένη τιμή: στο site γράφουν «Καλέστε για τιμή».` : 'Όλες οι τιμές είναι επιβεβαιωμένες.', href: '/admin/prices?filter=unverified' },
     { done: flagged.n === 0, label: 'Έλεγχος στοιχείων προϊόντων', detail: flagged.n ? `${flagged.n} προϊόντα έχουν σημείωση προς έλεγχο (π.χ. συσκευασία που δεν φαινόταν στη φωτογραφία).` : 'Κανένα προϊόν δεν περιμένει έλεγχο.', href: '/admin/products?filter=review' },
@@ -54,7 +62,9 @@ export default async function AdminDashboard() {
     { forOrders: true, done: !payments.bankTransfer || payments.bankAccounts.length > 0, label: 'Τραπεζικός λογαριασμός (IBAN)', detail: 'Χρειάζεται για την πληρωμή με κατάθεση — αλλιώς απενεργοποιήστε την.', href: '/admin/settings#payments' },
     // having an address is one thing, the site being able to SEND to it (SMTP, next line) is another: say which is true
     { done: Boolean(shop.email || process.env.ORDERS_NOTIFY_EMAIL), label: 'E-mail καταστήματος', detail: !(shop.email || process.env.ORDERS_NOTIFY_EMAIL) ? 'Δεν έχει οριστεί: τα μηνύματα από τις φόρμες («Επικοινωνία», «Ποιο λάδι;») φαίνονται μόνο εδώ, στα Μηνύματα — δεν σας ειδοποιεί κανείς.' : process.env.SMTP_HOST ? 'Εκεί έρχονται τα μηνύματα από τις φόρμες του site.' : 'Η διεύθυνση έχει οριστεί και φαίνεται στο site, αλλά το site δεν στέλνει ακόμη e-mail (επόμενη γραμμή): μέχρι τότε τα μηνύματα των φορμών φαίνονται μόνο εδώ, στα Μηνύματα.', href: '/admin/settings' },
-    { done: backupFresh, label: 'Αντίγραφο ασφαλείας', detail: backupFresh ? (newestBackup ? `Τελευταίο αυτόματο αντίγραφο: ${newestBackup}. Κατεβάστε ένα πού και πού από τις Ρυθμίσεις — τα αντίγραφα μένουν στον ίδιο δίσκο με το site.` : 'Δεν χρειάζεται για αυτή τη βάση.') : `Το καθημερινό αντίγραφο δεν γράφτηκε${newestBackup ? ` από τις ${newestBackup}` : ' ποτέ'}. Ενημερώστε τον προγραμματιστή.`, href: null },
+    { done: backupFresh, label: 'Αντίγραφο ασφαλείας', detail: backupFresh ? (newestBackup ? `Τελευταίο αυτόματο αντίγραφο: ${newestBackup}.` : 'Δεν χρειάζεται για αυτή τη βάση.') : `Το καθημερινό αντίγραφο δεν γράφτηκε${newestBackup ? ` από τις ${newestBackup}` : ' ποτέ'}. Ενημερώστε τον προγραμματιστή.`, href: null },
+    { done: offsiteFresh, label: 'Αντίγραφο εκτός δίσκου (Backblaze B2)', detail: !offsiteOn ? 'Δεν έχει ρυθμιστεί: τα αντίγραφα μένουν στον ίδιο δίσκο με το site — αν χαθεί ο δίσκος, χάνονται όλα. Ρυθμίζεται από τον προγραμματιστή (.env).' : offsiteFresh ? 'Κρυπτογραφημένο αντίγραφο ανεβαίνει κάθε βράδυ, μαζί με φωτογραφίες και δελτία ασφαλείας.' : `Η τελευταία αποστολή απέτυχε${offsiteLast ? ` (${formatDateTime(new Date(offsiteLast.at))})` : ''}. Ελέγξτε τα στοιχεία B2 στο Railway.`, href: null },
+    { done: Boolean(mfaRow?.confirmedAt), label: 'Επαλήθευση δύο βημάτων (2FA)', detail: mfaRow?.confirmedAt ? 'Ενεργή: η σύνδεση στη διαχείριση ζητά και κωδικό από την εφαρμογή επαλήθευσης.' : 'Ανενεργή: ένα κλεμμένο συνθηματικό αρκεί για να μπει κάποιος στη διαχείριση. Ενεργοποιήστε την — διαρκεί δύο λεπτά.', href: '/admin/settings#mfa' },
     { done: mailConfigured(), label: 'Αποστολή e-mail', detail: mailConfigured() ? 'Ρυθμισμένο.' : 'Δεν έχει ρυθμιστεί: τα e-mail γράφονται σε αρχεία αντί να στέλνονται. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
     { forOrders: true, done: cardProvider() !== null, label: 'Πληρωμές με κάρτα', detail: cardProvider() ? `Ενεργός πάροχος: ${cardProvider()}.` : 'Δεν έχει συνδεθεί πάροχος (Viva ή Stripe): η επιλογή «κάρτα» δεν εμφανίζεται στο ταμείο. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
     { forOrders: true, done: storefront.ordersEnabled, label: 'Άνοιγμα online παραγγελιών', detail: storefront.ordersEnabled ? 'Οι επισκέπτες μπορούν να παραγγείλουν.' : 'Κλειστές: το site λειτουργεί ως ιστοσελίδα-κατάλογος — προϊόντα, τιμές και επικοινωνία, χωρίς καλάθι, ταμείο και λογαριασμούς. Εσείς, όσο είστε συνδεδεμένος, βλέπετε ολόκληρο το κατάστημα και μπορείτε να κάνετε δοκιμαστικές παραγγελίες. Ανοίξτε τες όταν είναι όλα έτοιμα.', href: '/admin/settings#storefront' },

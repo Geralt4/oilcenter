@@ -23,6 +23,8 @@ export default async function AdminLoginPage() {
           fields={[
             { name: 'email', label: 'E-mail', type: 'email', inputMode: 'email', autoComplete: 'username', required: true },
             { name: 'password', label: 'Κωδικός', type: 'password', autoComplete: 'current-password', required: true },
+            // Only required when the owner has enabled two-step verification (Admin → Ρυθμίσεις).
+            { name: 'totp', label: 'Κωδικός εφαρμογής (αν έχετε ενεργοποιήσει επαλήθευση δύο βημάτων)', type: 'text', inputMode: 'numeric', autoComplete: 'one-time-code', hint: '6 ψηφία από Google Authenticator, Aegis κ.λπ. Αφήστε το κενό αν δεν έχετε ενεργοποιήσει την επαλήθευση.' },
           ]}
         />
       </div>

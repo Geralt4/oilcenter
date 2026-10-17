@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
+import { commerceEnabled } from '@/lib/commerce-flag';
 import { getAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { orders } from '@/lib/db/schema';
@@ -11,10 +12,14 @@ import { getSettings } from '@/lib/settings.server';
  * checkout, accounts, order look-up, the shipping/returns pages and every «παραγγείλετε online» sentence.
  * The logged-in owner is the exception: he still gets the whole shop, to place test orders before opening.
  * Server-only (reads the session cookie); client components use `useStoreConfig().canOrder`, which is the same answer.
+ *
+ * COMMERCE_ENABLED=false (see src/lib/commerce-flag.ts) overrides all of it: website only, for everyone.
  */
 
 /** Can THIS visitor use the shop part of the site? */
 export async function canOrderNow(): Promise<boolean> {
+  // Checked first, so the deployment switch wins even when a valid admin session is present.
+  if (!commerceEnabled()) return false;
   const [{ storefront }, admin] = await Promise.all([getSettings(), getAdmin()]);
   return storefront.ordersEnabled || admin !== null;
 }
@@ -36,6 +41,8 @@ export async function requireOrderingOrHistory(): Promise<void> {
 /** The same answer for server actions, which reply with a message instead of redirecting. */
 export async function accountsAvailable(): Promise<boolean> {
   if (await canOrderNow()) return true;
+  // The history escape hatch only exists once real orders do — and never when commerce is switched off.
+  if (!commerceEnabled()) return false;
   const [real] = await db.select({ id: orders.id }).from(orders).where(eq(orders.isTest, false)).limit(1);
   return Boolean(real);
 }

@@ -8,7 +8,7 @@ import { createSession, destroySession, getCustomer, requireCustomer, revokeAllS
 import { db } from '@/lib/db';
 import { customers } from '@/lib/db/schema';
 import { passwordResetMail, sendMail } from '@/lib/email';
-import { clientIp, rateLimit } from '@/lib/rate-limit';
+import { clientIp, loginBudgets, rateLimit } from '@/lib/rate-limit';
 import { getSettings } from '@/lib/settings.server';
 import { accountsAvailable, canOrderNow } from '@/lib/catalogue-mode';
 
@@ -68,7 +68,12 @@ export async function loginCustomer(_prev: FormState, formData: FormData): Promi
   const parsed = z.object({ email, password: z.string().min(1).max(200) }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { ok: false, message: 'Συμπληρώστε e-mail και κωδικό.' };
 
-  const limited = rateLimit(`login:${await clientIp()}:${parsed.data.email}`, 8, 15 * 60 * 1000);
+  // Two budgets: per-IP+email stops hammering one account; the IP-wide pool stops password spraying
+  // — a few tries against MANY e-mails — which the per-account key alone would never catch.
+  const ip = await clientIp();
+  const perAccount = rateLimit(`login:${ip}:${parsed.data.email}`, 8, 15 * 60 * 1000);
+  if (!perAccount.ok) return { ok: false, message: `Πολλές αποτυχημένες προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(perAccount.retryAfterSec / 60)} λεπτά.` };
+  const limited = await loginBudgets('login', 20, 15 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: `Πολλές αποτυχημένες προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
 
   const [customer] = await db.select().from(customers).where(eq(customers.email, parsed.data.email));

@@ -1,20 +1,35 @@
 import { Download } from 'lucide-react';
-import { changeAdminPassword, saveSettings } from '@/app/admin/actions';
-import { AdminForm } from '@/components/admin/admin-form';
+import { asc, eq } from 'drizzle-orm';
+import QRCode from 'qrcode';
+import { addAdmin, beginTotpEnrollment, changeAdminPassword, confirmTotpEnrollment, disableTotp, removeAdmin, resetAdminMfa, saveSettings } from '@/app/admin/actions';
+import { AdminForm, ConfirmButton } from '@/components/admin/admin-form';
 import { Card, Check, Field, PageHeader } from '@/components/admin/ui';
 import { buttonClass } from '@/components/ui/button';
+import { totpUri } from '@/lib/auth/totp';
 import { backupsSupported, listBackups } from '@/lib/backup';
+import { offsiteConfigured, offsiteStatus } from '@/lib/backup-offsite';
+import { db } from '@/lib/db';
+import { adminUsers } from '@/lib/db/schema';
 import { cardProvider } from '@/lib/payments';
 import { DAY_NAMES } from '@/lib/settings';
 import { requireAdmin } from '@/lib/auth/session';
 import { getSettings } from '@/lib/settings.server';
-import { centsToInput, formatDate } from '@/lib/utils';
+import { centsToInput, cn, formatDate, formatDateTime } from '@/lib/utils';
 
 export const metadata = { title: 'Ρυθμίσεις' };
 
 export default async function AdminSettingsPage() {
-  await requireAdmin();
-  const [s, backups] = await Promise.all([getSettings(), listBackups()]);
+  const admin = await requireAdmin();
+  const [s, backups, mfa, admins] = await Promise.all([
+    getSettings(),
+    listBackups(),
+    db.select({ secret: adminUsers.totpSecret, confirmedAt: adminUsers.totpConfirmedAt }).from(adminUsers).where(eq(adminUsers.id, admin.id)).then((r) => r[0]),
+    db.select({ id: adminUsers.id, email: adminUsers.email, name: adminUsers.name, confirmedAt: adminUsers.totpConfirmedAt, lastLoginAt: adminUsers.lastLoginAt }).from(adminUsers).orderBy(asc(adminUsers.createdAt)),
+  ]);
+  const [offsite, offsiteLast] = await Promise.all([Promise.resolve(offsiteConfigured()), offsiteStatus()]);
+  // Pending enrollment = secret saved but never proven with a code yet. Only then is a QR shown.
+  const mfaPending = Boolean(mfa?.secret && !mfa.confirmedAt);
+  const mfaQr = mfaPending ? await QRCode.toDataURL(totpUri(mfa!.secret!, admin.email), { margin: 1, width: 220 }) : null;
   const { shop, storefront, reviews, shipping, payments, tax } = s;
   const provider = cardProvider();
   const accounts = [...payments.bankAccounts, { bank: '', iban: '', holder: '' }, { bank: '', iban: '', holder: '' }, { bank: '', iban: '', holder: '' }, { bank: '', iban: '', holder: '' }].slice(0, 4);
@@ -153,8 +168,106 @@ export default async function AdminSettingsPage() {
       </Card>
 
       <Card
+        title="Επαλήθευση δύο βημάτων (2FA)"
+        description="Με την επαλήθευση ενεργή, η σύνδεση στη διαχείριση ζητά και έναν 6ψήφιο κωδικό από μια εφαρμογή στο κινητό (Google Authenticator, Aegis, Microsoft Authenticator, 1Password…). Έτσι ένα κλεμμένο ή μαντεμένο συνθηματικό δεν αρκεί για να μπει κάποιος."
+        className="mt-6 max-w-xl"
+      >
+        <div id="mfa">
+          {mfa?.confirmedAt ? (
+            <>
+              <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-medium text-emerald-800">
+                Ενεργή{admin.name ? ` για ${admin.name}` : ''} από {formatDate(mfa.confirmedAt)}. Ο κωδικός ζητείται σε κάθε νέα σύνδεση.
+              </p>
+              <p className="mt-3 text-sm text-ink-600">
+                Αν χάσετε το κινητό, η επαλήθευση απενεργοποιείται μόνο από τον διακομιστή: <code className="rounded bg-ink-100 px-1.5 py-0.5 text-xs">npm run admin:reset-mfa -- {admin.email}</code> (χρειάζεται πρόσβαση στο Railway). Αποθηκεύστε το σε ασφαλές μέρος.
+              </p>
+              <AdminForm action={disableTotp} submitLabel="Απενεργοποίηση" variant="dark" resetOnSuccess className="mt-4">
+                <Field label="Τρέχων κωδικός εφαρμογής" hint="Για επιβεβαίωση ότι έχετε πρόσβαση στην εφαρμογή.">
+                  <input name="totp" inputMode="numeric" autoComplete="one-time-code" maxLength={7} required className="field tabular" />
+                </Field>
+              </AdminForm>
+            </>
+          ) : mfaPending && mfaQr ? (
+            <>
+              <p className="text-sm text-ink-700">Σαρώστε τον κωδικό με την εφαρμογή επαλήθευσης (ή προσθέστε χειροκίνητα το μυστικό):</p>
+              {/* eslint-disable-next-line @next/next/no-img-element -- a one-off data URL, nothing for the image optimiser to do */}
+              <img src={mfaQr} alt="QR για την εφαρμογή επαλήθευσης" width={220} height={220} className="mt-3 rounded-xl border border-line bg-white p-2" />
+              <p className="mt-2 text-xs text-ink-500">Χειροκίνητη καταχώρηση: <code className="tabular select-all rounded bg-ink-100 px-1.5 py-0.5">{mfa!.secret!.replace(/(.{4})/g, '$1 ').trim()}</code></p>
+              <AdminForm action={confirmTotpEnrollment} submitLabel="Επιβεβαίωση" variant="dark" resetOnSuccess className="mt-4">
+                <Field label="Κωδικός από την εφαρμογή" hint="Ο 6ψήφιος κωδικός που δείχνει τώρα — όχι ο επόμενος.">
+                  <input name="totp" inputMode="numeric" autoComplete="one-time-code" maxLength={7} required className="field tabular" />
+                </Field>
+              </AdminForm>
+              <AdminForm action={disableTotp} submitLabel="Ακύρωση ρύθμισης" className="mt-2">
+                <input type="hidden" name="cancel" value="1" />
+              </AdminForm>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-ink-600">Δεν είναι ενεργή. Συνιστάται ανεπιφύλακτα πριν ανοίξει το site στο κοινό.</p>
+              <form action={beginTotpEnrollment} className="mt-4">
+                <button type="submit" className={buttonClass({ variant: 'dark' })}>Ενεργοποίηση</button>
+              </form>
+            </>
+          )}
+        </div>
+      </Card>
+
+      <Card
+        title="Διαχειριστές"
+        description="Κάθε διαχειριστής έχει δικό του κωδικό και δική του εφαρμογή επαλήθευσης (2FA) στο κινητό του — γι' αυτό χρειάζονται δύο λογαριασμοί, όχι δύο τηλέφωνα στον ίδιο. Έτσι, αν χαθεί το ένα τηλέφωνο, ο άλλος διαχειριστής μπορεί να επαναφέρει την πρόσβαση."
+        className="mt-6 max-w-2xl"
+      >
+        <div id="admins">
+          <ul className="divide-y divide-line">
+            {admins.map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-ink-950">
+                    {a.name || 'Διαχειριστής'}
+                    {a.id === admin.id && <span className="ml-2 rounded bg-ink-100 px-1.5 py-0.5 text-[0.6875rem] font-semibold text-ink-600">εσείς</span>}
+                  </span>
+                  <span className="block text-xs text-ink-500">{a.email}</span>
+                  <span className={cn('block text-xs', a.confirmedAt ? 'text-emerald-700' : 'text-amber-700')}>
+                    {a.confirmedAt ? '2FA ενεργή' : '2FA ανενεργή'}
+                    <span className="text-ink-500"> · {a.lastLoginAt ? `τελευταία σύνδεση ${formatDateTime(new Date(a.lastLoginAt))}` : 'δεν έχει συνδεθεί ακόμη'}</span>
+                  </span>
+                </span>
+                {a.id !== admin.id && (
+                  <span className="flex flex-wrap gap-2">
+                    <form action={resetAdminMfa}>
+                      <input type="hidden" name="id" value={a.id} />
+                      <ConfirmButton message={`Επαναφορά 2FA για ${a.email}; Θα αποσυνδεθεί και θα χρειαστεί να τη ρυθμίσει ξανά.`} className="flex h-9 cursor-pointer items-center rounded-lg px-3 text-xs font-semibold text-ink-700 hover:bg-ink-100">
+                        Επαναφορά 2FA
+                      </ConfirmButton>
+                    </form>
+                    <form action={removeAdmin}>
+                      <input type="hidden" name="id" value={a.id} />
+                      <ConfirmButton message={`Οριστική διαγραφή του διαχειριστή ${a.email};`} className="flex h-9 cursor-pointer items-center rounded-lg px-3 text-xs font-semibold text-red-700 hover:bg-red-50">
+                        Διαγραφή
+                      </ConfirmButton>
+                    </form>
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          <h3 className="mt-5 border-t border-line pt-5 text-sm font-bold text-ink-950">Προσθήκη διαχειριστή</h3>
+          <p className="mt-1 text-sm text-ink-600">Για το άτομο που συντηρεί το site. Θα συνδεθεί με τον προσωρινό κωδικό, θα τον αλλάξει από εδώ και θα ενεργοποιήσει τη δική του εφαρμογή επαλήθευσης στο κινητό του.</p>
+          <AdminForm action={addAdmin} submitLabel="Προσθήκη διαχειριστή" variant="dark" resetOnSuccess className="mt-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="E-mail"><input type="email" name="email" required autoComplete="off" className="field" /></Field>
+              <Field label="Όνομα"><input name="adminName" maxLength={80} className="field" /></Field>
+              <Field label="Προσωρινός κωδικός" hint="Τουλάχιστον 10 χαρακτήρες."><input type="password" name="adminPassword" required minLength={10} autoComplete="new-password" className="field" /></Field>
+            </div>
+          </AdminForm>
+        </div>
+      </Card>
+
+      <Card
         title="Αντίγραφα ασφαλείας"
-        description="Κάθε βράδυ αποθηκεύεται αυτόματα ένα αντίγραφο όλης της βάσης (προϊόντα, τιμές, παραγγελίες, ρυθμίσεις) και κρατιούνται τα 14 τελευταία. Βρίσκονται στον ίδιο δίσκο με το site, γι' αυτό κατεβάζετε πού και πού ένα και στον υπολογιστή σας."
+        description="Κάθε βράδυ αποθηκεύεται αυτόματα ένα αντίγραφο όλης της βάσης (προϊόντα, τιμές, παραγγελίες, ρυθμίσεις) και κρατιούνται τα 14 τελευταία. Όταν είναι ρυθμισμένο το Backblaze B2, κάθε αντίγραφο ανεβαίνει και κρυπτογραφημένο εκτός του δίσκου του site, μαζί με τις φωτογραφίες και τα δελτία ασφαλείας."
         className="mt-6 max-w-xl"
       >
         <div id="backups">
@@ -172,6 +285,15 @@ export default async function AdminSettingsPage() {
                 Λήψη αντιγράφου τώρα
               </a>
               <p className="mt-3 text-xs text-ink-500">Το αρχείο περιέχει στοιχεία πελατών. Φυλάξτε το σε ασφαλές μέρος και μην το στέλνετε με e-mail.</p>
+              <p className="mt-4 border-t border-line pt-3 text-sm text-ink-700">
+                {!offsite
+                  ? 'Εξωτερικό αντίγραφο (Backblaze B2): δεν έχει ρυθμιστεί ακόμη.'
+                  : offsiteLast?.ok
+                    ? `Εξωτερικό αντίγραφο (Backblaze B2): ενημερώθηκε ${formatDate(new Date(offsiteLast.at))} — κρυπτογραφημένο, διατηρούνται 14 ημερήσια.`
+                    : offsiteLast
+                      ? `Εξωτερικό αντίγραφο (Backblaze B2): Η ΤΕΛΕΥΤΑΙΑ ΑΠΟΣΤΟΛΗ ΑΠΕΤΥΧΕ (${formatDate(new Date(offsiteLast.at))}). Ελέγξτε τα στοιχεία σύνδεσης στο Railway.`
+                      : 'Εξωτερικό αντίγραφο (Backblaze B2): ρυθμισμένο, αναμένεται η πρώτη αποστολή.'}
+              </p>
             </>
           )}
         </div>

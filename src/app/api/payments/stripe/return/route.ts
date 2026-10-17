@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
+import { commerceEnabled } from '@/lib/commerce-flag';
 import { db } from '@/lib/db';
 import { orders } from '@/lib/db/schema';
 import { siteUrl } from '@/lib/payments';
@@ -8,6 +9,7 @@ import { stripeRetrieveSession } from '@/lib/payments/stripe';
 
 /** success_url of the Checkout Session. The session is re-read from Stripe; the URL itself is not trusted. */
 export async function GET(request: Request) {
+  if (!commerceEnabled()) return NextResponse.json({ error: 'commerce_disabled' }, { status: 503 });
   const sessionId = new URL(request.url).searchParams.get('session_id') ?? '';
   const home = NextResponse.redirect(`${siteUrl()}/`);
   if (!/^cs_[A-Za-z0-9_]+$/.test(sessionId)) return home;

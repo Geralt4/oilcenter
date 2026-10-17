@@ -1,7 +1,9 @@
 'use server';
 
 import { eq } from 'drizzle-orm';
-import { getAdmin, getCustomer } from '@/lib/auth/session';
+import { commerceEnabled } from '@/lib/commerce-flag';
+import { getCustomer } from '@/lib/auth/session';
+import { canOrderNow } from '@/lib/catalogue-mode';
 import { resolveCartLines } from '@/lib/catalog';
 import { db } from '@/lib/db';
 import { orders } from '@/lib/db/schema';
@@ -19,10 +21,13 @@ export type PlaceOrderResult =
 export async function placeOrder(raw: unknown): Promise<PlaceOrderResult> {
   const limited = rateLimit(`checkout:${await clientIp()}`, 8, 10 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά ή καλέστε μας.` };
+  // A cart of a few lines serialises to a few KB; anything larger was not made by this checkout.
+  if (typeof raw === 'string' && raw.length > 64 * 1024) return { ok: false, message: 'Η παραγγελία δεν μπορούσε να διαβαστεί. Καλέστε μας για να την καταχωρήσουμε.' };
 
   // Pre-launch the checkout is closed to the public. The page already hides the form; this is the check that counts.
-  const [{ storefront, shop }, admin] = await Promise.all([getSettings(), getAdmin()]);
-  if (!storefront.ordersEnabled && !admin) return { ok: false, message: `Οι online παραγγελίες δεν έχουν ανοίξει ακόμη. Για αγορές καλέστε μας στο ${shop.phone}.` };
+  // canOrderNow() also answers the deployment switch (COMMERCE_ENABLED=false): website only, even for admins.
+  const [settings, canOrder] = await Promise.all([getSettings(), canOrderNow()]);
+  if (!canOrder) return { ok: false, message: `Οι online παραγγελίες δεν έχουν ανοίξει ακόμη. Για αγορές καλέστε μας στο ${settings.shop.phone}.` };
 
   const parsed = CheckoutSchema.safeParse(raw);
   if (!parsed.success) {
@@ -34,7 +39,7 @@ export async function placeOrder(raw: unknown): Promise<PlaceOrderResult> {
     return { ok: false, message: 'Ελέγξτε τα σημειωμένα πεδία.', fieldErrors };
   }
 
-  const [settings, customer] = await Promise.all([getSettings(), getCustomer()]);
+  const customer = await getCustomer();
   const result = await createOrder(parsed.data, settings, { customerId: customer?.id ?? null, cardProviderConfigured: cardProvider() !== null });
   if (!result.ok) return { ok: false, message: result.message, cartChanged: result.reason === 'cart_changed' };
 
@@ -72,6 +77,7 @@ export async function placeOrder(raw: unknown): Promise<PlaceOrderResult> {
 export async function retryCardPayment(number: string, token: string): Promise<{ ok: true; redirectUrl: string } | { ok: false; message: string }> {
   const limited = rateLimit(`pay:${await clientIp()}`, 6, 10 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά σε λίγο.' };
+  if (!commerceEnabled()) return { ok: false, message: 'Η πληρωμή με κάρτα είναι απενεργοποιημένη.' };
 
   const order = await getOrderByNumber(number);
   if (!order || order.accessToken !== token) return { ok: false, message: 'Η παραγγελία δεν βρέθηκε.' };

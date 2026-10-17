@@ -84,6 +84,64 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
     account, domain moved or re-registered to him, DNS rebuilt off the old server, both hostnames on Railway,
     `SITE_URL` set, old hosting deleted last) is the runbook in [`DOMAIN.md`](DOMAIN.md). Nothing public can happen before it.
 
+## Security hardening (October 2026)
+
+What the deployment-level protections do and where they live — read together with "Before going live".
+
+- **Website-only mode:** with `COMMERCE_ENABLED=false` (set in `.env.example`, kept in `.railway/railway.ts`) the site
+  refuses orders, customer accounts and payments **server-side**, regardless of Admin → Ρυθμίσεις or who is logged in —
+  enforced in `src/lib/commerce-flag.ts` at four layers (catalogue mode, `createOrder`, `startCardPayment`, the four
+  payment routes). Remove the variable on the day the e-shop opens.
+- **Startup checks:** a production boot fails loudly (`src/instrumentation.ts` → `src/lib/startup-check.ts`) when
+  `AUTH_SECRET` is missing/short, `SITE_URL` is absent or not https, or `COMMERCE_ENABLED` holds a nonsense value.
+  A restart loop with a clear log message beats a silently misconfigured site. Deliberately skipped during `next build`.
+- **Login throttling:** both logins spend from two pools — per-IP+e-mail and a new IP-wide budget
+  (`src/lib/rate-limit.ts` `loginBudgets`), so password spraying across many addresses from one machine hits the wall.
+- **Admin two-step verification (TOTP):** Admin → Ρυθμίσεις → «Επαλήθευση δύο βημάτων» enrolls an authenticator app
+  (QR code). Once confirmed, every admin login also requires the 6-digit code; a second, separate rate limit guards the
+  code itself. Turning it off requires a current code, so a stolen session cannot remove it. Lost phone:
+  `npm run admin:reset-mfa -- <email>` on the server (also signs every session out), or — for the *other* administrator —
+  the «Επαναφορά 2FA» button under «Διαχειριστές». No recovery-code list by design — the server operator is the recovery path.
+- **Two administrators, two phones:** the shop and the maintainer each get their own account (Admin → Ρυθμίσεις →
+  «Διαχειριστές» → «Προσθήκη διαχειριστή»), each with its own password and its own authenticator app. Never share one
+  account between two people: two accounts mean individual revocation, an honest audit trail (order events name the actor)
+  and no single phone as a single point of failure. The owner (first account) can add/remove administrators and reset a
+  colleague's 2FA; the last administrator cannot be deleted. To set it up: sign in as the owner → Ρυθμίσεις → Διαχειριστές
+  → add the maintainer's e-mail with a temporary password → the maintainer signs in, changes it (same page) and enables 2FA
+  with their own phone.
+- **Public form sizes:** every public server action rejects oversized submissions right after rate limiting
+  (`src/lib/form-size.ts`, 256 KB; the launch-signup form 32 KB; checkout 64 KB). The 32 MB global action limit exists
+  for the admin photo form only; admin uploads stay admin-session-gated.
+- **API throttling:** `/api/cart`, `/api/products` and `/api/search` are rate-limited per IP (the search endpoint scans
+  the whole in-memory catalogue per request, so it was the expensive one to leave open).
+- **Non-root container:** `docker/entrypoint.sh` starts as root only to `chown` the persistent volume to `node`, then
+  re-execs migrations and the server as uid 1000 via gosu. On hosts that mount `/app/data` root-owned this is what makes
+  a non-root runtime possible at all.
+- **Off-site backups:** every night's local snapshot (`shop-*.db.gz`) is encrypted with AES-256-GCM and uploaded to a
+  private Backblaze B2 bucket as `shop-YYYY-MM-DD.db.gz.enc` (14 kept), together with a daily archive of uploaded photos
+  and safety data sheets (`uploads-YYYY-MM-DD.tar.gz.enc`, 4 kept). Configuration: `B2_KEY_ID`, `B2_APP_KEY`,
+  `B2_BUCKET`, `BACKUP_ENCRYPTION_KEY` — all four or none (the startup check enforces this). The B2 application key is
+  restricted to that one bucket, and it **cannot decrypt** anything: `BACKUP_ENCRYPTION_KEY` must never be stored in the
+  B2 account. Keep two offline copies (owner + developer); they are what makes a restore possible after losing Railway
+  itself. Status is shown in Admin → Ρυθμίσεις; `npm run backup:push` forces a run; `npm run db:migrate`-style runbooks
+  live below.
+
+### Restoring from B2
+
+1. On any machine with Node 20+: `npm ci`, then export `B2_KEY_ID`, `B2_APP_KEY`, `B2_BUCKET` and
+   `BACKUP_ENCRYPTION_KEY` (one of the two offline copies).
+2. `npm run backup:pull -- shop-2026-10-17.db.gz.enc ./restore/shop.db` — downloads, decrypts, gunzips.
+3. Stop the shop, replace `DATA_DIR/shop.db` with the restored file (delete stale `shop.db-wal`/`shop.db-shm`), start.
+   Point `DATABASE_URL` at it for a dry run first; do not restore over a live database.
+4. Photos/SDS: `npm run backup:pull -- uploads-2026-10-17.tar.gz.enc ./restore/uploads.tar`, then
+   `tar -xf uploads.tar -C DATA_DIR`.
+5. Sign in to `/admin` and spot-check products, orders and settings. A restore that has never been tried is not a backup.
+- **Dependency audit (2026-10-17):** production dependencies report **0 known vulnerabilities**. The flagged packages in
+  a full-lockfile audit are all dev tooling, none shipped in the runtime request path: `braces@3.0.3` (via the Next ESLint
+  plugin; the advisory CVE-2026-93687 has **no fixed release yet** — newest version IS 3.0.3), and `drizzle-kit`'s legacy
+  `@esbuild-kit` chain (fixed only in drizzle-kit ≥ 0.19 which is a rewrite; current 0.31.x still bundles it; it executes
+  only on the dev machine's `npm run db:generate`, never in the container). Re-check with `npm audit` after updates.
+
 ## Borrowed from the competition (September 2026)
 
 A review of two local competitors (lazaridis-lubricants.gr, todos.gr) produced seven additions. None copies their

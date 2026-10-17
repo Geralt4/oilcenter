@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
+import { commerceEnabled } from '@/lib/commerce-flag';
 import { db } from '@/lib/db';
 import { orders } from '@/lib/db/schema';
 import { siteUrl } from '@/lib/payments';
@@ -16,6 +17,7 @@ import { clientIp, rateLimit } from '@/lib/rate-limit';
  * unverifiable return is sent to the order lookup, which requires the order number and the buyer's e-mail.
  */
 export async function GET(request: Request) {
+  if (!commerceEnabled()) return NextResponse.json({ error: 'commerce_disabled' }, { status: 503 });
   const url = new URL(request.url);
   const orderCode = url.searchParams.get('s') ?? '';
   const transactionId = url.searchParams.get('t') ?? '';
