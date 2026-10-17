@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { beginUpload, endUpload } from '@/components/admin/upload-pending';
 
 type Props = {
   /** hidden-field name the server action reads (one value per uploaded file) */
@@ -63,9 +64,9 @@ export function UploadField({ name, kind, accept, multiple, maxFiles, maxTotalMb
     setProblem('');
 
     const form = input.closest('form');
-    const submit = form?.querySelector<HTMLButtonElement>('button[type="submit"]');
     setBusy(true);
-    if (submit) submit.disabled = true;
+    // Counted per FORM, not per field: photo and SDS uploads can overlap.
+    if (form) beginUpload(form);
     try {
       const added: string[] = [];
       for (const file of files) {
@@ -87,7 +88,7 @@ export function UploadField({ name, kind, accept, multiple, maxFiles, maxTotalMb
       setProblem('Το ανέβασμα απέτυχε. Ελέγξτε τη σύνδεση και δοκιμάστε ξανά — δεν αποθηκεύτηκε τίποτα.');
     } finally {
       setBusy(false);
-      if (submit) submit.disabled = false;
+      if (form) endUpload(form);
     }
   }
 

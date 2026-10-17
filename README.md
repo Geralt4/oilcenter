@@ -97,8 +97,8 @@ What the deployment-level protections do and where they live — read together w
   A restart loop with a clear log message beats a silently misconfigured site. Deliberately skipped during `next build`.
 - **Login throttling:** both logins spend from three pools — per-IP+e-mail, an IP-wide budget, and a per-account budget
   that ignores the source address — so neither spraying nor repeated guessing from rotating IPs gets unlimited tries.
-  Counters live in SQLite (`rate_limits`, keys hashed with SHA-256, never raw addresses, indexed cleanup), so a restart
-  or redeploy does not reset them.
+  Counters live in SQLite (`rate_limits`, keys hashed with SHA-256, never raw addresses; indexed, bounded cleanup), so a
+  restart or redeploy does not reset them.
 - **Admin two-step verification (TOTP):** Admin → Ρυθμίσεις → «Επαλήθευση δύο βημάτων» enrolls an authenticator app
   (QR code). Once confirmed, every admin login also requires the 6-digit code; each code is **single-use** (its time step
   is burned in the database, so replay inside the 30 s window fails), and a separate rate limit guards guessing. Turning
@@ -120,11 +120,12 @@ What the deployment-level protections do and where they live — read together w
   with their own phone.
 - **Public request sizes:** large admin files go to `POST /api/admin/upload`, which enforces the pre-launch curtain,
   same-origin/CSRF checks, authentication and a per-admin limit before reading anything; the body is streamed with a hard
-  per-kind cap (photo 20 MB, SDS 10 MB, CSV 2 MB), a 60-second deadline and at most two concurrent parses, then
-  validated/re-encoded and staged behind a single-use token. The save/import action claims that token atomically; a failed
-  save **releases it again** so the form can be retried. With uploads out of the way the global server-action ceiling is
-  **256 KB** and the proxy buffers at most 1 MB. Public FormData checks remain as post-parse defence in depth;
-  `/api/cart` still stops at 32 KB while streaming. Abandoned staging files are swept hourly.
+  per-kind cap (photo 20 MB, SDS 10 MB, CSV 2 MB), a 60-second deadline that interrupts a stalled read and at most
+  two concurrent parses, then validated/re-encoded and staged behind a single-use token. The form blocks submission until
+  **every** file field finishes uploading. The save/import action claims the token atomically; a failed save **releases it
+  again** so the form can be retried. With uploads out of the way the global server-action ceiling is **256 KB** and the
+  proxy buffers at most 1 MB. Public FormData checks remain as post-parse defence in depth; `/api/cart` still stops at
+  32 KB while streaming. Abandoned staging files are swept hourly.
 - **API throttling:** `/api/cart`, `/api/products` and `/api/search` are rate-limited per IP (the search endpoint scans
   the whole in-memory catalogue per request, so it was the expensive one to leave open).
 - **Non-root container:** `docker/entrypoint.sh` starts as root only to `chown` the persistent volume to `node`, then

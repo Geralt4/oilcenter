@@ -50,27 +50,38 @@ export function isSameOrigin(request: Request): boolean {
 
 export const stagingDir = () => path.resolve(process.env.DATA_DIR || './data', 'uploads', '.staging');
 
-/** Stream a request body with a hard byte cap and a deadline; null when either is crossed. */
+/** Stream a request body with a hard byte cap and a deadline that interrupts a stalled read. */
 export async function readBodyLimited(body: ReadableStream<Uint8Array> | null, maxBytes: number, deadlineMs = 60_000): Promise<Buffer | null> {
   if (!body) return null;
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  const started = Date.now();
+  const deadline = Date.now() + deadlineMs;
   try {
     for (;;) {
-      if (Date.now() - started > deadlineMs) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
         await reader.cancel().catch(() => undefined);
         return null;
       }
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
+      // A timer races the pending read: a socket that stops sending must not hold the request open.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<'timeout'>((resolve) => {
+        timer = setTimeout(() => resolve('timeout'), remaining);
+      });
+      const next = await Promise.race([reader.read(), timeout]);
+      if (timer) clearTimeout(timer);
+      if (next === 'timeout') {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      if (next.done) break;
+      total += next.value.byteLength;
       if (total > maxBytes) {
         await reader.cancel().catch(() => undefined);
         return null;
       }
-      chunks.push(value);
+      chunks.push(next.value);
     }
   } catch {
     return null;

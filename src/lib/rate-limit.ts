@@ -41,8 +41,11 @@ export async function rateLimit(key: string, limit: number, windowMs: number): P
 
   if (now - lastSweep > 60_000) {
     lastSweep = now;
+    // Bounded batches: clearing a large table in one statement could hold the write lock for a long time.
     // Housekeeping is best-effort; it must never turn a denied login into an allowed one.
-    await db.run(sql`DELETE FROM rate_limits WHERE window_start < ${now - SWEEP_AGE_MS}`).catch(() => undefined);
+    await db
+      .run(sql`DELETE FROM rate_limits WHERE "key" IN (SELECT "key" FROM rate_limits WHERE window_start < ${now - SWEEP_AGE_MS} LIMIT 500)`)
+      .catch(() => undefined);
   }
 
   if (hits <= limit) return { ok: true, retryAfterSec: 0 };

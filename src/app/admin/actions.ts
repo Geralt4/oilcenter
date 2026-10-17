@@ -383,106 +383,127 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     searchText: buildSearchText({ brand: brand?.name, name, viscosity, specs, category: category?.name, keywords: str(fd, 'keywords').slice(0, 400), labels: priced.map((v) => v.label) }),
   };
 
-  // Hazard labelling & safety data sheet (lib/ghs.ts). A newly uploaded PDF replaces whatever link was there.
-  const sdsToken = typeof fd.get('sds') === 'string' ? String(fd.get('sds')).trim() : '';
-  let sdsUpload: string | null = null;
-  let sdsClaim: { token: string; file: string } | null = null;
-  if (sdsToken) {
-    const claimed = await claimUpload(sdsToken, 'sds', me.id);
-    if (!claimed) return { ok: false, message: 'Το δελτίο δεδομένων ασφαλείας έληξε ή δεν είναι διαθέσιμο. Ανεβάστε το ξανά.' };
-    const moved = await moveSds(claimed.file, slug);
-    sdsUpload = moved.url;
-    sdsClaim = { token: claimed.token, file: moved.file };
-  }
-  const sdsLink = str(fd, 'sdsUrl');
-  if (sdsLink && !sdsLink.startsWith('/media/sds/') && !/^https:\/\/[^\s]+$/i.test(sdsLink)) {
-    if (sdsClaim) await releaseUpload(sdsClaim.token, sdsClaim.file);
-    return { ok: false, message: 'Ο σύνδεσμος του δελτίου δεδομένων ασφαλείας πρέπει να ξεκινά με https://' };
-  }
-  const hazard = buildHazard({
-    none: bool(fd, 'hazardNone'), confirmed: bool(fd, 'hazardConfirmed'), signalWord: str(fd, 'hazardSignal'), pictograms: fd.getAll('hazardPictograms').map(String),
-    statements: String(fd.get('hazardStatements') ?? ''), precautions: String(fd.get('hazardPrecautions') ?? ''), sdsUrl: sdsUpload ?? sdsLink,
-  });
-  const [previous] = id ? await db.select({ hazard: products.hazard }).from(products).where(eq(products.id, id)) : [];
-
-  // Photos were normalised to 1000×1000 WebP by the upload endpoint; here only the single-use tokens are claimed.
-  const photoTokens = fd.getAll('images').filter((v): v is string => typeof v === 'string' && v.length > 0);
-  if (photoTokens.length > MAX_PHOTOS) {
-    if (sdsClaim) await releaseUpload(sdsClaim.token, sdsClaim.file);
-    return { ok: false, message: `Έως ${MAX_PHOTOS} φωτογραφίες τη φορά.` };
-  }
+  // Upload claims are tracked from the first claim onwards: a validation error, a failed file move
+  // or a database failure must hand every claimed upload back so the form can be retried.
   const uploads: string[] = [];
   const photoClaims: Array<{ token: string; url: string }> = [];
-  const productsDir = path.resolve(process.env.DATA_DIR || './data', 'uploads', 'products');
-  for (const token of photoTokens) {
-    const claimed = await claimUpload(token, 'photo', me.id);
-    if (!claimed) {
-      for (const claim of photoClaims) await releaseUpload(claim.token, uploadPath(claim.url));
-      if (sdsClaim) await releaseUpload(sdsClaim.token, sdsClaim.file);
-      return { ok: false, message: 'Μία φωτογραφία έληξε ή δεν είναι διαθέσιμη. Ανεβάστε την ξανά.' };
-    }
-    const name = `${slug.slice(0, 60)}-${randomToken(5).toLowerCase()}.webp`;
-    await moveClaimed(claimed.file, productsDir, name);
-    uploads.push(`/media/products/${name}`);
-    photoClaims.push({ token: claimed.token, url: `/media/products/${name}` });
-  }
-  // A save that then fails must leave the uploads claimable again, so the form can be retried.
-  const discardUploads = async () => {
+  let sdsUpload: string | null = null;
+  let sdsClaim: { token: string; file: string } | null = null;
+  const releaseAll = async () => {
     for (const claim of photoClaims) await releaseUpload(claim.token, uploadPath(claim.url));
     if (sdsClaim) await releaseUpload(sdsClaim.token, sdsClaim.file);
   };
 
-  // a size without a code gets one from the product and its label; two sizes must never end up with the same one
-  const taken = new Set(priced.map((v) => v.sku.toUpperCase()).filter(Boolean));
-  const skus = priced.map((v) => {
-    if (v.sku) return v.sku;
-    const base = `${slug}-${slugify(v.label)}`.toUpperCase().slice(0, 60);
-    let sku = base;
-    for (let n = 2; taken.has(sku); n++) sku = `${base.slice(0, 56)}-${n}`;
-    taken.add(sku);
-    return sku;
-  });
+  let productId: number;
+  let hazard: ReturnType<typeof buildHazard> = null;
+  let previousSdsUrl: string | null = null;
+  try {
+    // Hazard labelling & safety data sheet (lib/ghs.ts). A newly uploaded PDF replaces whatever link was there.
+    const sdsToken = typeof fd.get('sds') === 'string' ? String(fd.get('sds')).trim() : '';
+    if (sdsToken) {
+      const claimed = await claimUpload(sdsToken, 'sds', me.id);
+      if (!claimed) {
+        await releaseAll();
+        return { ok: false, message: 'Το δελτίο δεδομένων ασφαλείας έληξε ή δεν είναι διαθέσιμο. Ανεβάστε το ξανά.' };
+      }
+      try {
+        const moved = await moveSds(claimed.file, slug);
+        sdsUpload = moved.url;
+        sdsClaim = { token: claimed.token, file: moved.file };
+      } catch (err) {
+        // The move itself failed: the file is still staged, so release the token without a file.
+        await releaseUpload(claimed.token);
+        throw err;
+      }
+    }
+    const sdsLink = str(fd, 'sdsUrl');
+    if (sdsLink && !sdsLink.startsWith('/media/sds/') && !/^https:\/\/[^\s]+$/i.test(sdsLink)) {
+      await releaseAll();
+      return { ok: false, message: 'Ο σύνδεσμος του δελτίου δεδομένων ασφαλείας πρέπει να ξεκινά με https://' };
+    }
+    hazard = buildHazard({
+      none: bool(fd, 'hazardNone'), confirmed: bool(fd, 'hazardConfirmed'), signalWord: str(fd, 'hazardSignal'), pictograms: fd.getAll('hazardPictograms').map(String),
+      statements: String(fd.get('hazardStatements') ?? ''), precautions: String(fd.get('hazardPrecautions') ?? ''), sdsUrl: sdsUpload ?? sdsLink,
+    });
+    const [previous] = id ? await db.select({ hazard: products.hazard }).from(products).where(eq(products.id, id)) : [];
+    previousSdsUrl = previous?.hazard?.sdsUrl ?? null;
 
-  const productId = await db.transaction(async (tx) => {
-    let pid = id;
-    if (pid) await tx.update(products).set({ ...values, hazard }).where(eq(products.id, pid));
-    else pid = (await tx.insert(products).values({ ...values, hazard }).returning({ id: products.id }))[0].id;
-
-    const keep = priced.flatMap((v) => (v.id ? [v.id] : []));
-    // a size may only point at one of this product's own photos
-    const ownImages = new Set([...(await tx.select({ url: productImages.url }).from(productImages).where(eq(productImages.productId, pid))).map((i) => i.url), ...uploads]);
-    // one new photo and one size still on the main photo (of several): the photo is that size's
-    const onMain = priced.flatMap((v, i) => (v.imageUrl && ownImages.has(v.imageUrl) ? [] : [i]));
-    const lone = priced.length >= 2 && uploads.length === 1 && onMain.length === 1 ? onMain[0] : null;
-    const before = new Map((await tx.select({ id: variants.id, priceCents: variants.priceCents }).from(variants).where(eq(variants.productId, pid))).map((v) => [v.id, v.priceCents]));
-    await tx.delete(variants).where(keep.length ? and(eq(variants.productId, pid), notInArray(variants.id, keep)) : eq(variants.productId, pid));
-
-    for (const [sort, v] of priced.entries()) {
-      const row = {
-        productId: pid, label: v.label, volumeMl: /\d\s*g$/i.test(v.label) ? null : parseVolumeMl(v.label), priceCents: v.priceCents!, compareAtCents: v.compareAtCents,
-        stock: v.stock, trackStock: v.trackStock, availability: v.availability ?? 'in_stock', weightGrams: v.weightGrams, barcode: v.barcode ? normalizeGtin(v.barcode) : null, mpn: v.mpn || null, imageUrl: sort === lone ? uploads[0] : v.imageUrl && ownImages.has(v.imageUrl) ? v.imageUrl : null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
-        sku: skus[sort],
-      };
-      if (v.id) await tx.update(variants).set(row).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));
-      else await tx.insert(variants).values(row);
-      const was = v.id ? before.get(v.id) : undefined;
-      if (v.id && was !== undefined && was !== row.priceCents) await tx.insert(priceChanges).values({ variantId: v.id, oldCents: was, newCents: row.priceCents, source: 'product' });
+    // Photos were normalised to 1000×1000 WebP by the upload endpoint; here only the single-use tokens are claimed.
+    const photoTokens = fd.getAll('images').filter((v): v is string => typeof v === 'string' && v.length > 0);
+    if (photoTokens.length > MAX_PHOTOS) {
+      await releaseAll();
+      return { ok: false, message: `Έως ${MAX_PHOTOS} φωτογραφίες τη φορά.` };
+    }
+    const productsDir = path.resolve(process.env.DATA_DIR || './data', 'uploads', 'products');
+    for (const token of photoTokens) {
+      const claimed = await claimUpload(token, 'photo', me.id);
+      if (!claimed) {
+        await releaseAll();
+        return { ok: false, message: 'Μία φωτογραφία έληξε ή δεν είναι διαθέσιμη. Ανεβάστε την ξανά.' };
+      }
+      const name = `${slug.slice(0, 60)}-${randomToken(5).toLowerCase()}.webp`;
+      try {
+        await moveClaimed(claimed.file, productsDir, name);
+      } catch (err) {
+        // This photo is still in staging (the rename failed), so release its token without a file.
+        await releaseUpload(claimed.token);
+        throw err;
+      }
+      uploads.push(`/media/products/${name}`);
+      photoClaims.push({ token: claimed.token, url: `/media/products/${name}` });
     }
 
-    if (uploads.length) {
-      const existing = await tx.select({ id: productImages.id }).from(productImages).where(eq(productImages.productId, pid));
-      await tx.insert(productImages).values(uploads.map((url, i) => ({ productId: pid!, url, alt: name, sort: existing.length + i })));
-    }
-    return pid;
-  }).catch(async (err: unknown) => {
-    await discardUploads();
-    if (isUniqueViolation(err, 'sku')) return null;
+    // a size without a code gets one from the product and its label; two sizes must never end up with the same one
+    const taken = new Set(priced.map((v) => v.sku.toUpperCase()).filter(Boolean));
+    const skus = priced.map((v) => {
+      if (v.sku) return v.sku;
+      const base = `${slug}-${slugify(v.label)}`.toUpperCase().slice(0, 60);
+      let sku = base;
+      for (let n = 2; taken.has(sku); n++) sku = `${base.slice(0, 56)}-${n}`;
+      taken.add(sku);
+      return sku;
+    });
+
+    productId = await db.transaction(async (tx) => {
+      let pid = id;
+      if (pid) await tx.update(products).set({ ...values, hazard }).where(eq(products.id, pid));
+      else pid = (await tx.insert(products).values({ ...values, hazard }).returning({ id: products.id }))[0].id;
+
+      const keep = priced.flatMap((v) => (v.id ? [v.id] : []));
+      // a size may only point at one of this product's own photos
+      const ownImages = new Set([...(await tx.select({ url: productImages.url }).from(productImages).where(eq(productImages.productId, pid))).map((i) => i.url), ...uploads]);
+      // one new photo and one size still on the main photo (of several): the photo is that size's
+      const onMain = priced.flatMap((v, i) => (v.imageUrl && ownImages.has(v.imageUrl) ? [] : [i]));
+      const lone = priced.length >= 2 && uploads.length === 1 && onMain.length === 1 ? onMain[0] : null;
+      const before = new Map((await tx.select({ id: variants.id, priceCents: variants.priceCents }).from(variants).where(eq(variants.productId, pid))).map((v) => [v.id, v.priceCents]));
+      await tx.delete(variants).where(keep.length ? and(eq(variants.productId, pid), notInArray(variants.id, keep)) : eq(variants.productId, pid));
+
+      for (const [sort, v] of priced.entries()) {
+        const row = {
+          productId: pid, label: v.label, volumeMl: /\d\s*g$/i.test(v.label) ? null : parseVolumeMl(v.label), priceCents: v.priceCents!, compareAtCents: v.compareAtCents,
+          stock: v.stock, trackStock: v.trackStock, availability: v.availability ?? 'in_stock', weightGrams: v.weightGrams, barcode: v.barcode ? normalizeGtin(v.barcode) : null, mpn: v.mpn || null, imageUrl: sort === lone ? uploads[0] : v.imageUrl && ownImages.has(v.imageUrl) ? v.imageUrl : null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
+          sku: skus[sort],
+        };
+        if (v.id) await tx.update(variants).set(row).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));
+        else await tx.insert(variants).values(row);
+        const was = v.id ? before.get(v.id) : undefined;
+        if (v.id && was !== undefined && was !== row.priceCents) await tx.insert(priceChanges).values({ variantId: v.id, oldCents: was, newCents: row.priceCents, source: 'product' });
+      }
+
+      if (uploads.length) {
+        const existing = await tx.select({ id: productImages.id }).from(productImages).where(eq(productImages.productId, pid));
+        await tx.insert(productImages).values(uploads.map((url, i) => ({ productId: pid!, url, alt: name, sort: existing.length + i })));
+      }
+      return pid;
+    });
+  } catch (err) {
+    await releaseAll();
+    if (isUniqueViolation(err, 'sku')) return { ok: false, message: 'Κάποιος κωδικός (SKU) χρησιμοποιείται ήδη — σε άλλο προϊόν ή δύο φορές εδώ.' };
     throw err;
-  });
+  }
 
-  if (productId === null) return { ok: false, message: 'Κάποιος κωδικός (SKU) χρησιμοποιείται ήδη — σε άλλο προϊόν ή δύο φορές εδώ.' };
   // the data sheet that was replaced or removed is no longer linked from anywhere
-  if (previous?.hazard?.sdsUrl && previous.hazard.sdsUrl !== hazard?.sdsUrl) await removeUpload(previous.hazard.sdsUrl);
+  if (previousSdsUrl && previousSdsUrl !== hazard?.sdsUrl) await removeUpload(previousSdsUrl);
   revalidatePath('/admin/products');
   revalidatePath(`/admin/products/${productId}`);
   // Reload after every save: the form's upload tokens have just been claimed, and a reload clears them.
@@ -620,7 +641,9 @@ export async function importPricesCsv(_prev: AdminFormState, fd: FormData): Prom
   }
   await finishUpload(token);
   revalidatePath('/admin/prices');
-  return { ok: plan.unknown.length + plan.skipped.length === 0, message: describePriceImport(plan) };
+  // Completed even when some rows were skipped: returning ok:false here would keep the form-looking
+  // failure and leave an already-consumed token in the UI. The message reports what changed.
+  return { ok: true, message: describePriceImport(plan) };
 }
 
 // ─── Brands, categories, coupons, messages ───────────────────────────────────
@@ -967,5 +990,6 @@ export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promi
   revalidatePath('/admin/skroutz');
   await finishUpload(token);
   const list = (label: string, skus: string[]) => (skus.length ? ` ${label}: ${skus.slice(0, 6).join(', ')}${skus.length > 6 ? '…' : ''}.` : '');
-  return { ok: unknown.length + rejected.length === 0, message: `${updated === 1 ? 'Ενημερώθηκε 1 συσκευασία' : `Ενημερώθηκαν ${updated} συσκευασίες`}.${list('Μη έγκυρο ή διπλό barcode', rejected)}${list('Άγνωστοι κωδικοί', unknown)}` };
+  // Completed even with unknown/rejected codes; the message names them.
+  return { ok: true, message: `${updated === 1 ? 'Ενημερώθηκε 1 συσκευασία' : `Ενημερώθηκαν ${updated} συσκευασίες`}.${list('Μη έγκυρο ή διπλό barcode', rejected)}${list('Άγνωστοι κωδικοί', unknown)}` };
 }

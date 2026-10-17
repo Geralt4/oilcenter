@@ -230,6 +230,29 @@ async function main() {
   check('a streamed body within the upload cap is read', (await readBodyLimited(smallStream.body, 10))?.toString() === '12345');
   const largeStream = new Request('http://localhost/x', { method: 'POST', body: 'x'.repeat(100) });
   check('a streamed body over the upload cap is refused', (await readBodyLimited(largeStream.body, 10)) === null);
+  const stalled = new ReadableStream<Uint8Array>({ start() { /* never enqueues */ } });
+  const startedAt = Date.now();
+  const stalledResult = await readBodyLimited(stalled, 1024, 30);
+  check('a stalled upload deadline interrupts the pending read', stalledResult === null && Date.now() - startedAt < 1000, Date.now() - startedAt);
+
+  console.log('Upload submit coordination');
+  const { beginUpload, endUpload, pendingUploads: pendingUploadCount } = await import('../src/components/admin/upload-pending');
+  const button = { disabled: false };
+  const listeners: Array<(event: { preventDefault: () => void; stopImmediatePropagation: () => void }) => void> = [];
+  const fakeForm = {
+    querySelector: () => button,
+    addEventListener: (_name: string, fn: (typeof listeners)[number]) => listeners.push(fn),
+  } as unknown as HTMLFormElement;
+  beginUpload(fakeForm);
+  beginUpload(fakeForm);
+  check('save stays disabled while any upload runs', button.disabled && pendingUploadCount(fakeForm) === 2);
+  let prevented = false;
+  for (const listener of listeners) listener({ preventDefault: () => (prevented = true), stopImmediatePropagation: () => undefined });
+  check('submitting while uploads run is blocked', prevented);
+  endUpload(fakeForm);
+  check('one finished upload does not re-enable save', button.disabled && pendingUploadCount(fakeForm) === 1);
+  endUpload(fakeForm);
+  check('save is enabled only after the last upload finishes', !button.disabled && pendingUploadCount(fakeForm) === 0);
 }
 
 main()
