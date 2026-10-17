@@ -21,7 +21,7 @@ import { clientIp, loginBudgets, rateLimit } from '@/lib/rate-limit';
 import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours, type ShopSettings } from '@/lib/settings';
 import { buildSearchText } from '@/lib/search-keywords';
 import { getSettings, saveSettingsGroup } from '@/lib/settings.server';
-import { claimUpload, discardStaged, moveClaimed, readStagedText } from '@/lib/uploads';
+import { claimUpload, finishUpload, moveClaimed, readStagedText, releaseUpload } from '@/lib/uploads';
 import { parsePriceToCents, parseVolumeMl, slugify } from '@/lib/utils';
 
 /* Every action below starts with requireAdmin(): page-level protection alone would not cover direct action calls. */
@@ -62,6 +62,9 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
   if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
   const perAccount = await rateLimit(`admin-login:${await clientIp()}:${email}`, 6, 15 * 60 * 1000);
   if (!perAccount.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(perAccount.retryAfterSec / 60)} λεπτά.` };
+  // Independent of the source IP: an attacker rotating addresses cannot exceed this per account.
+  const perEmail = await rateLimit(`admin-login:account:${email}`, 10, 15 * 60 * 1000);
+  if (!perEmail.ok) return { ok: false, message: `Πολλές προσπάθειες για αυτόν τον λογαριασμό. Δοκιμάστε ξανά σε ${Math.ceil(perEmail.retryAfterSec / 60)} λεπτά.` };
 
   const [admin] = await db.select().from(adminUsers).where(eq(adminUsers.email, email));
   const valid = await verifyPassword(password, admin?.passwordHash ?? 'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAA');
@@ -159,10 +162,10 @@ export async function confirmAdminIdentity(_prev: AdminFormState, fd: FormData):
   if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
   const [row] = await db.select().from(adminUsers).where(eq(adminUsers.id, me.id));
   if (!row || !(await verifyPassword(String(fd.get('currentPassword') ?? ''), row.passwordHash))) return { ok: false, message: 'Λάθος κωδικός.' };
-  if (row.totpConfirmedAt) {
-    if (!row.totpSecret) return { ok: false, message: 'Η επαλήθευση δύο βημάτων είναι ελλιπώς ρυθμισμένη. Χρειάζεται αποκατάσταση από τον διακομιστή.' };
-    if (!(await consumeTotp(me.id, row.totpSecret, me.email, str(fd, 'totp')))) return { ok: false, message: 'Λάθος ή ήδη χρησιμοποιημένος κωδικός επαλήθευσης. Περιμένετε τον επόμενο κωδικό.' };
-  }
+  // Privileged actions (administrator changes, full database download) require BOTH factors. An account
+  // that has not enrolled an authenticator cannot obtain the five-minute confirmation.
+  if (!row.totpConfirmedAt || !row.totpSecret) return { ok: false, message: 'Ενεργοποιήστε πρώτα την επαλήθευση δύο βημάτων (2FA) από την παραπάνω ενότητα, μετά ξαναδοκιμάστε.' };
+  if (!(await consumeTotp(me.id, row.totpSecret, me.email, str(fd, 'totp')))) return { ok: false, message: 'Λάθος ή ήδη χρησιμοποιημένος κωδικός επαλήθευσης. Περιμένετε τον επόμενο κωδικό.' };
   if (!(await createSudoSession())) return { ok: false, message: 'Η συνεδρία δεν υποστηρίζει επιβεβαίωση. Αποσυνδεθείτε και συνδεθείτε ξανά.' };
   revalidatePath('/admin/settings');
   return { ok: true, message: 'Η ταυτότητα επιβεβαιώθηκε για 5 λεπτά (μόνο σε αυτή τη συνεδρία).' };
@@ -326,12 +329,14 @@ function isUniqueViolation(err: unknown, column: string): boolean {
 }
 
 /** A safety data sheet link is produced from a claimed upload; no File objects pass through actions any more. */
-async function moveSds(file: string, slug: string): Promise<string> {
+async function moveSds(file: string, slug: string): Promise<{ url: string; file: string }> {
   const dir = path.resolve(process.env.DATA_DIR || './data', 'uploads', 'sds');
   const name = `${slug.slice(0, 60)}-sds-${randomToken(5).toLowerCase()}.pdf`;
-  await moveClaimed(file, dir, name);
-  return `/media/sds/${name}`;
+  const final = await moveClaimed(file, dir, name);
+  return { url: `/media/sds/${name}`, file: final };
 }
+
+const uploadPath = (url: string) => path.resolve(process.env.DATA_DIR || './data', 'uploads', url.slice('/media/'.length));
 
 export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   const me = await requireAdmin();
@@ -381,14 +386,17 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   // Hazard labelling & safety data sheet (lib/ghs.ts). A newly uploaded PDF replaces whatever link was there.
   const sdsToken = typeof fd.get('sds') === 'string' ? String(fd.get('sds')).trim() : '';
   let sdsUpload: string | null = null;
+  let sdsClaim: { token: string; file: string } | null = null;
   if (sdsToken) {
     const claimed = await claimUpload(sdsToken, 'sds', me.id);
     if (!claimed) return { ok: false, message: 'Το δελτίο δεδομένων ασφαλείας έληξε ή δεν είναι διαθέσιμο. Ανεβάστε το ξανά.' };
-    sdsUpload = await moveSds(claimed.file, slug);
+    const moved = await moveSds(claimed.file, slug);
+    sdsUpload = moved.url;
+    sdsClaim = { token: claimed.token, file: moved.file };
   }
   const sdsLink = str(fd, 'sdsUrl');
   if (sdsLink && !sdsLink.startsWith('/media/sds/') && !/^https:\/\/[^\s]+$/i.test(sdsLink)) {
-    if (sdsUpload) await removeUpload(sdsUpload);
+    if (sdsClaim) await releaseUpload(sdsClaim.token, sdsClaim.file);
     return { ok: false, message: 'Ο σύνδεσμος του δελτίου δεδομένων ασφαλείας πρέπει να ξεκινά με https://' };
   }
   const hazard = buildHazard({
@@ -400,26 +408,28 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   // Photos were normalised to 1000×1000 WebP by the upload endpoint; here only the single-use tokens are claimed.
   const photoTokens = fd.getAll('images').filter((v): v is string => typeof v === 'string' && v.length > 0);
   if (photoTokens.length > MAX_PHOTOS) {
-    if (sdsUpload) await removeUpload(sdsUpload);
+    if (sdsClaim) await releaseUpload(sdsClaim.token, sdsClaim.file);
     return { ok: false, message: `Έως ${MAX_PHOTOS} φωτογραφίες τη φορά.` };
   }
   const uploads: string[] = [];
+  const photoClaims: Array<{ token: string; url: string }> = [];
   const productsDir = path.resolve(process.env.DATA_DIR || './data', 'uploads', 'products');
   for (const token of photoTokens) {
     const claimed = await claimUpload(token, 'photo', me.id);
     if (!claimed) {
-      for (const url of uploads) await removeUpload(url);
-      if (sdsUpload) await removeUpload(sdsUpload);
+      for (const claim of photoClaims) await releaseUpload(claim.token, uploadPath(claim.url));
+      if (sdsClaim) await releaseUpload(sdsClaim.token, sdsClaim.file);
       return { ok: false, message: 'Μία φωτογραφία έληξε ή δεν είναι διαθέσιμη. Ανεβάστε την ξανά.' };
     }
     const name = `${slug.slice(0, 60)}-${randomToken(5).toLowerCase()}.webp`;
     await moveClaimed(claimed.file, productsDir, name);
     uploads.push(`/media/products/${name}`);
+    photoClaims.push({ token: claimed.token, url: `/media/products/${name}` });
   }
-  // files written for a save that then fails must not stay behind
+  // A save that then fails must leave the uploads claimable again, so the form can be retried.
   const discardUploads = async () => {
-    for (const url of uploads) await removeUpload(url);
-    if (sdsUpload) await removeUpload(sdsUpload);
+    for (const claim of photoClaims) await releaseUpload(claim.token, uploadPath(claim.url));
+    if (sdsClaim) await releaseUpload(sdsClaim.token, sdsClaim.file);
   };
 
   // a size without a code gets one from the product and its label; two sizes must never end up with the same one
@@ -584,20 +594,31 @@ export async function importPricesCsv(_prev: AdminFormState, fd: FormData): Prom
   const claimed = await claimUpload(token, 'price-csv', me.id);
   if (!claimed) return { ok: false, message: 'Το αρχείο έληξε ή δεν είναι διαθέσιμο. Ανεβάστε το ξανά.' };
   const text = await readStagedText(claimed.file).catch(() => null);
-  await discardStaged(claimed.file);
-  if (text === null) return { ok: false, message: 'Το αρχείο δεν διαβάζεται. Ανεβάστε το ξανά.' };
+  if (text === null) {
+    await releaseUpload(token);
+    return { ok: false, message: 'Το αρχείο δεν διαβάζεται. Ανεβάστε το ξανά.' };
+  }
 
   const rows = await db.select({ id: variants.id, sku: variants.sku, priceCents: variants.priceCents, priceVerified: variants.priceVerified, stock: variants.stock, trackStock: variants.trackStock, availability: variants.availability }).from(variants);
   const plan = planPriceImport(text, new Map(rows.map(({ sku, ...v }) => [sku, v])));
-  if (plan.error !== undefined) return { ok: false, message: plan.error };
+  if (plan.error !== undefined) {
+    await releaseUpload(token);
+    return { ok: false, message: plan.error };
+  }
 
   // all or nothing: half a price list is worse than none
-  await db.transaction(async (tx) => {
-    for (const change of plan.changes) {
-      await tx.update(variants).set(change.patch).where(eq(variants.id, change.id));
-      if (change.patch.priceCents !== undefined) await tx.insert(priceChanges).values({ variantId: change.id, oldCents: change.oldCents, newCents: change.newCents, source: 'csv' });
-    }
-  });
+  try {
+    await db.transaction(async (tx) => {
+      for (const change of plan.changes) {
+        await tx.update(variants).set(change.patch).where(eq(variants.id, change.id));
+        if (change.patch.priceCents !== undefined) await tx.insert(priceChanges).values({ variantId: change.id, oldCents: change.oldCents, newCents: change.newCents, source: 'csv' });
+      }
+    });
+  } catch (err) {
+    await releaseUpload(token);
+    throw err;
+  }
+  await finishUpload(token);
   revalidatePath('/admin/prices');
   return { ok: plan.unknown.length + plan.skipped.length === 0, message: describePriceImport(plan) };
 }
@@ -899,11 +920,16 @@ export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promi
   const claimed = await claimUpload(token, 'code-csv', me.id);
   if (!claimed) return { ok: false, message: 'Το αρχείο έληξε ή δεν είναι διαθέσιμο. Ανεβάστε το ξανά.' };
   const text = await readStagedText(claimed.file).catch(() => null);
-  await discardStaged(claimed.file);
-  if (text === null) return { ok: false, message: 'Το αρχείο δεν διαβάζεται. Ανεβάστε το ξανά.' };
+  if (text === null) {
+    await releaseUpload(token);
+    return { ok: false, message: 'Το αρχείο δεν διαβάζεται. Ανεβάστε το ξανά.' };
+  }
   const { header, rows: lines } = parseCsv(text);
   const col = { sku: header.indexOf('sku'), ean: header.findIndex((h) => h === 'ean' || h.startsWith('barcode') || h === 'gtin'), mpn: header.findIndex((h) => h === 'mpn' || h.startsWith('κωδ')) };
-  if (col.sku < 0 || (col.ean < 0 && col.mpn < 0)) return { ok: false, message: 'Η πρώτη γραμμή πρέπει να έχει στήλη «sku» και τουλάχιστον μία από τις «ean», «mpn».' };
+  if (col.sku < 0 || (col.ean < 0 && col.mpn < 0)) {
+    await releaseUpload(token);
+    return { ok: false, message: 'Η πρώτη γραμμή πρέπει να έχει στήλη «sku» και τουλάχιστον μία από τις «ean», «mpn».' };
+  }
 
   const rows = await db.select({ id: variants.id, sku: variants.sku, barcode: variants.barcode }).from(variants);
   const bySku = new Map(rows.map((v) => [v.sku, v]));
@@ -911,6 +937,7 @@ export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promi
   let updated = 0;
   const unknown: string[] = [];
   const rejected: string[] = [];
+  try {
   for (const { cells } of lines) {
     const sku = (cells[col.sku] ?? '').toUpperCase();
     if (!sku) continue;
@@ -932,7 +959,13 @@ export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promi
     if (patch.barcode) owner.set(patch.barcode, current.id);
     updated++;
   }
+  } catch (err) {
+    await releaseUpload(token);
+    throw err;
+  }
+
   revalidatePath('/admin/skroutz');
+  await finishUpload(token);
   const list = (label: string, skus: string[]) => (skus.length ? ` ${label}: ${skus.slice(0, 6).join(', ')}${skus.length > 6 ? '…' : ''}.` : '');
   return { ok: unknown.length + rejected.length === 0, message: `${updated === 1 ? 'Ενημερώθηκε 1 συσκευασία' : `Ενημερώθηκαν ${updated} συσκευασίες`}.${list('Μη έγκυρο ή διπλό barcode', rejected)}${list('Άγνωστοι κωδικοί', unknown)}` };
 }

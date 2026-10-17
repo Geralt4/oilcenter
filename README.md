@@ -95,9 +95,10 @@ What the deployment-level protections do and where they live — read together w
 - **Startup checks:** a production boot fails loudly (`src/instrumentation.ts` → `src/lib/startup-check.ts`) when
   `AUTH_SECRET` is missing/short, `SITE_URL` is absent or not https, or `COMMERCE_ENABLED` holds a nonsense value.
   A restart loop with a clear log message beats a silently misconfigured site. Deliberately skipped during `next build`.
-- **Login throttling:** both logins spend from two pools — per-IP+e-mail and an IP-wide budget — so password spraying
-  across many addresses from one machine hits the wall. Counters live in SQLite (`rate_limits`, keyed by SHA-256, never
-  raw addresses), so a restart or redeploy does not reset them.
+- **Login throttling:** both logins spend from three pools — per-IP+e-mail, an IP-wide budget, and a per-account budget
+  that ignores the source address — so neither spraying nor repeated guessing from rotating IPs gets unlimited tries.
+  Counters live in SQLite (`rate_limits`, keys hashed with SHA-256, never raw addresses, indexed cleanup), so a restart
+  or redeploy does not reset them.
 - **Admin two-step verification (TOTP):** Admin → Ρυθμίσεις → «Επαλήθευση δύο βημάτων» enrolls an authenticator app
   (QR code). Once confirmed, every admin login also requires the 6-digit code; each code is **single-use** (its time step
   is burned in the database, so replay inside the 30 s window fails), and a separate rate limit guards guessing. Turning
@@ -106,9 +107,10 @@ What the deployment-level protections do and where they live — read together w
   the «Επαναφορά 2FA» button under «Διαχειριστές». No recovery-code list by design.
 - **Re-authentication for sensitive admin changes:** adding/removing administrators, resetting a colleague's 2FA and
   **downloading the full database** require the acting administrator's password **and** current authenticator code inside
-  a five-minute "sudo" window. The proof (`oc_admin_sudo`) is an HttpOnly JWT bound to the account, the current session id
-  and `tokenVersion`, so a stolen session cookie, an old tab or a new login cannot reuse it; expiry is enforced, not
-  extended. Removing the last administrator is impossible, enforced inside the DELETE itself.
+  a five-minute "sudo" window. Both factors are mandatory — an account without confirmed 2FA cannot obtain the proof.
+  The proof (`oc_admin_sudo`) is bound to the account, the current session id and `tokenVersion`, so a stolen session
+  cookie, an old tab or a new login cannot reuse it; expiry is enforced, not extended. Removing the last administrator is
+  impossible, enforced inside the DELETE itself.
 - **Two administrators, two phones:** the shop and the maintainer each get their own account (Admin → Ρυθμίσεις →
   «Διαχειριστές» → «Προσθήκη διαχειριστή»), each with its own password and its own authenticator app. Never share one
   account between two people: two accounts mean individual revocation, an honest audit trail (order events name the actor)
@@ -116,11 +118,12 @@ What the deployment-level protections do and where they live — read together w
   colleague's 2FA; the last administrator cannot be deleted. To set it up: sign in as the owner → Ρυθμίσεις → Διαχειριστές
   → add the maintainer's e-mail with a temporary password → the maintainer signs in, changes it (same page) and enables 2FA
   with their own phone.
-- **Public request sizes:** large admin files go to `POST /api/admin/upload`, which authenticates first, enforces a
-  streamed cap per kind (photo 20 MB, SDS 10 MB, CSV 2 MB), validates/re-encodes the bytes and returns a single-use
-  token. The save/import action claims that token atomically; bytes never travel through a server action. With uploads
-  out of the way the global server-action ceiling is **256 KB** and the proxy buffers at most 1 MB (the upload route is
-  outside the proxy matcher and authenticates itself). Public FormData checks remain as post-parse defence in depth;
+- **Public request sizes:** large admin files go to `POST /api/admin/upload`, which enforces the pre-launch curtain,
+  same-origin/CSRF checks, authentication and a per-admin limit before reading anything; the body is streamed with a hard
+  per-kind cap (photo 20 MB, SDS 10 MB, CSV 2 MB), a 60-second deadline and at most two concurrent parses, then
+  validated/re-encoded and staged behind a single-use token. The save/import action claims that token atomically; a failed
+  save **releases it again** so the form can be retried. With uploads out of the way the global server-action ceiling is
+  **256 KB** and the proxy buffers at most 1 MB. Public FormData checks remain as post-parse defence in depth;
   `/api/cart` still stops at 32 KB while streaming. Abandoned staging files are swept hourly.
 - **API throttling:** `/api/cart`, `/api/products` and `/api/search` are rate-limited per IP (the search endpoint scans
   the whole in-memory catalogue per request, so it was the expensive one to leave open).

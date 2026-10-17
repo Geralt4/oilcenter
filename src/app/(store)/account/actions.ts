@@ -75,6 +75,9 @@ export async function loginCustomer(_prev: FormState, formData: FormData): Promi
   if (!perAccount.ok) return { ok: false, message: `Πολλές αποτυχημένες προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(perAccount.retryAfterSec / 60)} λεπτά.` };
   const limited = await loginBudgets('login', 20, 15 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: `Πολλές αποτυχημένες προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
+  // Independent of source IP: rotating addresses cannot exceed this per account.
+  const perEmail = await rateLimit(`login:account:${parsed.data.email}`, 12, 15 * 60 * 1000);
+  if (!perEmail.ok) return { ok: false, message: `Πολλές αποτυχημένες προσπάθειες για αυτόν τον λογαριασμό. Δοκιμάστε ξανά σε ${Math.ceil(perEmail.retryAfterSec / 60)} λεπτά.` };
 
   const [customer] = await db.select().from(customers).where(eq(customers.email, parsed.data.email));
   // Hash even when the account does not exist, so response time does not reveal which e-mails are registered.

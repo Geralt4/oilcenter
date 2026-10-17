@@ -24,21 +24,45 @@ export const UPLOAD_LIMITS: Record<UploadKind, number> = {
   'code-csv': 2 * 1024 * 1024,
 };
 
-const MAX_TOKENS = 12;
+const KINDS = Object.keys(UPLOAD_LIMITS) as UploadKind[];
 const TTL_MS = 6 * 60 * 60 * 1000;
 
-export const isUploadKind = (value: string): value is UploadKind => value in UPLOAD_LIMITS;
+/** Own-property allowlist — `in` would also accept inherited names such as "toString". */
+export const isUploadKind = (value: string): value is UploadKind => (KINDS as string[]).includes(value);
+
+export const uploadLimit = (kind: UploadKind): number => {
+  const value = Object.hasOwn(UPLOAD_LIMITS, kind) ? UPLOAD_LIMITS[kind] : 0;
+  return Number.isFinite(value) && value > 0 ? value : 0;
+};
+
+/** Same-origin/CSRF guard for the upload endpoint (which is intentionally outside the proxy). */
+export function isSameOrigin(request: Request): boolean {
+  const site = request.headers.get('sec-fetch-site');
+  if (site && site !== 'same-origin' && site !== 'none') return false;
+  const origin = request.headers.get('origin');
+  if (!origin) return true; // non-browser client; authentication is still required
+  try {
+    return new URL(origin).host === request.headers.get('host');
+  } catch {
+    return false;
+  }
+}
 
 export const stagingDir = () => path.resolve(process.env.DATA_DIR || './data', 'uploads', '.staging');
 
-/** Stream a request body with a hard byte cap; null when the cap is crossed or the body is unreadable. */
-export async function readBodyLimited(body: ReadableStream<Uint8Array> | null, maxBytes: number): Promise<Buffer | null> {
+/** Stream a request body with a hard byte cap and a deadline; null when either is crossed. */
+export async function readBodyLimited(body: ReadableStream<Uint8Array> | null, maxBytes: number, deadlineMs = 60_000): Promise<Buffer | null> {
   if (!body) return null;
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+  const started = Date.now();
   try {
     for (;;) {
+      if (Date.now() - started > deadlineMs) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
@@ -75,7 +99,7 @@ export async function stageUpload(adminId: number, kind: UploadKind, originalNam
  * already claimed, of another kind, or belongs to another administrator. The UPDATE ... WHERE is the
  * whole check: two concurrent saves cannot both claim the same upload.
  */
-export async function claimUpload(token: string, kind: UploadKind, adminId: number): Promise<{ file: string; originalName: string } | null> {
+export async function claimUpload(token: string, kind: UploadKind, adminId: number): Promise<{ token: string; file: string; originalName: string } | null> {
   if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return null;
   const [row] = await db
     .update(pendingUploads)
@@ -83,7 +107,23 @@ export async function claimUpload(token: string, kind: UploadKind, adminId: numb
     .where(and(eq(pendingUploads.token, token), eq(pendingUploads.kind, kind), eq(pendingUploads.adminId, adminId), isNull(pendingUploads.claimedAt), gt(pendingUploads.expiresAt, new Date())))
     .returning({ token: pendingUploads.token, originalName: pendingUploads.originalName });
   if (!row) return null;
-  return { file: path.join(stagingDir(), row.token), originalName: row.originalName ?? 'file' };
+  return { token: row.token, file: path.join(stagingDir(), row.token), originalName: row.originalName ?? 'file' };
+}
+
+/**
+ * Hand a claimed upload back so a failed save can be retried. `file` is moved back to staging when
+ * it had already been moved into its final place (photos/SDS). The token becomes claimable again
+ * until its original expiry.
+ */
+export async function releaseUpload(token: string, file?: string): Promise<void> {
+  if (file) await rename(file, path.join(stagingDir(), token)).catch(() => undefined);
+  await db.update(pendingUploads).set({ claimedAt: null }).where(eq(pendingUploads.token, token)).catch(() => undefined);
+}
+
+/** CSV imports read the staged bytes in place; on success the row and file are removed for good. */
+export async function finishUpload(token: string): Promise<void> {
+  await rm(path.join(stagingDir(), token), { force: true }).catch(() => undefined);
+  await db.delete(pendingUploads).where(eq(pendingUploads.token, token)).catch(() => undefined);
 }
 
 /** Move a claimed staged file to its final destination (same filesystem: rename, no copy). */
@@ -115,5 +155,3 @@ export async function sweepStaging(): Promise<void> {
 export async function readStagedText(file: string): Promise<string> {
   return readFile(file, 'utf8');
 }
-
-export const MAX_UPLOAD_TOKENS = MAX_TOKENS;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 type Props = {
   /** hidden-field name the server action reads (one value per uploaded file) */
@@ -26,6 +26,21 @@ export function UploadField({ name, kind, accept, multiple, maxFiles, maxTotalMb
   const [problem, setProblem] = useState('');
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // AdminForm calls form.reset() after a successful import; React state is not part of that reset,
+  // so clear the pending tokens here. Without this the next import would submit an already-consumed
+  // token first (and single-file fields would keep an old file).
+  useEffect(() => {
+    const form = inputRef.current?.closest('form');
+    if (!form) return;
+    const onReset = () => {
+      setTokens([]);
+      setProblem('');
+      inputRef.current?.setCustomValidity('');
+    };
+    form.addEventListener('reset', onReset);
+    return () => form.removeEventListener('reset', onReset);
+  }, []);
 
   async function upload(event: React.ChangeEvent<HTMLInputElement>) {
     const input = event.currentTarget;
@@ -56,14 +71,16 @@ export function UploadField({ name, kind, accept, multiple, maxFiles, maxTotalMb
       for (const file of files) {
         const res = await fetch(`/api/admin/upload?kind=${encodeURIComponent(kind)}`, {
           method: 'POST',
-          headers: { 'x-filename': file.name },
+          // The filename is UTF-8 metadata: encode it so Greek names survive HTTP header rules.
+          headers: { 'x-filename': encodeURIComponent(file.name.slice(0, 160)) },
           body: file,
         });
         const body = (await res.json().catch(() => null)) as { token?: string; error?: string } | null;
         if (!res.ok || !body?.token) throw new Error(body?.error ?? `upload_${res.status}`);
         added.push(body.token);
       }
-      setTokens((current) => [...current, ...added]);
+      // A single-file field replaces the previous selection; a multi-file field adds to it.
+      setTokens((current) => (multiple ? [...current, ...added] : added));
       input.value = '';
     } catch {
       input.setCustomValidity('Το ανέβασμα απέτυχε. Δοκιμάστε ξανά.');
