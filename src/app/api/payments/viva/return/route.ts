@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
 import { commerceEnabled } from '@/lib/commerce-flag';
-import { db } from '@/lib/db';
-import { orders } from '@/lib/db/schema';
 import { siteUrl } from '@/lib/payments';
+import { findOrderByPayment } from '@/lib/payments/attempts';
 import { settleCardPayment } from '@/lib/payments/settle';
 import { vivaRetrieveTransaction } from '@/lib/payments/viva';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
@@ -29,13 +27,15 @@ export async function GET(request: Request) {
   if (!(await rateLimit(`viva-return:${await clientIp()}`, 20, 10 * 60 * 1000)).ok) return lookup;
   if (!transactionId || url.searchParams.has('failed')) return lookup;
 
-  const [order] = await db.select().from(orders).where(and(eq(orders.paymentProvider, 'viva'), eq(orders.paymentRef, orderCode)));
-  if (!order) return lookup;
-
   try {
     const tx = await vivaRetrieveTransaction(transactionId);
     if (tx.paid && tx.orderCode === orderCode) {
-      await settleCardPayment(order, { provider: 'viva', ref: transactionId, amountCents: tx.amountCents });
+      // the checkout may be an older attempt (the buyer retried): the attempt table, then merchantTrns, find the order
+      const order = await findOrderByPayment('viva', orderCode, tx.merchantTrns);
+      if (!order) return lookup;
+      const outcome = await settleCardPayment(order, { provider: 'viva', ref: transactionId, amountCents: tx.amountCents, currency: tx.currency, attemptRef: orderCode });
+      // a payment that does not add up (or lands on a cancelled order) is the owner's to sort out: no "success" page, no secret link
+      if (outcome !== 'paid' && outcome !== 'already_paid') return lookup;
       return NextResponse.redirect(`${siteUrl()}/order/${order.number}?t=${order.accessToken}&payment=success`);
     }
   } catch (err) {

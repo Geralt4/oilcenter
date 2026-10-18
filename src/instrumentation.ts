@@ -1,6 +1,7 @@
 /*
  * Runs once when the server process starts. The shop is a single long-lived Node process with its database on a local
- * disk, so housekeeping that would otherwise need a cron job lives here: the daily database snapshot.
+ * disk, so housekeeping that would otherwise need a cron job lives here: the daily database snapshot and the release of
+ * unpaid card orders.
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs' || process.env.NODE_ENV !== 'production') return;
@@ -45,4 +46,17 @@ export async function register() {
   // shortly after boot (migrations have already run), then every hour: the first check after midnight makes the new day's copy
   setTimeout(() => run(true), 30_000).unref();
   setInterval(() => run(false), 60 * 60 * 1000).unref();
+
+  // Unpaid card orders hold stock until they are released. Doing it here as well as on the admin dashboard means it no longer
+  // depends on someone opening the admin. With COMMERCE_ENABLED=false there are no card orders, so nothing runs.
+  const { commerceEnabled } = await import('@/lib/commerce-flag');
+  const { releaseAbandonedCardOrders } = await import('@/lib/orders');
+  const releaseCardOrders = () => {
+    if (!commerceEnabled()) return;
+    releaseAbandonedCardOrders()
+      .then((released) => released > 0 && console.log(`[orders] released ${released} unpaid card order(s)`))
+      .catch((err) => console.error('[orders] release of unpaid card orders failed', err instanceof Error ? err.message : err));
+  };
+  setTimeout(releaseCardOrders, 60_000).unref();
+  setInterval(releaseCardOrders, 60 * 60 * 1000).unref();
 }

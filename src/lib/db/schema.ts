@@ -296,6 +296,8 @@ export const orders = sqliteTable(
 
     paymentProvider: text('payment_provider'),
     paymentRef: text('payment_ref'),
+    /** the gateway's id of the transaction that was paid (Viva transactionId); the ref above is the latest attempt */
+    paymentTransactionId: text('payment_transaction_id'),
     paidAt: integer('paid_at', { mode: 'timestamp_ms' }),
 
     /** placed while the shop was in demo mode; excluded from revenue stats */
@@ -311,6 +313,29 @@ export const orders = sqliteTable(
     index('orders_status_idx').on(t.status),
     index('orders_customer_idx').on(t.customerId),
   ],
+);
+
+export type PaymentAttemptStatus = 'created' | 'paid' | 'failed' | 'mismatch';
+
+/**
+ * Every gateway checkout opened for an order. A buyer can retry, and an older checkout stays payable for a while:
+ * orders.paymentRef only remembers the latest, so a payment on an earlier attempt would find no order without this.
+ */
+export const paymentAttempts = sqliteTable(
+  'payment_attempts',
+  {
+    id: id(),
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    /** Viva order code / Stripe session id */
+    ref: text('ref').notNull(),
+    status: text('status').$type<PaymentAttemptStatus>().notNull().default('created'),
+    transactionId: text('transaction_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('payment_attempts_ref_uq').on(t.provider, t.ref), index('payment_attempts_order_idx').on(t.orderId)],
 );
 
 /** Line items are snapshots: they keep name/price even if the product later changes or is deleted. */
@@ -512,6 +537,7 @@ export type OrderItem = typeof orderItems.$inferSelect;
 export type OrderEvent = typeof orderEvents.$inferSelect;
 export type Coupon = typeof coupons.$inferSelect;
 export type Sale = typeof sales.$inferSelect;
+export type PaymentAttempt = typeof paymentAttempts.$inferSelect;
 export type Customer = typeof customers.$inferSelect;
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type ContactMessage = typeof contactMessages.$inferSelect;

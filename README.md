@@ -261,6 +261,12 @@ for webhook verification). In the Viva dashboard, on the payment source, set:
 - Success URL: `{SITE_URL}/api/payments/viva/return`
 - Failure URL: `{SITE_URL}/api/payments/viva/return?failed=1`
 - Webhook "Transaction Payment Created": `{SITE_URL}/api/payments/viva/webhook`
+- Same URL for the "Transaction Failed" event. Optional: `VIVA_WEBHOOK_IPS` (comma-separated) limits who may call it; copy
+  Viva's current address list from their webhooks page, or leave it unset.
+
+Every checkout opened for an order is kept in `payment_attempts`, so a payment on an older attempt still finds its order;
+payments that do not add up (wrong amount or currency, or arriving after the order was cancelled) are not marked as an
+ordinary sale and the shop e-mail is told. `VIVA.md` has the full assessment, gap list and test plan.
 
 **Stripe Checkout** — set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`; webhook endpoint
 `{SITE_URL}/api/payments/stripe/webhook`, event `checkout.session.completed`.

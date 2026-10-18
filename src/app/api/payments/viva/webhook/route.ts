@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
 import { commerceEnabled } from '@/lib/commerce-flag';
-import { db } from '@/lib/db';
-import { orders } from '@/lib/db/schema';
+import { addOrderEvent } from '@/lib/orders';
+import { findOrderByPayment, setAttemptStatus } from '@/lib/payments/attempts';
 import { settleCardPayment } from '@/lib/payments/settle';
-import { vivaRetrieveTransaction, vivaWebhookVerificationKey } from '@/lib/payments/viva';
+import { vivaRetrieveTransaction, vivaWebhookIpAllowed, vivaWebhookVerificationKey } from '@/lib/payments/viva';
+import { clientIp, rateLimit } from '@/lib/rate-limit';
+
+const EVENT_PAYMENT_CREATED = 1796;
+const EVENT_PAYMENT_FAILED = 1798;
 
 /** Viva verifies the endpoint once with a GET that must answer {"Key": "<verification key>"}. */
 export async function GET() {
@@ -18,9 +21,9 @@ export async function GET() {
 }
 
 /**
- * "Transaction Payment Created" (EventTypeId 1796). The payload is treated as a hint only:
- * the transaction is re-read from Viva's API before anything is marked as paid, which also
- * makes a forged webhook harmless.
+ * "Transaction Payment Created" (EventTypeId 1796) and "Transaction Failed" (1798). The payload is treated as a hint only:
+ * the transaction is re-read from Viva's API before anything is recorded, which also makes a forged webhook harmless.
+ * Viva retries any non-2xx answer once an hour for a day, so every outcome here is safe to repeat.
  */
 export async function POST(request: Request) {
   if (!commerceEnabled()) return NextResponse.json({ error: 'commerce_disabled' }, { status: 503 });
@@ -31,18 +34,38 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: 'bad_json' }, { status: 400 });
   }
-  if (payload.EventTypeId !== 1796) return NextResponse.json({ ok: true, ignored: true });
+  const ip = await clientIp();
+  if (!vivaWebhookIpAllowed(ip)) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const eventType = payload.EventTypeId;
+  if (eventType !== EVENT_PAYMENT_CREATED && eventType !== EVENT_PAYMENT_FAILED) return NextResponse.json({ ok: true, ignored: true });
 
   const transactionId = payload.EventData?.TransactionId ?? '';
   // OrderCode exceeds Number.MAX_SAFE_INTEGER: take it from the raw text, never from the parsed number.
   const orderCode = text.match(/"OrderCode"\s*:\s*"?(\d{10,20})"?/)?.[1] ?? '';
   if (!transactionId || !orderCode) return NextResponse.json({ error: 'missing_fields' }, { status: 400 });
 
+  // Every accepted event costs a call to Viva's API: a flood of well-formed ones must not turn into a flood of calls.
+  const limited = await rateLimit(`viva-webhook:${ip}`, 60, 60 * 1000);
+  if (!limited.ok) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': String(limited.retryAfterSec) } });
+
   try {
     const tx = await vivaRetrieveTransaction(transactionId);
-    if (tx.paid && tx.orderCode === orderCode) {
-      const [order] = await db.select().from(orders).where(and(eq(orders.paymentProvider, 'viva'), eq(orders.paymentRef, orderCode)));
-      if (order) await settleCardPayment(order, { provider: 'viva', ref: transactionId, amountCents: tx.amountCents });
+    if (tx.orderCode !== orderCode) return NextResponse.json({ ok: true });
+    const order = await findOrderByPayment('viva', orderCode, tx.merchantTrns);
+    if (!order) {
+      // Money for a checkout we cannot match to an order: nothing to attach an alert to, so the log line is the trace.
+      console.warn(`[viva] ${tx.paid ? 'PAID' : 'failed'} transaction ${transactionId} for order code ${orderCode} (merchantTrns ${tx.merchantTrns ?? '-'}) matches no order`);
+      return NextResponse.json({ ok: true });
+    }
+
+    if (eventType === EVENT_PAYMENT_CREATED) {
+      if (tx.paid) await settleCardPayment(order, { provider: 'viva', ref: transactionId, amountCents: tx.amountCents, currency: tx.currency, attemptRef: orderCode });
+    } else if (!tx.paid && order.paymentStatus !== 'paid') {
+      // One event per checkout: the status move is the guard against Viva repeating the notification. The order itself is
+      // left as it is: the buyer may retry, or still pay (a later 1796 settles it normally).
+      if (await setAttemptStatus('viva', orderCode, 'failed', transactionId, ['created'])) {
+        await addOrderEvent(order.id, 'payment', `Η πληρωμή με κάρτα απέτυχε (viva, αναφορά ${transactionId}).`);
+      }
     }
     return NextResponse.json({ ok: true });
   } catch (err) {

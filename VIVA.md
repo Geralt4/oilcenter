@@ -44,23 +44,26 @@ item 5). The owner, not the developer, has to open and verify the Viva merchant 
 | Smart Checkout adapter (token, order, redirect, transaction check) | `src/lib/payments/viva.ts` | written, never run against Viva |
 | Return page / webhook | `src/app/api/payments/viva/{return,webhook}/route.ts` | written; return is rate-limited, webhook is not |
 | Mark paid (idempotent, amount check) | `markOrderPaid` in `src/lib/orders.ts` | tested (`test:orders`) |
-| Adapter, routes, gates | — | `npm run test:viva` (mocked network, added with this draft) |
+| Attempt history, outcomes, alerts | `src/lib/payments/attempts.ts`, `recordPayment` in `src/lib/orders.ts`, `settle.ts` | tested (`test:orders`, `test:viva`) |
+| Adapter, routes, gates | — | `npm run test:viva` (mocked network) |
 | Switches | `COMMERCE_ENABLED`, `VIVA_*` keys, Admin → Ρυθμίσεις | all three keep it off today |
 
 ## 4. Gaps, ranked
 
+Code for gaps 1–4 and 6–8 was written on 18.10.2026 and is covered by mocked-network tests; it has still never talked to Viva. Everything is behind the same switches, so the shop behaves exactly as before until the e-shop opens. The Stripe routes keep their old lookup (same weakness as gap 1, not touched).
+
 Effort S ≈ hours, M ≈ a day or two. "Money risk" is what goes wrong if it is left as it is.
 
-| # | Gap | Money risk | Effort | Verdict |
-| --- | --- | --- | --- | --- |
-| 1 | **Retrying a payment overwrites the stored Viva order code** (`retryCardPayment`, `src/app/(store)/checkout/actions.ts`). If the customer then pays an older, still-open checkout tab (each stays open 30 minutes), neither route can find the order: money taken, order stays pending. Fix: keep every attempt, or fall back to `merchantTrns` (the order number, already sent) when the code is unknown. | customer charged, no paid order | M | **must-fix** |
-| 2 | **A late payment lands on a cancelled order.** Unpaid card orders are cancelled after 2 hours and their stock released (`orders.ts`); `markOrderPaid` does not look at the status, so a payment after that marks a cancelled order paid. Fix: detect it and alert the owner instead of marking it paid. | paid order with no stock reserved | S | **must-fix** |
-| 3 | **A wrong amount only writes a log line** and nobody is told; the currency is not checked. Fix: owner e-mail on any mismatch, currency check. | partial/odd payments unnoticed | S | **must-fix** |
-| 4 | **Failed payments leave no record** — only event 1796 is handled. Viva's event 1798 ("Transaction Failed") is ignored. Note 1798 does not fire for cancelled payments or failed 3-D Secure, and the customer may retry and succeed later. Fix: record it on the order. | none (support questions) | S | should-fix |
-| 5 | **No refunds in the application.** `cancelOrder` only restocks; the `refunded` status exists but nothing sets it. Start with refunds by hand in Viva's dashboard plus a manual mark. Doing it from the admin needs the Basic-auth refund call. | manual work | M | optional |
-| 6 | **Abandoned-order cleanup runs only when someone opens the admin dashboard** and never asks Viva first. Fix: check with Viva before cancelling; run on a schedule. | cancelling an order that was paid | S | should-fix |
-| 7 | **The webhook has no rate limit and no IP allow-list**, and each POST costs a call to Viva. | abuse / noise | S | should-fix |
-| 8 | **The Viva transaction id is only in the event text**, not in a column, which makes reconciliation and refunds slower. | slower support | S | should-fix |
+| # | Gap | Money risk | Effort | Verdict | Status |
+| --- | --- | --- | --- | --- | --- |
+| 1 | **Retrying a payment overwrites the stored Viva order code** (`retryCardPayment`, `src/app/(store)/checkout/actions.ts`). If the customer then pays an older, still-open checkout tab (each stays open 30 minutes), neither route can find the order: money taken, order stays pending. Fix: keep every attempt, or fall back to `merchantTrns` (the order number, already sent) when the code is unknown. | customer charged, no paid order | M | **must-fix** | **done** (attempt history + `merchantTrns` fallback) |
+| 2 | **A late payment lands on a cancelled order.** Unpaid card orders are cancelled after 2 hours and their stock released (`orders.ts`); `markOrderPaid` does not look at the status, so a payment after that marks a cancelled order paid. Fix: detect it and alert the owner instead of marking it paid. | paid order with no stock reserved | S | **must-fix** | **done** (recorded as received, order stays cancelled, owner alerted) |
+| 3 | **A wrong amount only writes a log line** and nobody is told; the currency is not checked. Fix: owner e-mail on any mismatch, currency check. | partial/odd payments unnoticed | S | **must-fix** | **done** (owner e-mail; currency checked when Viva reports one) |
+| 4 | **Failed payments leave no record** — only event 1796 is handled. Viva's event 1798 ("Transaction Failed") is ignored. Note 1798 does not fire for cancelled payments or failed 3-D Secure, and the customer may retry and succeed later. Fix: record it on the order. | none (support questions) | S | should-fix | **done** (webhook 1798, one event per checkout) |
+| 5 | **No refunds in the application.** `cancelOrder` only restocks; the `refunded` status exists but nothing sets it. Start with refunds by hand in Viva's dashboard plus a manual mark. Doing it from the admin needs the Basic-auth refund call. | manual work | M | optional | not done (manual in Viva) |
+| 6 | **Abandoned-order cleanup runs only when someone opens the admin dashboard** and never asks Viva first. Fix: check with Viva before cancelling; run on a schedule. | cancelling an order that was paid | S | should-fix | **done** (hourly job; skips orders with a fresh attempt) |
+| 7 | **The webhook has no rate limit and no IP allow-list**, and each POST costs a call to Viva. | abuse / noise | S | should-fix | **done** (60/min limit; optional `VIVA_WEBHOOK_IPS`) |
+| 8 | **The Viva transaction id is only in the event text**, not in a column, which makes reconciliation and refunds slower. | slower support | S | should-fix | **done** (`orders.payment_transaction_id`) |
 
 Not a gap but a decision: installments (δόσεις) are off in the code (`maxInstallments: 0`). Viva offers 2–36 installments
 to Greek merchant accounts; the owner decides whether to want them (section 8).
@@ -77,8 +80,8 @@ to Greek merchant accounts; the owner decides whether to want them (section 8).
 3. Copy the Smart Checkout **client id and secret** (`VIVA_CLIENT_ID`, `VIVA_CLIENT_SECRET`) and, under Settings → API
    Access, the **merchant id and API key** (`VIVA_MERCHANT_ID`, `VIVA_API_KEY`, used for the webhook handshake and refunds).
    Where exactly the client credentials live is **UNCONFIRMED**.
-4. Register the **webhook** (Settings → API Access → Webhooks): URL `{SITE_URL}/api/payments/viva/webhook`, events 1796 and,
-   once item 4 is built, 1798. Viva verifies the URL by asking it for a key, which the route already answers.
+4. Register the **webhook** (Settings → API Access → Webhooks): URL `{SITE_URL}/api/payments/viva/webhook`, events 1796 (payment created) and
+   1798 (payment failed). Viva verifies the URL by asking it for a key, which the route already answers.
 5. Tick "Allow refunds" for the API access if refunds will ever be issued from the admin.
 
 Never paste any of these values into chat or commit them: they go into the Railway service variables
@@ -128,9 +131,9 @@ online cards from domestic/EEA consumers 2.19 % + €0.24 per transaction; domes
 ## 9. Unconfirmed — to check in the dashboard or with Viva
 
 1. Where the Smart Checkout client id and secret are, and whether demo and live each need their own.
-2. Whether the webhook's `Amount` is in euros or cents (Viva's example shows euros; the adapter treats the re-fetched
+2. Whether the transaction endpoint reports the currency (the code checks it only when a `currencyCode`/`currency` field is present; without one it cannot refuse a non-euro payment), and whether the webhook's `Amount` is in euros or cents (Viva's example shows euros; the adapter treats the re-fetched
    transaction amount as euros).
-3. The current list of webhook source IP addresses (copy it from Viva's webhooks page before building an allow-list).
+3. The current list of webhook source IP addresses (copy it from Viva's webhooks page into `VIVA_WEBHOOK_IPS`; unset = no allow-list).
 4. Whether the refund call (`DELETE /api/transactions`, Basic auth) is being deprecated and has an OAuth equivalent.
 5. Minimum amount and fees for installments on Greek cards.
 6. Real settlement time for online cards on this account.

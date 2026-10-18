@@ -83,6 +83,18 @@ async function main() {
   dir = await cloneDatabase('oc-viva-');
   process.env.DATA_DIR = path.join(dir, 'data');
   installFetchMock();
+  // Request headers for clientIp() (next/headers' headers() has no request scope here): a mutable map, so each case
+  // can pick its own client address with x-forwarded-for.
+  const requestHeaders = new Map<string, string>();
+  const fromIp = (ip: string | null) => {
+    if (ip) requestHeaders.set('x-forwarded-for', ip);
+    else requestHeaders.delete('x-forwarded-for');
+  };
+  const headersPath = require.resolve('next/headers');
+  require.cache[headersPath] = {
+    id: headersPath, filename: headersPath, loaded: true,
+    exports: { headers: async () => ({ get: (name: string) => requestHeaders.get(name.toLowerCase()) ?? null }) },
+  } as unknown as NodeJS.Module;
 
   const { eq } = await import('drizzle-orm');
   const { db } = await import('../src/lib/db');
@@ -90,7 +102,7 @@ async function main() {
   const { migrate } = await import('drizzle-orm/libsql/migrator');
   await migrate(db, { migrationsFolder: './drizzle' });
   const { orders, orderEvents } = await import('../src/lib/db/schema');
-  const { startCardPayment, cardProvider } = await import('../src/lib/payments');
+  const { startCardPayment, cardProvider, siteUrl } = await import('../src/lib/payments');
   const viva = await import('../src/lib/payments/viva');
   const { availablePaymentMethods } = await import('../src/lib/pricing');
   const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
@@ -189,9 +201,9 @@ async function main() {
   const orderC = await addOrder('OC-TEST-VIVA-C', '9515982136481236', 1999);
   const postJson = (body: string) => webhook.POST(new Request('https://shop.example/api/payments/viva/webhook', { method: 'POST', body }));
   calls.length = 0;
-  const ignored = await postJson(JSON.stringify({ EventTypeId: 1798, EventData: { TransactionId: TX_ID, OrderCode: CODE_BEYOND_SAFE } }));
-  check('EventTypeId 1798 answers 200 and is ignored', ignored.status === 200 && (await ignored.json()).ignored === true);
-  check('EventTypeId 1798 makes no Viva call and changes no order', calls.length === 0 && (await paymentStatusOf(orderA.id)) === 'pending', calls.map((c) => c.url));
+  const ignored = await postJson(JSON.stringify({ EventTypeId: 1797, EventData: { TransactionId: TX_ID, OrderCode: CODE_BEYOND_SAFE } }));
+  check('EventTypeId 1797 answers 200 and is ignored', ignored.status === 200 && (await ignored.json()).ignored === true);
+  check('EventTypeId 1797 makes no Viva call and changes no order', calls.length === 0 && (await paymentStatusOf(orderA.id)) === 'pending', calls.map((c) => c.url));
 
   const event = JSON.stringify({ EventTypeId: 1796, EventData: { TransactionId: TX_ID, OrderCode: CODE_BEYOND_SAFE }, Created: '2026-10-18T10:00:00Z' });
   canned.txBody = `{"statusId":"F","amount":19.99,"orderCode":${CODE_BEYOND_SAFE},"merchantTrns":"OC-TEST-VIVA-A"}`;
@@ -210,6 +222,188 @@ async function main() {
   canned.txBody = `{"statusId":"F","amount":9.99,"orderCode":9515982136481236,"merchantTrns":"OC-TEST-VIVA-C"}`;
   await postJson(JSON.stringify({ EventTypeId: 1796, EventData: { TransactionId: TX_ID, OrderCode: '9515982136481236' } }));
   check('a wrong amount leaves the order unpaid', (await paymentStatusOf(orderC.id)) !== 'paid');
+
+  console.log('9. Attempts, failures, currency, late payments, rate limit, allow-list, return route');
+  const { recordPaymentAttempt } = await import('../src/lib/payments/attempts');
+  const { cancelOrder } = await import('../src/lib/orders');
+  const { paymentAttempts } = await import('../src/lib/db/schema');
+  const TX_A = '3fa85f64-5717-4562-b3fc-2c963f66a0a1';
+  const eventsOf = (id: number) => db.select().from(orderEvents).where(eq(orderEvents.orderId, id));
+  const orderRow = async (id: number) => (await db.select().from(orders).where(eq(orders.id, id)))[0];
+  const attemptOf = async (ref: string) => (await db.select().from(paymentAttempts).where(eq(paymentAttempts.ref, ref)))[0];
+  const newAttempt = (orderId: number, ref: string) => recordPaymentAttempt(orderId, { provider: 'viva', ref });
+  const hook = (eventType: number, txId: string, orderCode: string) =>
+    postJson(JSON.stringify({ EventTypeId: eventType, EventData: { TransactionId: txId, OrderCode: orderCode } }));
+  const txJson = (o: { status?: string; amount: number; orderCode: string; merchantTrns?: string; extra?: string }) =>
+    `{"statusId":"${o.status ?? 'F'}","amount":${o.amount},"orderCode":${o.orderCode}${o.merchantTrns ? `,"merchantTrns":"${o.merchantTrns}"` : ''}${o.extra ?? ''}}`;
+  const failedEvents = async (id: number) => (await eventsOf(id)).filter((e) => e.message.includes('απέτυχε')).length;
+  const ret = (qs: string) => returnRoute.GET(new Request(`https://shop.example/api/payments/viva/return?${qs}`));
+
+  console.log('A. Older attempt settles the order');
+  fromIp('198.51.100.1');
+  const R1 = '9515982136481301';
+  const R2 = '9515982136481302';
+  const oA2 = await addOrder('OC-TEST-VIVA-A2', R1, 1999);
+  await newAttempt(oA2.id, R1);
+  await newAttempt(oA2.id, R2);
+  canned.txBody = txJson({ amount: 19.99, orderCode: R1, merchantTrns: 'OC-TEST-VIVA-A2' });
+  const resA = await hook(1796, TX_A, R1);
+  const rowA2 = await orderRow(oA2.id);
+  check('A: 1796 for the older attempt answers 200', resA.status === 200, resA.status);
+  check('A: the older attempt settles the order (paid, transaction id kept)', rowA2.paymentStatus === 'paid' && rowA2.paymentTransactionId === TX_A, rowA2);
+  check("A: the older attempt is marked 'paid'", (await attemptOf(R1))?.status === 'paid', await attemptOf(R1));
+
+  console.log('B. Order found through merchantTrns when no attempt row exists');
+  fromIp('198.51.100.2');
+  const R3 = '9515982136481402';
+  const oB = await addOrder('OC-TEST-VIVA-B', '9515982136481499', 1999);
+  canned.txBody = txJson({ amount: 19.99, orderCode: R3, merchantTrns: 'OC-TEST-VIVA-B' });
+  const resB = await hook(1796, TX_A, R3);
+  check('B: 1796 answers 200', resB.status === 200, resB.status);
+  check('B: the card order is found by merchantTrns and settled', (await orderRow(oB.id)).paymentStatus === 'paid');
+
+  console.log('C. Paid transaction matching no order');
+  fromIp('198.51.100.3');
+  const countsBefore = {
+    orders: (await db.select().from(orders)).length,
+    events: (await db.select().from(orderEvents)).length,
+    attempts: (await db.select().from(paymentAttempts)).length,
+  };
+  canned.txBody = txJson({ amount: 19.99, orderCode: '9515982136481503', merchantTrns: 'OC-NOPE-999' });
+  const resC = await hook(1796, TX_A, '9515982136481503');
+  const countsAfter = {
+    orders: (await db.select().from(orders)).length,
+    events: (await db.select().from(orderEvents)).length,
+    attempts: (await db.select().from(paymentAttempts)).length,
+  };
+  check('C: answers 200', resC.status === 200, resC.status);
+  check('C: nothing is changed', JSON.stringify(countsBefore) === JSON.stringify(countsAfter), { countsBefore, countsAfter });
+
+  console.log('D. Failed transactions (1798)');
+  fromIp('198.51.100.4');
+  const R4 = '9515982136481601';
+  const oD = await addOrder('OC-TEST-VIVA-D', R4, 1999);
+  await newAttempt(oD.id, R4);
+  canned.txBody = txJson({ status: 'X', amount: 19.99, orderCode: R4, merchantTrns: 'OC-TEST-VIVA-D' });
+  const dBefore = await orderRow(oD.id);
+  const d1 = await hook(1798, TX_A, R4);
+  check('D: 1798 with a non-F transaction answers 200', d1.status === 200, d1.status);
+  check("D: exactly one 'απέτυχε' order event", (await failedEvents(oD.id)) === 1, await failedEvents(oD.id));
+  check("D: attempt is 'failed'", (await attemptOf(R4))?.status === 'failed', await attemptOf(R4));
+  const dAfter = await orderRow(oD.id);
+  check('D: order status and payment status unchanged by the failure', dAfter.status === dBefore.status && dAfter.paymentStatus === dBefore.paymentStatus, { dBefore, dAfter });
+  await hook(1798, TX_A, R4);
+  check('D: a repeat 1798 adds no second event', (await failedEvents(oD.id)) === 1, await failedEvents(oD.id));
+  canned.txBody = txJson({ amount: 19.99, orderCode: R4, merchantTrns: 'OC-TEST-VIVA-D' });
+  await hook(1796, TX_A, R4);
+  check("D: a later 1796 'F' still settles the order", (await orderRow(oD.id)).paymentStatus === 'paid');
+  canned.txBody = txJson({ status: 'X', amount: 19.99, orderCode: R4, merchantTrns: 'OC-TEST-VIVA-D' });
+  const eventsBeforeLate1798 = (await eventsOf(oD.id)).length;
+  await hook(1798, TX_A, R4);
+  check('D: a 1798 for an already paid order adds nothing', (await failedEvents(oD.id)) === 1 && (await eventsOf(oD.id)).length === eventsBeforeLate1798 && (await orderRow(oD.id)).paymentStatus === 'paid');
+
+  console.log('E. Amount and currency mismatches through the webhook');
+  fromIp('198.51.100.5');
+  const R5 = '9515982136481701';
+  const oE = await addOrder('OC-TEST-VIVA-E', R5, 1999);
+  await newAttempt(oE.id, R5);
+  canned.txBody = txJson({ amount: 9.99, orderCode: R5, merchantTrns: 'OC-TEST-VIVA-E' });
+  const resE = await hook(1796, TX_A, R5);
+  check('E: amount mismatch answers 200', resE.status === 200, resE.status);
+  check('E: amount mismatch leaves the order unpaid', (await orderRow(oE.id)).paymentStatus !== 'paid');
+  check("E: amount mismatch marks the attempt 'mismatch'", (await attemptOf(R5))?.status === 'mismatch', await attemptOf(R5));
+  const currencyCases: [string, string, boolean][] = [
+    ['currencyCode 826 (GBP)', ',"currencyCode":826', false],
+    ['currencyCode 978 (EUR)', ',"currencyCode":978', true],
+    ['no currency field', '', true],
+  ];
+  for (const [i, [label, extra, expectPaid]] of currencyCases.entries()) {
+    fromIp(`198.51.100.${30 + i}`);
+    const ref = `951598213648171${i + 1}`;
+    const number = `OC-TEST-VIVA-CUR${i + 1}`;
+    const o = await addOrder(number, ref, 1999);
+    await newAttempt(o.id, ref);
+    canned.txBody = txJson({ amount: 19.99, orderCode: ref, merchantTrns: number, extra });
+    await hook(1796, TX_A, ref);
+    const row = await orderRow(o.id);
+    check(`E: ${label} -> ${expectPaid ? 'settles' : 'order stays unpaid'}`, (row.paymentStatus === 'paid') === expectPaid, row.paymentStatus);
+    if (!expectPaid) {
+      const flagged = (await eventsOf(o.id)).some((e) => e.message.includes('νόμισμα'));
+      check(`E: ${label} is flagged to the owner as a currency problem`, flagged);
+    }
+  }
+
+  console.log('F. Late payment on a cancelled order');
+  fromIp('198.51.100.8');
+  const R9 = '9515982136481801';
+  const oF = await addOrder('OC-TEST-VIVA-F', R9, 1999);
+  await newAttempt(oF.id, R9);
+  check('F: cancelOrder cancels the order', (await cancelOrder(oF.id, 'test', 'late payment test')) === true);
+  canned.txBody = txJson({ amount: 19.99, orderCode: R9, merchantTrns: 'OC-TEST-VIVA-F' });
+  await hook(1796, TX_A, R9);
+  const rowF = await orderRow(oF.id);
+  check("F: late payment is recorded as paid, status stays 'cancelled'", rowF.paymentStatus === 'paid' && rowF.status === 'cancelled', rowF);
+
+  console.log('G. Rate limit');
+  fromIp('203.0.113.50');
+  canned.txBody = txJson({ amount: 19.99, orderCode: CODE_BEYOND_SAFE, merchantTrns: 'OC-TEST-VIVA-A' });
+  let firstSixty = true;
+  for (let i = 0; i < 60; i++) {
+    const r = await hook(1796, TX_ID, CODE_BEYOND_SAFE);
+    if (r.status !== 200) firstSixty = false;
+  }
+  check('G: the first 60 well-formed events answer 200', firstSixty);
+  const txBeforeLimited = callsOf('transaction').length;
+  const limited = await hook(1796, TX_ID, CODE_BEYOND_SAFE);
+  check('G: the 61st event answers 429', limited.status === 429, limited.status);
+  check('G: the 61st carries a Retry-After header', Number(limited.headers.get('Retry-After')) >= 1, limited.headers.get('Retry-After'));
+  check('G: the 61st makes no Viva transaction call', callsOf('transaction').length === txBeforeLimited, callsOf('transaction').length - txBeforeLimited);
+
+  console.log('H. Webhook IP allow-list');
+  process.env.VIVA_WEBHOOK_IPS = '10.0.0.1,10.0.0.2';
+  fromIp('10.0.0.9');
+  const txBeforeRefused = callsOf('transaction').length;
+  const refused = await hook(1796, TX_ID, CODE_BEYOND_SAFE);
+  check('H: an IP off the allow-list answers 403', refused.status === 403, refused.status);
+  check('H: the refused IP makes no Viva call', callsOf('transaction').length === txBeforeRefused);
+  fromIp('10.0.0.1');
+  const allowed = await hook(1796, TX_ID, CODE_BEYOND_SAFE);
+  check('H: an allow-listed IP is processed (200 and a Viva call)', allowed.status === 200 && callsOf('transaction').length === txBeforeRefused + 1, allowed.status);
+  delete process.env.VIVA_WEBHOOK_IPS;
+  fromIp('10.0.0.9');
+  const open = await hook(1796, TX_ID, CODE_BEYOND_SAFE);
+  check('H: with the allow-list unset any IP is accepted again', open.status === 200, open.status);
+
+  console.log('I. Return route');
+  fromIp('198.51.100.20');
+  const RO = '9515982136482001';
+  const RN = '9515982136482002';
+  const oI = await addOrder('OC-TEST-VIVA-I', RN, 1999);
+  await newAttempt(oI.id, RO);
+  await newAttempt(oI.id, RN);
+  canned.txBody = txJson({ amount: 19.99, orderCode: RO, merchantTrns: 'OC-TEST-VIVA-I' });
+  const rI = await ret(`t=${TX_A}&s=${RO}`);
+  const locI = rI.headers.get('location') ?? '';
+  check('I: paid older attempt redirects (302/307)', rI.status === 302 || rI.status === 307, rI.status);
+  check('I: ... to the order page with the secret link and payment=success', locI === `${siteUrl()}/order/OC-TEST-VIVA-I?t=at-OC-TEST-VIVA-I&payment=success`, locI);
+
+  fromIp('198.51.100.21');
+  const RM = '9515982136482101';
+  await addOrder('OC-TEST-VIVA-I2', RM, 1999);
+  const oI2 = (await db.select().from(orders).where(eq(orders.number, 'OC-TEST-VIVA-I2')))[0];
+  await newAttempt(oI2.id, RM);
+  canned.txBody = txJson({ amount: 9.99, orderCode: RM, merchantTrns: 'OC-TEST-VIVA-I2' });
+  const rI2 = await ret(`t=${TX_A}&s=${RM}`);
+  const locI2 = rI2.headers.get('location') ?? '';
+  check('I: amount mismatch redirects to /order-status', locI2 === `${siteUrl()}/order-status`, locI2);
+  check('I: ... with no secret link in the Location header', !locI2.includes('at-OC-TEST-VIVA-I2'), locI2);
+
+  fromIp('198.51.100.22');
+  const txBeforeFailed = callsOf('transaction').length;
+  const rFailed = await ret(`t=${TX_A}&s=${RM}&failed=1`);
+  const locFailed = rFailed.headers.get('location') ?? '';
+  check('I: ?failed=1 redirects to /order-status', locFailed === `${siteUrl()}/order-status`, locFailed);
+  check('I: ?failed=1 makes no Viva call', callsOf('transaction').length === txBeforeFailed);
 
   console.log('8. Closed gates');
   process.env.COMMERCE_ENABLED = 'false';

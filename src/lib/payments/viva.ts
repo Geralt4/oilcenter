@@ -10,7 +10,7 @@
  * In the Viva dashboard set the payment source URLs to:
  *   Success:  {SITE_URL}/api/payments/viva/return
  *   Failure:  {SITE_URL}/api/payments/viva/return?failed=1
- *   Webhook (Transaction Payment Created):  {SITE_URL}/api/payments/viva/webhook
+ *   Webhook (Transaction Payment Created, and Transaction Failed):  {SITE_URL}/api/payments/viva/webhook
  *
  * NOT YET EXERCISED AGAINST A REAL VIVA ACCOUNT — run it end-to-end in VIVA_ENV=demo before going live.
  */
@@ -19,6 +19,16 @@ const LIVE = process.env.VIVA_ENV === 'live';
 const ACCOUNTS = LIVE ? 'https://accounts.vivapayments.com' : 'https://demo-accounts.vivapayments.com';
 const API = LIVE ? 'https://api.vivapayments.com' : 'https://demo-api.vivapayments.com';
 const WEB = LIVE ? 'https://www.vivapayments.com' : 'https://demo.vivapayments.com';
+
+/**
+ * Optional allow-list for the webhook: VIVA_WEBHOOK_IPS="1.2.3.4,5.6.7.8". Unset = everyone (the payload is only a hint and
+ * the transaction is re-read from Viva, so this is a second fence, not the first). Copy Viva's current list from
+ * https://developer.viva.com/webhooks-for-payments/ before relying on it.
+ */
+export function vivaWebhookIpAllowed(ip: string): boolean {
+  const list = (process.env.VIVA_WEBHOOK_IPS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  return list.length === 0 || list.includes(ip);
+}
 
 export function vivaConfigured(): boolean {
   return Boolean(process.env.VIVA_CLIENT_ID && process.env.VIVA_CLIENT_SECRET && process.env.VIVA_SOURCE_CODE);
@@ -77,7 +87,22 @@ export async function vivaCreateOrder(input: {
   return { orderCode, redirectUrl: `${WEB}/web/checkout?ref=${orderCode}&lang=el` };
 }
 
-export type VivaTransaction = { paid: boolean; orderCode: string | null; amountCents: number; statusId: string; merchantTrns: string | null };
+export type VivaTransaction = {
+  paid: boolean;
+  orderCode: string | null;
+  amountCents: number;
+  statusId: string;
+  merchantTrns: string | null;
+  /** 'EUR' or the code Viva reports; null when the response does not say (the docs do not promise the field here) */
+  currency: string | null;
+};
+
+/** Viva writes currencies as ISO 4217 numbers in events (978) and may use letters elsewhere. */
+function normalizeCurrency(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  const text = String(value).trim().toUpperCase();
+  return text === '978' ? 'EUR' : text;
+}
 
 export async function vivaRetrieveTransaction(transactionId: string): Promise<VivaTransaction> {
   if (!/^[0-9a-f-]{36}$/i.test(transactionId)) throw new Error('Invalid Viva transaction id');
@@ -87,13 +112,14 @@ export async function vivaRetrieveTransaction(transactionId: string): Promise<Vi
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`Viva retrieve transaction failed (${res.status})`);
-  const json = JSON.parse(text) as { statusId?: string; amount?: number; merchantTrns?: string };
+  const json = JSON.parse(text) as { statusId?: string; amount?: number; merchantTrns?: string; currencyCode?: string | number; currency?: string };
   return {
     paid: json.statusId === 'F',
     orderCode: extractOrderCode(text),
     amountCents: Math.round((json.amount ?? 0) * 100),
     statusId: json.statusId ?? '',
     merchantTrns: json.merchantTrns ?? null,
+    currency: normalizeCurrency(json.currencyCode ?? json.currency),
   };
 }
 
