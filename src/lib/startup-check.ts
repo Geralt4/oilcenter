@@ -36,6 +36,12 @@ export function checkProductionConfig(): string[] {
     problems.push(`COMMERCE_ENABLED is "${commerce}" — the only meaningful values are "true" and "false" (false = website only, see src/lib/commerce-flag.ts).`);
   }
 
+  // VIVA_TEST_BASE_URL exists only so tests can point the payment code at a fake server; with VIVA_ENV=live it is ignored by
+  // src/lib/payments/viva.ts, and having it set at all on a live deployment means something is badly misconfigured.
+  if (process.env.VIVA_ENV === 'live' && process.env.VIVA_TEST_BASE_URL) {
+    problems.push('VIVA_TEST_BASE_URL is set while VIVA_ENV=live — it is a test-only switch. Remove it.');
+  }
+
   // Off-site backups: either fully configured or not at all — a half-configured uploader that silently
   // skips every night is worse than one that was never switched on.
   const b2 = ['B2_KEY_ID', 'B2_APP_KEY', 'B2_BUCKET', 'BACKUP_ENCRYPTION_KEY'].filter((name) => process.env[name]);

@@ -11,12 +11,12 @@ import { hashPassword, randomToken, verifyPassword } from '@/lib/auth/password';
 import { newTotpSecret, totpStep } from '@/lib/auth/totp';
 import { createSession, createSudoSession, destroySession, destroySudoSession, getAdmin, hasSudoSession, requireAdmin, revokeAllSessions } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, sales, variants, type BaseType, type OrderStatus } from '@/lib/db/schema';
+import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, sales, unmatchedPayments, variants, type BaseType, type OrderStatus, type PaymentStatus } from '@/lib/db/schema';
 import { orderStatusMail, sendMail } from '@/lib/email';
 import { cleanIds, hasTargets, type Targets } from '@/lib/discounts';
 import { buildHazard } from '@/lib/ghs';
 import { isValidGtin, normalizeGtin } from '@/lib/gtin';
-import { addOrderEvent, cancelOrder, getOrderByNumber, ORDER_STATUS_LABELS } from '@/lib/orders';
+import { addOrderEvent, cancelOrder, flagForReview, getOrderByNumber, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/orders';
 import { describePriceImport, MAX_PRICE_CENTS, parseCsv, planPriceImport } from '@/lib/price-csv';
 import { clientIp, loginBudgets, rateLimit } from '@/lib/rate-limit';
 import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours, type ShopSettings } from '@/lib/settings';
@@ -249,6 +249,7 @@ export async function changeAdminPassword(_prev: AdminFormState, fd: FormData): 
 
 // ─── Orders ──────────────────────────────────────────────────────────────────
 const STATUSES = Object.keys(ORDER_STATUS_LABELS) as OrderStatus[];
+const PAYMENT_STATUSES = Object.keys(PAYMENT_STATUS_LABELS) as PaymentStatus[];
 
 export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   const admin = await requireAdmin();
@@ -258,23 +259,48 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
 
   const status = str(fd, 'status') as OrderStatus;
   if (!STATUSES.includes(status)) return { ok: false, message: 'Μη έγκυρη κατάσταση.' };
-  const paid = bool(fd, 'paid');
   const notify = bool(fd, 'notify');
   const trackingCarrier = str(fd, 'trackingCarrier') || null;
   const trackingNumber = str(fd, 'trackingNumber') || null;
   const actor = admin.name || admin.email;
 
+  // The payment status is checked BEFORE anything is saved, so a refused change leaves the order exactly as it was.
+  const asked = str(fd, 'paymentStatus') as PaymentStatus;
+  const payment: PaymentStatus = PAYMENT_STATUSES.includes(asked) ? asked : order.paymentStatus;
+  if (payment !== order.paymentStatus) {
+    if (order.paymentStatus === 'refunded') return { ok: false, message: 'Η πληρωμή έχει επιστραφεί: δεν αλλάζει πια.' };
+    if (payment === 'refunded' && order.paymentStatus !== 'paid') return { ok: false, message: 'Μόνο μια εξοφλημένη παραγγελία μπορεί να σημειωθεί ως επιστραφείσα.' };
+    if (order.paymentStatus === 'paid' && payment === 'failed') return { ok: false, message: 'Μια εξοφλημένη παραγγελία δεν γίνεται «αποτυχημένη». Αν επιστρέψατε τα χρήματα, επιλέξτε «Επιστροφή χρημάτων».' };
+    if (order.paymentStatus === 'paid' && payment === 'pending' && order.paymentMethod === 'card' && order.paymentTransactionId) {
+      return { ok: false, message: `Η πληρωμή έγινε με κάρτα (αναφορά ${order.paymentTransactionId}) και δεν αναιρείται από εδώ. Αν επιστρέψατε τα χρήματα από τον πάροχο πληρωμών, επιλέξτε «Επιστροφή χρημάτων».` };
+    }
+  }
+
   if (status === 'cancelled' && order.status !== 'cancelled') {
     await cancelOrder(id, actor); // restocks
+    // Cancelling an order that was paid leaves money with the shop: put it on the owner's list until it is refunded.
+    if (order.paymentStatus === 'paid' && payment === 'paid') {
+      await flagForReview(id);
+      await addOrderEvent(id, 'payment', 'ΠΡΟΣΟΧΗ: ακυρώθηκε παραγγελία που είχε εξοφληθεί. Επιστρέψτε τα χρήματα στον πελάτη και σημειώστε «Επιστροφή χρημάτων».', actor);
+    }
   } else if (status !== order.status) {
     if (order.status === 'cancelled') return { ok: false, message: 'Μια ακυρωμένη παραγγελία δεν επανέρχεται (το απόθεμα έχει ήδη αποδεσμευτεί). Δημιουργήστε νέα.' };
     await db.update(orders).set({ status }).where(eq(orders.id, id));
     await addOrderEvent(id, 'status', `Κατάσταση: ${ORDER_STATUS_LABELS[order.status]} → ${ORDER_STATUS_LABELS[status]}.`, actor);
   }
 
-  if (paid !== (order.paymentStatus === 'paid')) {
-    await db.update(orders).set({ paymentStatus: paid ? 'paid' : 'pending', paidAt: paid ? new Date() : null }).where(eq(orders.id, id));
-    await addOrderEvent(id, 'payment', paid ? 'Σημειώθηκε ως εξοφλημένη.' : 'Η ένδειξη εξόφλησης αφαιρέθηκε.', actor);
+  if (payment !== order.paymentStatus) {
+    await db
+      .update(orders)
+      .set({ paymentStatus: payment, paidAt: payment === 'paid' ? new Date() : payment === 'refunded' ? order.paidAt : null, ...(payment === 'refunded' ? { paymentFlag: null } : {}) })
+      .where(eq(orders.id, id));
+    const message = {
+      paid: 'Σημειώθηκε ως εξοφλημένη.',
+      pending: 'Η ένδειξη εξόφλησης αφαιρέθηκε.',
+      failed: 'Σημειώθηκε ως αποτυχημένη πληρωμή.',
+      refunded: 'Σημειώθηκε ως επιστραφείσα (χειροκίνητη επιστροφή από τον πάροχο πληρωμών).',
+    }[payment];
+    await addOrderEvent(id, 'payment', message, actor);
   }
 
   await db.update(orders).set({ trackingCarrier, trackingNumber, adminNotes: str(fd, 'adminNotes') || null }).where(eq(orders.id, id));
@@ -289,6 +315,24 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
   }
   revalidatePath(`/admin/orders/${id}`);
   return { ok: true, message: 'Η παραγγελία ενημερώθηκε.' };
+}
+
+/** «Το χειρίστηκα»: the owner has dealt with a payment problem on this order (refunded, phoned the customer, …). */
+export async function resolvePaymentReview(fd: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const id = int(fd, 'id');
+  const cleared = await db.update(orders).set({ paymentFlag: null }).where(and(eq(orders.id, id), eq(orders.paymentFlag, 'review'))).returning({ id: orders.id });
+  if (cleared.length > 0) await addOrderEvent(id, 'payment', 'Έλεγχος πληρωμής: ολοκληρώθηκε.', admin.name || admin.email);
+  revalidatePath('/admin');
+  revalidatePath(`/admin/orders/${id}`);
+}
+
+/** A paid payment that matched no order has been dealt with (refunded in the gateway, order created by hand, …). */
+export async function resolveUnmatchedPayment(fd: FormData): Promise<void> {
+  await requireAdmin();
+  const note = str(fd, 'note').slice(0, 300) || null;
+  await db.update(unmatchedPayments).set({ resolvedAt: new Date(), note }).where(and(eq(unmatchedPayments.id, int(fd, 'id')), isNull(unmatchedPayments.resolvedAt)));
+  revalidatePath('/admin');
 }
 
 // ─── Products ────────────────────────────────────────────────────────────────

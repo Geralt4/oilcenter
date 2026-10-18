@@ -1,6 +1,7 @@
-import { orderConfirmationMail, paymentAlertMail, sendMail } from '@/lib/email';
+import { orderConfirmationMail, paymentAlertMail, sendMail, unmatchedPaymentMail } from '@/lib/email';
 import { addOrderEvent, getOrderByNumber, recordPayment, type PaymentInfo, type PaymentOutcome } from '@/lib/orders';
 import { getSettings } from '@/lib/settings.server';
+import { recordUnmatchedPayment } from './attempts';
 
 const PROBLEMS: Partial<Record<PaymentOutcome, string>> = {
   amount_mismatch: 'Το ποσό που εισπράχθηκε δεν ταιριάζει με το σύνολο της παραγγελίας. Η παραγγελία δεν σημειώθηκε ως πληρωμένη.',
@@ -28,4 +29,14 @@ export async function settleCardPayment(order: { id: number; number: string }, i
   const alerted = await sendMail(paymentAlertMail(full, PROBLEMS[outcome] ?? outcome, settings));
   if (!alerted) await addOrderEvent(order.id, 'email', 'ΑΠΟΤΥΧΙΑ αποστολής e-mail ειδοποίησης προς το κατάστημα για την πληρωμή.');
   return outcome;
+}
+
+/**
+ * A paid transaction for a checkout that belongs to no order. Kept in unmatched_payments (shown on the admin dashboard) and
+ * mailed to the shop once; a repeated webhook, or the buyer's browser coming back as well, finds the row and stays quiet.
+ */
+export async function reportUnmatchedPayment(info: { provider: string; orderCode: string; transactionId: string; merchantTrns: string | null; amountCents: number; currency: string | null }): Promise<void> {
+  if (!(await recordUnmatchedPayment(info))) return;
+  console.warn(`[${info.provider}] PAID transaction ${info.transactionId} for order code ${info.orderCode} (merchantTrns ${info.merchantTrns ?? '-'}) matches no order — saved to unmatched_payments`);
+  await sendMail(unmatchedPaymentMail(info, await getSettings()));
 }

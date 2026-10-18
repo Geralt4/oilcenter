@@ -160,6 +160,15 @@ export function paymentAlertMail(order: OrderWithItems, problem: string, setting
   return { to: process.env.ORDERS_NOTIFY_EMAIL || settings.shop.email, subject: `Χρειάζεται έλεγχος: πληρωμή ${order.number}`, html: layout(settings.shop, `Πληρωμή ${order.number}: χρειάζεται έλεγχο`, body) };
 }
 
+/** A paid payment arrived for a checkout that belongs to no order: there is no order to link to, so it points at the dashboard. */
+export function unmatchedPaymentMail(
+  p: { provider: string; orderCode: string; transactionId: string; merchantTrns: string | null; amountCents: number; currency: string | null },
+  settings: ShopSettings,
+): Mail {
+  const body = `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;"><strong>Εισπράχθηκε πληρωμή που δεν αντιστοιχεί σε καμία παραγγελία.</strong></p><p style="margin:0;font-size:15px;line-height:1.6;">Ποσό <strong>${formatPrice(p.amountCents)}</strong>${p.currency ? ` (${esc(p.currency)})` : ''} · πάροχος ${esc(p.provider)}<br>Συναλλαγή ${esc(p.transactionId)} · κωδικός πληρωμής ${esc(p.orderCode)}${p.merchantTrns ? ` · αναφορά ${esc(p.merchantTrns)}` : ''}</p><p style="margin:12px 0 0;font-size:15px;line-height:1.6;">Βρείτε τον πελάτη στο Viva και επιστρέψτε τα χρήματα ή δημιουργήστε την παραγγελία χειροκίνητα.</p>${button(`${siteUrl()}/admin`, 'Άνοιγμα στη διαχείριση')}`;
+  return { to: process.env.ORDERS_NOTIFY_EMAIL || settings.shop.email, subject: `Χρειάζεται έλεγχος: πληρωμή χωρίς παραγγελία ${formatPrice(p.amountCents)}`, html: layout(settings.shop, 'Πληρωμή χωρίς παραγγελία', body) };
+}
+
 export function orderStatusMail(order: OrderWithItems, settings: ShopSettings): Mail {
   const { shop } = settings;
   const messages: Partial<Record<OrderWithItems['status'], string>> = {

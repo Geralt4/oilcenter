@@ -1,6 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { orders, paymentAttempts, type Order, type PaymentAttemptStatus } from '@/lib/db/schema';
+import { orders, paymentAttempts, unmatchedPayments, type Order, type PaymentAttemptStatus } from '@/lib/db/schema';
 
 /*
  * Payment attempts. Each gateway checkout opened for an order is kept, so a payment made on an older checkout (a buyer
@@ -70,4 +70,20 @@ export async function setAttemptStatus(
   const where = and(eq(paymentAttempts.provider, provider), eq(paymentAttempts.ref, ref), onlyFrom ? inArray(paymentAttempts.status, onlyFrom) : undefined);
   const changed = await db.update(paymentAttempts).set({ status, transactionId }).where(where).returning({ id: paymentAttempts.id });
   return changed.length > 0;
+}
+
+/**
+ * Keeps a paid payment that matches no order. True only the first time this transaction is recorded, so the caller sends the
+ * shop's e-mail once however many times the gateway (and the buyer's browser) report it.
+ */
+export async function recordUnmatchedPayment(info: {
+  provider: string;
+  orderCode: string;
+  transactionId: string;
+  merchantTrns: string | null;
+  amountCents: number;
+  currency: string | null;
+}): Promise<boolean> {
+  const created = await db.insert(unmatchedPayments).values(info).onConflictDoNothing().returning({ id: unmatchedPayments.id });
+  return created.length > 0;
 }

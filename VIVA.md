@@ -45,12 +45,12 @@ item 5). The owner, not the developer, has to open and verify the Viva merchant 
 | Return page / webhook | `src/app/api/payments/viva/{return,webhook}/route.ts` | written; return is rate-limited, webhook is not |
 | Mark paid (idempotent, amount check) | `markOrderPaid` in `src/lib/orders.ts` | tested (`test:orders`) |
 | Attempt history, outcomes, alerts | `src/lib/payments/attempts.ts`, `recordPayment` in `src/lib/orders.ts`, `settle.ts` | tested (`test:orders`, `test:viva`) |
-| Adapter, routes, gates | — | `npm run test:viva` (mocked network) |
+| Adapter, routes, gates | — | `npm run test:viva` (mocked network) and `npm run test:card` (real browser against a fake Viva server) |
 | Switches | `COMMERCE_ENABLED`, `VIVA_*` keys, Admin → Ρυθμίσεις | all three keep it off today |
 
 ## 4. Gaps, ranked
 
-Code for gaps 1–4 and 6–8 was written on 18.10.2026 and is covered by mocked-network tests; it has still never talked to Viva. Everything is behind the same switches, so the shop behaves exactly as before until the e-shop opens. The Stripe routes keep their old lookup (same weakness as gap 1, not touched). Stripe attempts are recorded too, but the Stripe routes never mark them, so a Stripe attempt that stays `created` does not mean unpaid.
+Code for gaps 1–4 and 6–10 was written on 18.10.2026 and is covered by mocked-network tests; it has still never talked to Viva. Everything is behind the same switches, so the shop behaves exactly as before until the e-shop opens. The Stripe routes keep their old lookup (same weakness as gap 1, not touched). Stripe attempts are recorded too, but the Stripe routes never mark them, so a Stripe attempt that stays `created` does not mean unpaid.
 
 Effort S ≈ hours, M ≈ a day or two. "Money risk" is what goes wrong if it is left as it is.
 
@@ -64,6 +64,8 @@ Effort S ≈ hours, M ≈ a day or two. "Money risk" is what goes wrong if it is
 | 6 | **Abandoned-order cleanup runs only when someone opens the admin dashboard** and never asks Viva first. Fix: check with Viva before cancelling; run on a schedule. | cancelling an order that was paid | S | should-fix | **done** (hourly job; skips orders with a fresh attempt) |
 | 7 | **The webhook has no rate limit and no IP allow-list**, and each POST costs a call to Viva. | abuse / noise | S | should-fix | **done** (60/min limit; optional `VIVA_WEBHOOK_IPS`) |
 | 8 | **The Viva transaction id is only in the event text**, not in a column, which makes reconciliation and refunds slower. | slower support | S | should-fix | **done** (`orders.payment_transaction_id`) |
+| 9 | **A paid payment that matches no order** (Viva reports money for a checkout we cannot find) left only a log line. It is now kept in `unmatched_payments`, the shop is e-mailed once, and it shows on the admin dashboard until it is marked handled. | payment with no trace | M | should-fix | **done** |
+| 10 | **Admin could not see payment problems**, and the «paid» checkbox could undo a card payment. Orders with a payment problem now sit on a dashboard list (and a nav count, and an orders filter) until marked handled; the payment status is a select with «Επιστροφή χρημάτων» for refunds done by hand in Viva; un-paying a card payment is refused. | missed alerts | M | should-fix | **done** |
 
 Not a gap but a decision: installments (δόσεις) are off in the code (`maxInstallments: 0`). Viva offers 2–36 installments
 to Greek merchant accounts; the owner decides whether to want them (section 8).
@@ -92,6 +94,10 @@ Never paste any of these values into chat or commit them: they go into the Railw
 Viva's sandbox is self-service: https://demo.vivapayments.com/en/signup (two-factor code is always `111111`). Demo has its
 own credentials, payment source and webhook. Minimum test payment is 30 cents; use the test cards in
 https://developer.viva.com/getting-started/sandbox-demo-account.
+
+`npm run test:card` already runs the whole customer journey in a real browser against a fake Viva server written from
+Viva's documentation (`scripts/fake-viva.ts`, pointed at through the test-only `VIVA_TEST_BASE_URL`). It proves our side;
+the demo run below proves that the fake behaves like the real thing, so any difference found there is fixed in both.
 
 1. Put the **demo** keys in a local, git-ignored environment (not Railway): `VIVA_ENV=demo`, the four `VIVA_*` values,
    `COMMERCE_ENABLED=true`, and turn ordering on in the local admin.

@@ -16,9 +16,12 @@
  */
 
 const LIVE = process.env.VIVA_ENV === 'live';
-const ACCOUNTS = LIVE ? 'https://accounts.vivapayments.com' : 'https://demo-accounts.vivapayments.com';
-const API = LIVE ? 'https://api.vivapayments.com' : 'https://demo-api.vivapayments.com';
-const WEB = LIVE ? 'https://www.vivapayments.com' : 'https://demo.vivapayments.com';
+// Test-only: scripts/test-card-flow.ts points everything at a fake Viva on localhost. Never honoured on a live setup
+// (and src/lib/startup-check.ts refuses to boot with both set), so real money can not be sent to a stand-in.
+const TEST_BASE = (!LIVE && process.env.VIVA_TEST_BASE_URL?.trim().replace(/\/$/, '')) || '';
+const ACCOUNTS = TEST_BASE || (LIVE ? 'https://accounts.vivapayments.com' : 'https://demo-accounts.vivapayments.com');
+const API = TEST_BASE || (LIVE ? 'https://api.vivapayments.com' : 'https://demo-api.vivapayments.com');
+const WEB = TEST_BASE || (LIVE ? 'https://www.vivapayments.com' : 'https://demo.vivapayments.com');
 
 /**
  * Optional allow-list for the webhook: VIVA_WEBHOOK_IPS="1.2.3.4,5.6.7.8". Unset = everyone (the payload is only a hint and

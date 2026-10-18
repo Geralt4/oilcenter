@@ -217,6 +217,105 @@ async function main() {
   const broad = await searchAdminProducts('λαδι');
   check('a broad query never returns more than 50', broad.length <= 50, broad.length);
 
+  console.log('Payment status rules (updateOrder)');
+  const { orders, orderEvents, unmatchedPayments } = await import('../src/lib/db/schema');
+  const { updateOrder, resolvePaymentReview, resolveUnmatchedPayment } = await import('../src/app/admin/actions');
+  let madeOrders = 0;
+  const createdOrderIds: number[] = [];
+  const makeOrder = async (over: Partial<typeof orders.$inferInsert> = {}) => {
+    madeOrders++;
+    const [row] = await db
+      .insert(orders)
+      .values({
+        number: `OC-ADMIN-T${madeOrders}`,
+        accessToken: `at-admin-t${madeOrders}`,
+        paymentMethod: 'card',
+        shippingMethod: 'courier',
+        email: 'buyer@example.com',
+        phone: '6900000000',
+        firstName: 'Τεστ',
+        lastName: 'Αγοραστής',
+        subtotalCents: 1999,
+        totalCents: 1999,
+        ...over,
+      })
+      .returning();
+    createdOrderIds.push(row.id);
+    return row;
+  };
+  const orderNow = async (id: number) => (await db.select().from(orders).where(eq(orders.id, id)))[0];
+  const eventsNow = async (id: number) => (await db.select().from(orderEvents).where(eq(orderEvents.orderId, id))).map((e) => e.message);
+  // the form the admin page sends: id and status (kept as it is unless the test changes it) and paymentStatus
+  const statusForm = (order: { id: number; status: string }, paymentStatus: string) => form({ id: String(order.id), status: order.status, paymentStatus });
+
+  const cardPaid = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-1', paymentProvider: 'viva' });
+  const cardPaidBefore = await orderNow(cardPaid.id);
+  const r1 = await updateOrder(null, statusForm(cardPaid, 'pending'));
+  check('a card payment with a Viva reference cannot be set back to pending', r1?.ok === false && (r1?.message ?? '').includes('TX-ADM-1'), r1);
+  const cardPaidAfterPending = await orderNow(cardPaid.id);
+  check('…and the order is unchanged', cardPaidAfterPending.paymentStatus === 'paid' && cardPaidAfterPending.paymentTransactionId === 'TX-ADM-1' && cardPaidAfterPending.paidAt?.getTime() === cardPaidBefore.paidAt?.getTime(), cardPaidAfterPending);
+
+  await db.update(orders).set({ paymentFlag: 'review' }).where(eq(orders.id, cardPaid.id));
+  const r2 = await updateOrder(null, statusForm(cardPaid, 'refunded'));
+  check('paid → refunded is accepted', r2?.ok === true, r2);
+  const cardRefunded = await orderNow(cardPaid.id);
+  check('…the payment is refunded and the review flag is cleared', cardRefunded.paymentStatus === 'refunded' && cardRefunded.paymentFlag === null, cardRefunded);
+  check('…with one «επιστραφείσα» event', (await eventsNow(cardPaid.id)).filter((m) => m.includes('επιστραφείσα')).length === 1, await eventsNow(cardPaid.id));
+  const r3 = await updateOrder(null, statusForm(cardRefunded, 'paid'));
+  const r4 = await updateOrder(null, statusForm(cardRefunded, 'pending'));
+  check('after refunded, any further change is refused', r3?.ok === false && r4?.ok === false, [r3, r4]);
+  check('…and the refunded order stays refunded', (await orderNow(cardPaid.id)).paymentStatus === 'refunded');
+
+  const pendingCard = await makeOrder({ status: 'pending' });
+  const r5 = await updateOrder(null, statusForm(pendingCard, 'refunded'));
+  check('refunded from pending is refused', r5?.ok === false && (await orderNow(pendingCard.id)).paymentStatus === 'pending', r5);
+
+  const paidFail = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-2', paymentProvider: 'viva' });
+  const r6 = await updateOrder(null, statusForm(paidFail, 'failed'));
+  check('paid → failed is refused', r6?.ok === false && (await orderNow(paidFail.id)).paymentStatus === 'paid', r6);
+
+  const cod = await makeOrder({ paymentMethod: 'cod', status: 'confirmed', paymentStatus: 'paid', paidAt: new Date() });
+  const r7 = await updateOrder(null, statusForm(cod, 'pending'));
+  check('a cash-on-delivery payment can be set back to pending', r7?.ok === true && (await orderNow(cod.id)).paymentStatus === 'pending', r7);
+
+  const pendingBank = await makeOrder({ paymentMethod: 'bank_transfer', status: 'pending' });
+  const r8 = await updateOrder(null, statusForm(pendingBank, 'paid'));
+  const pendingBankAfter = await orderNow(pendingBank.id);
+  check('pending → paid is accepted, with paidAt set', r8?.ok === true && pendingBankAfter.paymentStatus === 'paid' && pendingBankAfter.paidAt !== null, [r8, pendingBankAfter.paymentStatus, pendingBankAfter.paidAt]);
+  check('…and the timeline says so', (await eventsNow(pendingBank.id)).some((m) => m.includes('Σημειώθηκε ως εξοφλημένη.')));
+
+  const cancelPaid = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-3', paymentProvider: 'viva' });
+  const r9 = await updateOrder(null, form({ id: String(cancelPaid.id), status: 'cancelled', paymentStatus: 'paid' }));
+  const cancelPaidAfter = await orderNow(cancelPaid.id);
+  check('cancelling a paid order is accepted and flagged for review', r9?.ok === true && cancelPaidAfter.status === 'cancelled' && cancelPaidAfter.paymentFlag === 'review', [r9, cancelPaidAfter.status, cancelPaidAfter.paymentFlag]);
+  check('…with a «ΠΡΟΣΟΧΗ» event', (await eventsNow(cancelPaid.id)).some((m) => m.includes('ΠΡΟΣΟΧΗ')));
+
+  const cancelRefund = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-4', paymentProvider: 'viva' });
+  const r10 = await updateOrder(null, form({ id: String(cancelRefund.id), status: 'cancelled', paymentStatus: 'refunded' }));
+  const cancelRefundAfter = await orderNow(cancelRefund.id);
+  check('cancelling together with refunded is accepted', r10?.ok === true && cancelRefundAfter.status === 'cancelled' && cancelRefundAfter.paymentStatus === 'refunded', [r10, cancelRefundAfter.status, cancelRefundAfter.paymentStatus]);
+  check('…and leaves no review flag', cancelRefundAfter.paymentFlag === null, cancelRefundAfter.paymentFlag);
+
+  console.log('Payment review and unmatched payments (admin actions)');
+  const flagged = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-5', paymentProvider: 'viva', paymentFlag: 'review' });
+  const eventsFlaggedBefore = (await eventsNow(flagged.id)).length;
+  await resolvePaymentReview(form({ id: String(flagged.id) }));
+  const flaggedAfter = await orderNow(flagged.id);
+  check('resolvePaymentReview clears the flag', flaggedAfter.paymentFlag === null, flaggedAfter.paymentFlag);
+  const eventsFlaggedAfter = await eventsNow(flagged.id);
+  check('…and adds exactly one «ολοκληρώθηκε» event', eventsFlaggedAfter.length === eventsFlaggedBefore + 1 && eventsFlaggedAfter.filter((m) => m.includes('Έλεγχος πληρωμής: ολοκληρώθηκε.')).length === 1, eventsFlaggedAfter);
+  await resolvePaymentReview(form({ id: String(flagged.id) }));
+  check('calling it again adds nothing', (await eventsNow(flagged.id)).length === eventsFlaggedAfter.length, await eventsNow(flagged.id));
+
+  const [um] = await db.insert(unmatchedPayments).values({ provider: 'viva', orderCode: '9515982136486001', transactionId: 'TX-ADM-UM-1', amountCents: 1999, currency: 'EUR' }).returning();
+  const umRow = async () => (await db.select().from(unmatchedPayments).where(eq(unmatchedPayments.id, um.id)))[0];
+  await resolveUnmatchedPayment(form({ id: String(um.id), note: 'επιστράφηκε' }));
+  const um1 = await umRow();
+  check('resolveUnmatchedPayment sets resolvedAt and the note', um1.resolvedAt !== null && um1.note === 'επιστράφηκε', um1);
+  await resolveUnmatchedPayment(form({ id: String(um.id), note: 'άλλη σημείωση' }));
+  const um2 = await umRow();
+  check('a second call does not overwrite the note or resolvedAt', um2.note === 'επιστράφηκε' && um2.resolvedAt?.getTime() === um1.resolvedAt?.getTime(), um2);
+
   console.log('Sales and coupons refuse without an administrator');
   cookieJar.clear();
   const refusedWithoutSession = async (run: () => Promise<unknown>) => {
@@ -230,6 +329,19 @@ async function main() {
   check('saveSale redirects to login without a session', await refusedWithoutSession(() => saveSale(null, form({ name: 'Χωρίς σύνδεση', type: 'percent', value: '20', brandIds: brandId }))));
   check('deleteSale redirects to login without a session', await refusedWithoutSession(() => deleteSale(form({ id: '1' }))));
   check('searchAdminProducts redirects to login without a session', await refusedWithoutSession(() => searchAdminProducts('λαδι')));
+
+  console.log('Payment actions refuse without an administrator');
+  cookieJar.clear();
+  const flagForNoSession = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-6', paymentProvider: 'viva', paymentFlag: 'review' });
+  check('resolvePaymentReview redirects to login without a session', await refusedWithoutSession(() => resolvePaymentReview(form({ id: String(flagForNoSession.id) }))));
+  check('resolveUnmatchedPayment redirects to login without a session', await refusedWithoutSession(() => resolveUnmatchedPayment(form({ id: String(um.id), note: 'χωρίς σύνδεση' }))));
+  check('updateOrder redirects to login without a session', await refusedWithoutSession(() => updateOrder(null, statusForm(flagForNoSession, 'failed'))));
+  check('…and the refused calls changed nothing', (await orderNow(flagForNoSession.id)).paymentFlag === 'review' && (await umRow()).note === 'επιστράφηκε');
+
+  console.log('Cleanup');
+  for (const id of createdOrderIds) await db.delete(orders).where(eq(orders.id, id));
+  await db.delete(unmatchedPayments).where(eq(unmatchedPayments.id, um.id));
+  check('the rows of this section are gone', (await db.select().from(orders).where(eq(orders.id, createdOrderIds[0]))).length === 0);
 }
 
 main()

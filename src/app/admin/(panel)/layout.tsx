@@ -1,23 +1,26 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { and, count, eq, inArray } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull } from 'drizzle-orm';
 import { ExternalLink, LogOut } from 'lucide-react';
 import { logoutAdmin } from '@/app/admin/actions';
 import { AdminNav } from '@/components/admin/admin-nav';
 import { Logo } from '@/components/logo';
 import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { contactMessages, orders, variants } from '@/lib/db/schema';
+import { contactMessages, orders, unmatchedPayments, variants } from '@/lib/db/schema';
 
 export const metadata: Metadata = { title: { default: 'Διαχείριση', template: '%s · Διαχείριση Oil Center' }, robots: { index: false, follow: false } };
 export const dynamic = 'force-dynamic';
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const admin = await requireAdmin();
-  const [[openOrders], [unverified], [unread]] = await Promise.all([
+  const [[openOrders], [unverified], [unread], [flaggedOrders], [unmatched]] = await Promise.all([
     db.select({ n: count() }).from(orders).where(inArray(orders.status, ['pending', 'confirmed', 'processing'])),
     db.select({ n: count() }).from(variants).where(and(eq(variants.priceVerified, false), eq(variants.isActive, true))),
     db.select({ n: count() }).from(contactMessages).where(eq(contactMessages.isRead, false)),
+    // payment problems waiting for the owner: orders flagged for review + paid payments that matched no order
+    db.select({ n: count() }).from(orders).where(eq(orders.paymentFlag, 'review')),
+    db.select({ n: count() }).from(unmatchedPayments).where(isNull(unmatchedPayments.resolvedAt)),
   ]);
 
   return (
@@ -25,7 +28,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <aside className="steel sticky top-0 z-30 flex items-center justify-between gap-3 px-4 py-3 lg:h-dvh lg:flex-col lg:items-stretch lg:justify-start lg:gap-6 lg:p-4">
         {/* the menu scrolls on its own when it is taller than the window, so «Αποσύνδεση» below it never leaves the screen */}
         <div className="flex items-center gap-2 lg:min-h-0 lg:flex-col-reverse lg:items-stretch lg:justify-end lg:gap-6 lg:overflow-y-auto">
-          <AdminNav badges={{ orders: openOrders.n, prices: unverified.n, messages: unread.n }} />
+          <AdminNav badges={{ orders: openOrders.n, prices: unverified.n, messages: unread.n, attention: flaggedOrders.n + unmatched.n }} />
           <Link href="/admin" className="lg:px-2 lg:pt-2"><Logo tone="light" /></Link>
         </div>
         <div className="hidden lg:block lg:flex-1" />

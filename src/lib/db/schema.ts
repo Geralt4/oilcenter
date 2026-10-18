@@ -298,6 +298,8 @@ export const orders = sqliteTable(
     paymentRef: text('payment_ref'),
     /** the gateway's id of the transaction that was paid (Viva transactionId); the ref above is the latest attempt */
     paymentTransactionId: text('payment_transaction_id'),
+    /** 'review' while a payment problem (wrong amount, double charge, late payment…) waits for the owner; cleared by hand */
+    paymentFlag: text('payment_flag').$type<'review'>(),
     paidAt: integer('paid_at', { mode: 'timestamp_ms' }),
 
     /** placed while the shop was in demo mode; excluded from revenue stats */
@@ -313,6 +315,27 @@ export const orders = sqliteTable(
     index('orders_status_idx').on(t.status),
     index('orders_customer_idx').on(t.customerId),
   ],
+);
+
+/**
+ * A payment the gateway says was made for a checkout we cannot match to any order. The money is real, so it is kept here
+ * (and the shop is mailed) instead of only appearing in a log line.
+ */
+export const unmatchedPayments = sqliteTable(
+  'unmatched_payments',
+  {
+    id: id(),
+    provider: text('provider').notNull(),
+    orderCode: text('order_code').notNull(),
+    transactionId: text('transaction_id').notNull(),
+    merchantTrns: text('merchant_trns'),
+    amountCents: integer('amount_cents').notNull(),
+    currency: text('currency'),
+    createdAt: createdAt(),
+    resolvedAt: integer('resolved_at', { mode: 'timestamp_ms' }),
+    note: text('note'),
+  },
+  (t) => [uniqueIndex('unmatched_payments_tx_uq').on(t.provider, t.transactionId)],
 );
 
 export type PaymentAttemptStatus = 'created' | 'paid' | 'failed' | 'mismatch';
@@ -538,6 +561,7 @@ export type OrderEvent = typeof orderEvents.$inferSelect;
 export type Coupon = typeof coupons.$inferSelect;
 export type Sale = typeof sales.$inferSelect;
 export type PaymentAttempt = typeof paymentAttempts.$inferSelect;
+export type UnmatchedPayment = typeof unmatchedPayments.$inferSelect;
 export type Customer = typeof customers.$inferSelect;
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type ContactMessage = typeof contactMessages.$inferSelect;

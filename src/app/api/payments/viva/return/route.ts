@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { commerceEnabled } from '@/lib/commerce-flag';
 import { siteUrl } from '@/lib/payments';
 import { findOrderByPayment } from '@/lib/payments/attempts';
-import { settleCardPayment } from '@/lib/payments/settle';
+import { reportUnmatchedPayment, settleCardPayment } from '@/lib/payments/settle';
 import { vivaRetrieveTransaction } from '@/lib/payments/viva';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 
@@ -32,7 +32,10 @@ export async function GET(request: Request) {
     if (tx.paid && tx.orderCode === orderCode) {
       // the checkout may be an older attempt (the buyer retried): the attempt table, then merchantTrns, find the order
       const order = await findOrderByPayment('viva', orderCode, tx.merchantTrns);
-      if (!order) return lookup;
+      if (!order) {
+        await reportUnmatchedPayment({ provider: 'viva', orderCode, transactionId, merchantTrns: tx.merchantTrns, amountCents: tx.amountCents, currency: tx.currency });
+        return lookup;
+      }
       const outcome = await settleCardPayment(order, { provider: 'viva', ref: transactionId, amountCents: tx.amountCents, currency: tx.currency, attemptRef: orderCode });
       // a payment that does not add up (or lands on a cancelled order) is the owner's to sort out: no "success" page, no secret link
       if (outcome !== 'paid' && outcome !== 'already_paid') return lookup;

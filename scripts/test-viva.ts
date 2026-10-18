@@ -6,7 +6,7 @@
  * The request shapes asserted here are the ones src/lib/payments/viva.ts is meant to send, per the Smart Checkout
  * integration guide linked from that file.
  */
-import { rmSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { cloneDatabase } from './test-db';
 
@@ -40,6 +40,9 @@ const ROUTES: [RegExp, Kind][] = [
   [/^https:\/\/(demo-)?api\.vivapayments\.com\/checkout\/v2\/orders$/, 'order'],
   [/^https:\/\/(demo-)?api\.vivapayments\.com\/checkout\/v2\/transactions\/[0-9a-f-]{36}$/i, 'transaction'],
   [/^https:\/\/(demo|www)\.vivapayments\.com\/api\/messages\/config\/token$/, 'webhook-key'],
+  // VIVA_TEST_BASE_URL section: the same two endpoints on the test host
+  [/^http:\/\/127\.0\.0\.1:9999\/connect\/token$/, 'token'],
+  [/^http:\/\/127\.0\.0\.1:9999\/checkout\/v2\/orders$/, 'order'],
 ];
 const calls: Call[] = [];
 const unexpected: string[] = [];
@@ -458,6 +461,98 @@ async function main() {
   const warnM = (await eventsOf(oM.id)).filter((e) => e.message.includes('ΠΡΟΣΟΧΗ')).length;
   check('M: the same mismatched webhook twice leaves one ΠΡΟΣΟΧΗ event', warnM === 1, warnM);
   check('M: the order stays unpaid', (await orderRow(oM.id)).paymentStatus !== 'paid');
+
+  console.log('N. Paid payment matching no order');
+  const { unmatchedPayments } = await import('../src/lib/db/schema');
+  const outboxDir = path.join(dir, 'data', 'outbox');
+  const UNMATCHED_SUBJECT = 'Χρειάζεται έλεγχος: πληρωμή χωρίς παραγγελία';
+  const unmatchedMails = () => {
+    try {
+      return readdirSync(outboxDir).filter((f) => readFileSync(path.join(outboxDir, f), 'utf8').includes(`subject: ${UNMATCHED_SUBJECT}`));
+    } catch {
+      return [] as string[];
+    }
+  };
+  const unmatchedRows = (orderCode: string) => db.select().from(unmatchedPayments).where(eq(unmatchedPayments.orderCode, orderCode));
+  // the shop needs a recipient for the mail to be written to the outbox (no shop e-mail in the copy is guaranteed)
+  process.env.ORDERS_NOTIFY_EMAIL = 'shop@example.com';
+  const CODE_U = '9515982136485001';
+  const TX_U = '3fa85f64-5717-4562-b3fc-2c963f66a0d1';
+  const mailsBeforeU = unmatchedMails().length;
+  fromIp('198.51.100.60');
+  canned.txBody = txJson({ amount: 45.67, orderCode: CODE_U, merchantTrns: 'OC-NOPE-UNM-1' });
+  const u1 = await hook(1796, TX_U, CODE_U);
+  check('N: a paid transaction for no order answers 200', u1.status === 200, u1.status);
+  const rowsU1 = await unmatchedRows(CODE_U);
+  check('N: exactly one unmatched_payments row with the amount in cents, order code and transaction id', rowsU1.length === 1 && rowsU1[0].amountCents === 4567 && rowsU1[0].orderCode === CODE_U && rowsU1[0].transactionId === TX_U, rowsU1);
+  check('N: exactly one new outbox mail with the unmatched subject', unmatchedMails().length - mailsBeforeU === 1, unmatchedMails().length - mailsBeforeU);
+  const mailsAfterU1 = unmatchedMails().length;
+  const u2 = await hook(1796, TX_U, CODE_U);
+  check('N: the same webhook again answers 200', u2.status === 200, u2.status);
+  check('N: still one row', (await unmatchedRows(CODE_U)).length === 1, (await unmatchedRows(CODE_U)).length);
+  check('N: and no new mail', unmatchedMails().length === mailsAfterU1, unmatchedMails().length - mailsAfterU1);
+  fromIp('198.51.100.61');
+  const uRet = await ret(`t=${TX_U}&s=${CODE_U}`);
+  const locU = uRet.headers.get('location') ?? '';
+  check('N: the return route for the same transaction redirects to /order-status', locU === `${siteUrl()}/order-status`, locU);
+  check('N: …still one row', (await unmatchedRows(CODE_U)).length === 1, (await unmatchedRows(CODE_U)).length);
+  check('N: …and still no new mail', unmatchedMails().length === mailsAfterU1, unmatchedMails().length - mailsAfterU1);
+
+  console.log('N2. Failed transaction matching no order');
+  const CODE_F = '9515982136485002';
+  const TX_F = '3fa85f64-5717-4562-b3fc-2c963f66a0d2';
+  const mailsBeforeF = unmatchedMails().length;
+  fromIp('198.51.100.62');
+  canned.txBody = txJson({ status: 'X', amount: 12.5, orderCode: CODE_F, merchantTrns: 'OC-NOPE-UNM-2' });
+  const f1 = await hook(1798, TX_F, CODE_F);
+  check('N2: a failed transaction for no order answers 200', f1.status === 200, f1.status);
+  check('N2: it writes no unmatched_payments row', (await unmatchedRows(CODE_F)).length === 0, (await unmatchedRows(CODE_F)).length);
+  check('N2: and sends no mail', unmatchedMails().length === mailsBeforeF, unmatchedMails().length - mailsBeforeF);
+  delete process.env.ORDERS_NOTIFY_EMAIL;
+
+  console.log('O. VIVA_TEST_BASE_URL is honoured only outside live');
+  const TB = 'http://127.0.0.1:9999/';
+  const savedEnvO = { env: process.env.VIVA_ENV, base: process.env.VIVA_TEST_BASE_URL };
+  process.env.VIVA_ENV = 'demo';
+  process.env.VIVA_TEST_BASE_URL = TB;
+  // read at import time: a fresh module instance per environment (non-literal specifiers, as for the live case above)
+  const demoTbSpecifier = '../src/lib/payments/viva.ts?tb=demo';
+  const demoTb: typeof viva = await import(demoTbSpecifier);
+  calls.length = 0;
+  canned.orderBody = '{"orderCode":9515982136485101}';
+  const demoTbOrder = await demoTb.vivaCreateOrder({ amountCents: 1234, orderNumber: 'OC-TEST-TB1', email: 'b@example.com', fullName: 'A B', phone: '6900000000' });
+  check('demo + test base: the token request goes to the test host', calls.find((c) => c.url.endsWith('/connect/token'))?.url === 'http://127.0.0.1:9999/connect/token', calls.map((c) => c.url));
+  check('demo + test base: the order goes to the test host', calls.find((c) => c.url.endsWith('/checkout/v2/orders'))?.url === 'http://127.0.0.1:9999/checkout/v2/orders', calls.map((c) => c.url));
+  check('demo + test base: the redirect is built on the test host', demoTbOrder.redirectUrl === `http://127.0.0.1:9999/web/checkout?ref=${demoTbOrder.orderCode}&lang=el`, demoTbOrder.redirectUrl);
+
+  process.env.VIVA_ENV = 'live';
+  const liveTbSpecifier = '../src/lib/payments/viva.ts?tb=live';
+  const liveTb: typeof viva = await import(liveTbSpecifier);
+  process.env.VIVA_ENV = savedEnvO.env;
+  calls.length = 0;
+  canned.orderBody = '{"orderCode":9515982136485102}';
+  await liveTb.vivaCreateOrder({ amountCents: 1234, orderNumber: 'OC-TEST-TB2', email: 'b@example.com', fullName: 'A B', phone: '6900000000' });
+  check('live + test base: the token request still goes to the live accounts host', calls.find((c) => c.url.endsWith('/connect/token'))?.url === 'https://accounts.vivapayments.com/connect/token', calls.map((c) => c.url));
+  check('live + test base: the order still goes to the live api host', calls.find((c) => c.url.endsWith('/checkout/v2/orders'))?.url === 'https://api.vivapayments.com/checkout/v2/orders', calls.map((c) => c.url));
+  canned.orderBody = '{"orderCode":9515982136481235}';
+  if (savedEnvO.base === undefined) delete process.env.VIVA_TEST_BASE_URL;
+  else process.env.VIVA_TEST_BASE_URL = savedEnvO.base;
+  check('the environment is restored', process.env.VIVA_ENV === 'demo' && process.env.VIVA_TEST_BASE_URL === savedEnvO.base);
+
+  console.log('P. Production check refuses the test switch on live');
+  const { checkProductionConfig } = await import('../src/lib/startup-check');
+  const savedEnvP = { env: process.env.VIVA_ENV, base: process.env.VIVA_TEST_BASE_URL };
+  const testSwitchProblems = (problems: string[]) => problems.filter((p) => p.includes('VIVA_TEST_BASE_URL'));
+  process.env.VIVA_TEST_BASE_URL = TB;
+  process.env.VIVA_ENV = 'live';
+  const liveProblems = checkProductionConfig();
+  check('live + VIVA_TEST_BASE_URL: a problem names the variable', testSwitchProblems(liveProblems).length === 1, liveProblems);
+  process.env.VIVA_ENV = 'demo';
+  const demoProblems = checkProductionConfig();
+  check('demo + VIVA_TEST_BASE_URL: no such problem', testSwitchProblems(demoProblems).length === 0, demoProblems);
+  process.env.VIVA_ENV = savedEnvP.env ?? 'demo';
+  if (savedEnvP.base === undefined) delete process.env.VIVA_TEST_BASE_URL;
+  else process.env.VIVA_TEST_BASE_URL = savedEnvP.base;
 
   console.log('8. Closed gates');
   process.env.COMMERCE_ENABLED = 'false';

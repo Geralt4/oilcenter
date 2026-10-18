@@ -242,6 +242,11 @@ export type PaymentOutcome =
   /** a problem the owner was already told about for this checkout (the browser return and the webhook both report it) */
   | 'already_flagged';
 
+/** Puts the order on the owner's «χρειάζεται έλεγχο» list (dashboard, order list); cleared by hand once it has been dealt with. */
+export async function flagForReview(orderId: number): Promise<void> {
+  await db.update(orders).set({ paymentFlag: 'review' }).where(eq(orders.id, orderId));
+}
+
 export type PaymentInfo = {
   provider: string;
   /** the gateway's reference for the payment (Viva transactionId): shown in the order's history and kept on the order */
@@ -266,6 +271,7 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
     const second = info.attemptRef && order.paymentTransactionId && order.paymentTransactionId !== info.ref;
     if (!second) return 'already_paid';
     if (!(await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'failed']))) return 'already_flagged';
+    await flagForReview(orderId);
     await addOrderEvent(orderId, 'payment', `ΠΡΟΣΟΧΗ: δεύτερη πληρωμή για την ίδια παραγγελία (${info.provider}, αναφορά ${info.ref}, ${info.amountCents / 100} €). Η παραγγελία είχε ήδη πληρωθεί (αναφορά ${order.paymentTransactionId}). Επιστρέψτε τα χρήματα της δεύτερης πληρωμής.`);
     return 'duplicate_payment';
   }
@@ -274,6 +280,7 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
   const problem: PaymentOutcome | null = currency && currency !== 'EUR' ? 'currency_mismatch' : info.amountCents !== order.totalCents ? 'amount_mismatch' : null;
   // the browser return and the webhook both report the same wrong payment: only the first one raises the alarm
   if (problem && info.attemptRef && !(await claimAttemptStatus(orderId, info.provider, info.attemptRef, 'mismatch', info.ref, ['created', 'failed']))) return 'already_flagged';
+  if (problem) await flagForReview(orderId);
   if (problem === 'currency_mismatch') {
     await addOrderEvent(orderId, 'payment', `ΠΡΟΣΟΧΗ: η πληρωμή έγινε σε νόμισμα ${currency} αντί για EUR. Αναφορά ${info.provider}: ${info.ref}`);
   } else if (problem === 'amount_mismatch') {
@@ -292,6 +299,7 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
   if (updated.length === 0) return 'already_paid';
   if (info.attemptRef) await setAttemptStatus(info.provider, info.attemptRef, 'paid', info.ref);
   if (late) {
+    await flagForReview(orderId);
     await addOrderEvent(orderId, 'payment', `ΠΡΟΣΟΧΗ: η πληρωμή (${info.provider}, αναφορά ${info.ref}, ${info.amountCents / 100} €) ήρθε αφού η παραγγελία είχε ακυρωθεί και το απόθεμα είχε επανέλθει. Επιστρέψτε τα χρήματα από τον πάροχο πληρωμών ή ξανανοίξτε την παραγγελία.`);
     return 'late_cancelled';
   }

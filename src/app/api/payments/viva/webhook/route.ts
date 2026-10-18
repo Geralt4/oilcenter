@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { commerceEnabled } from '@/lib/commerce-flag';
 import { addOrderEvent } from '@/lib/orders';
 import { findOrderByPayment, setAttemptStatus } from '@/lib/payments/attempts';
-import { settleCardPayment } from '@/lib/payments/settle';
+import { reportUnmatchedPayment, settleCardPayment } from '@/lib/payments/settle';
 import { vivaRetrieveTransaction, vivaWebhookIpAllowed, vivaWebhookVerificationKey } from '@/lib/payments/viva';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 
@@ -53,8 +53,9 @@ export async function POST(request: Request) {
     if (tx.orderCode !== orderCode) return NextResponse.json({ ok: true });
     const order = await findOrderByPayment('viva', orderCode, tx.merchantTrns);
     if (!order) {
-      // Money for a checkout we cannot match to an order: nothing to attach an alert to, so the log line is the trace.
-      console.warn(`[viva] ${tx.paid ? 'PAID' : 'failed'} transaction ${transactionId} for order code ${orderCode} (merchantTrns ${tx.merchantTrns ?? '-'}) matches no order`);
+      // Money for a checkout we cannot match to an order is kept and the shop is told; a failed one is only a log line.
+      if (tx.paid) await reportUnmatchedPayment({ provider: 'viva', orderCode, transactionId, merchantTrns: tx.merchantTrns, amountCents: tx.amountCents, currency: tx.currency });
+      else console.warn(`[viva] failed transaction ${transactionId} for order code ${orderCode} matches no order`);
       return NextResponse.json({ ok: true });
     }
 

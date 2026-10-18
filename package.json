@@ -29,7 +29,8 @@
     "test:feed": "tsx scripts/test-feed.ts",
     "test:catalog": "tsx scripts/test-catalog.ts",
     "test:admin": "tsx scripts/test-admin.ts",
-    "test:flows": "npm run build && tsx scripts/test-flows.ts"
+    "test:flows": "npm run build && tsx scripts/test-flows.ts",
+    "test:card": "npm run build && tsx scripts/test-card-flow.ts"
   },
   "engines": {
     "node": ">=20.9"

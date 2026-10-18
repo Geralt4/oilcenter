@@ -268,6 +268,12 @@ Every checkout opened for an order is kept in `payment_attempts`, so a payment o
 payments that do not add up (wrong amount or currency, or arriving after the order was cancelled) are not marked as an
 ordinary sale and the shop e-mail is told. `VIVA.md` has the full assessment, gap list and test plan.
 
+`npm run test:card` (builds first) drives the whole card journey in a browser against a fake Viva server
+(`scripts/fake-viva.ts`). The fake is reached through `VIVA_TEST_BASE_URL`, a test-only switch that `src/lib/payments/viva.ts`
+ignores when `VIVA_ENV=live` and that the startup check refuses to boot with. Unmatched payments and payments that need
+the owner's attention show on the admin dashboard («Πληρωμές που θέλουν έλεγχο»). `VIVA-OWNER.md` is the Greek message for
+the shop owner about opening the Viva account.
+
 **Stripe Checkout** — set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`; webhook endpoint
 `{SITE_URL}/api/payments/stripe/webhook`, event `checkout.session.completed`.
 

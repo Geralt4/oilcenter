@@ -466,6 +466,76 @@ async function main() {
     check('…and sends no new mail', outboxFiles().filter((f) => !outbox10b.has(f)).length === 0, outboxFiles().filter((f) => !outbox10b.has(f)));
   }
 
+  console.log('Payment flag for the owner');
+  {
+    const { recordPayment } = await import('../src/lib/orders');
+    const { recordUnmatchedPayment } = await import('../src/lib/payments/attempts');
+    const { unmatchedPayments } = await import('../src/lib/db/schema');
+    const madeOrderIds: number[] = [];
+    let madeCount = 0;
+    // a fresh card order straight into the table: the minimum the payment code reads
+    const freshCardOrder = async (over: Partial<typeof orders.$inferInsert> = {}) => {
+      madeCount++;
+      const [row] = await db
+        .insert(orders)
+        .values({
+          number: `OC-FLAG-T${madeCount}`,
+          accessToken: `at-flag-t${madeCount}`,
+          paymentMethod: 'card',
+          shippingMethod: 'courier',
+          email: 'buyer@example.com',
+          phone: '6900000000',
+          firstName: 'Τεστ',
+          lastName: 'Αγοραστής',
+          subtotalCents: 1999,
+          totalCents: 1999,
+          paymentProvider: 'viva',
+          ...over,
+        })
+        .returning();
+      madeOrderIds.push(row.id);
+      return row;
+    };
+    const flagNow = async (id: number) => (await db.select().from(orders).where(eq(orders.id, id)))[0].paymentFlag;
+
+    const amountMismatch = await freshCardOrder();
+    check('amount_mismatch → review flag', (await recordPayment(amountMismatch.id, { provider: 'viva', ref: 'FLAG-AM-1', amountCents: amountMismatch.totalCents + 1 })) === 'amount_mismatch' && (await flagNow(amountMismatch.id)) === 'review');
+
+    const currencyMismatch = await freshCardOrder();
+    check('currency_mismatch → review flag', (await recordPayment(currencyMismatch.id, { provider: 'viva', ref: 'FLAG-CM-1', amountCents: currencyMismatch.totalCents, currency: 'USD' })) === 'currency_mismatch' && (await flagNow(currencyMismatch.id)) === 'review');
+
+    const lateCancelled = await freshCardOrder({ status: 'cancelled' });
+    check('late_cancelled → review flag', (await recordPayment(lateCancelled.id, { provider: 'viva', ref: 'FLAG-LC-1', amountCents: lateCancelled.totalCents })) === 'late_cancelled' && (await flagNow(lateCancelled.id)) === 'review');
+
+    const duplicate = await freshCardOrder();
+    check('the first payment (no attemptRef) → paid', (await recordPayment(duplicate.id, { provider: 'viva', ref: 'FLAG-DP-1', amountCents: duplicate.totalCents })) === 'paid');
+    check('a second payment on another checkout → duplicate_payment', (await recordPayment(duplicate.id, { provider: 'viva', ref: 'FLAG-DP-2', amountCents: duplicate.totalCents, attemptRef: 'FLAG-DP-ATT' })) === 'duplicate_payment');
+    check('duplicate_payment → review flag', (await flagNow(duplicate.id)) === 'review');
+
+    const plain = await freshCardOrder();
+    check('a normal paid payment → paid, no flag', (await recordPayment(plain.id, { provider: 'viva', ref: 'FLAG-OK-1', amountCents: plain.totalCents })) === 'paid' && (await flagNow(plain.id)) === null);
+
+    const again = await freshCardOrder();
+    await recordPayment(again.id, { provider: 'viva', ref: 'FLAG-AP-1', amountCents: again.totalCents });
+    check('a repeat payment → already_paid, no flag', (await recordPayment(again.id, { provider: 'viva', ref: 'FLAG-AP-2', amountCents: again.totalCents })) === 'already_paid' && (await flagNow(again.id)) === null);
+
+    const repeated = await freshCardOrder();
+    check('a wrong amount on a checkout → amount_mismatch (flagged)', (await recordPayment(repeated.id, { provider: 'viva', ref: 'FLAG-AF-1', amountCents: repeated.totalCents + 1, attemptRef: 'FLAG-AF-ATT' })) === 'amount_mismatch');
+    await db.update(orders).set({ paymentFlag: null }).where(eq(orders.id, repeated.id));
+    check('the same report again → already_flagged', (await recordPayment(repeated.id, { provider: 'viva', ref: 'FLAG-AF-1', amountCents: repeated.totalCents + 1, attemptRef: 'FLAG-AF-ATT' })) === 'already_flagged');
+    check('…and already_flagged does not set the flag again', (await flagNow(repeated.id)) === null);
+
+    console.log('Unmatched payments are kept once');
+    const unmatched = (transactionId: string) => ({ provider: 'viva', orderCode: '9515982136480001', transactionId, merchantTrns: null, amountCents: 1999, currency: 'EUR' });
+    check('the first time a paid transaction is recorded → true', (await recordUnmatchedPayment(unmatched('FLAG-UM-TX-1'))) === true);
+    check('the same transaction again → false', (await recordUnmatchedPayment(unmatched('FLAG-UM-TX-1'))) === false);
+    check('a different transaction → true', (await recordUnmatchedPayment(unmatched('FLAG-UM-TX-2'))) === true);
+
+    for (const id of madeOrderIds) await db.delete(orders).where(eq(orders.id, id));
+    await db.delete(unmatchedPayments).where(eq(unmatchedPayments.orderCode, '9515982136480001'));
+    check('the rows of this section are gone', (await db.select().from(orders).where(eq(orders.id, madeOrderIds[0]))).length === 0);
+  }
+
   console.log('Cleanup');
   await db.delete(sales).where(eq(sales.id, running.id));
   await db.delete(coupons).where(inArray(coupons.code, CODES));

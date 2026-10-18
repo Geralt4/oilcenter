@@ -3,17 +3,17 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { asc, eq } from 'drizzle-orm';
 import { ExternalLink, Mail, Phone } from 'lucide-react';
-import { updateOrder } from '@/app/admin/actions';
+import { resolvePaymentReview, updateOrder } from '@/app/admin/actions';
 import { AdminForm } from '@/components/admin/admin-form';
 import { PrintButton } from '@/components/admin/print-button';
 import { Card, Check, Field, PageHeader, PaymentBadge, StatusBadge } from '@/components/admin/ui';
 import { AvailabilityTag } from '@/components/store/availability';
 import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { orderEvents, orders, type OrderStatus } from '@/lib/db/schema';
-import { ORDER_STATUS_LABELS } from '@/lib/orders';
+import { orderEvents, orders, paymentAttempts, type OrderStatus, type PaymentStatus } from '@/lib/db/schema';
+import { ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/orders';
 import { PAYMENT_LABELS, SHIPPING_LABELS } from '@/lib/pricing';
-import { formatDateTime, formatPrice, formatWeight, vatPortion } from '@/lib/utils';
+import { cn, formatDateTime, formatPrice, formatWeight, vatPortion } from '@/lib/utils';
 
 export const metadata = { title: 'Παραγγελία' };
 
@@ -23,6 +23,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
   if (!Number.isInteger(id)) notFound();
   const order = await db.query.orders.findFirst({ where: eq(orders.id, id), with: { items: true, events: { orderBy: [asc(orderEvents.id)] } } });
   if (!order) notFound();
+  const attempts = await db.select().from(paymentAttempts).where(eq(paymentAttempts.orderId, order.id)).orderBy(asc(paymentAttempts.id));
 
   const pickup = order.shippingMethod === 'pickup';
   // offer only the statuses that make sense for how this order is delivered
@@ -36,6 +37,17 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
         <PrintButton />
         <Link href={`/order/${order.number}?t=${order.accessToken}`} target="_blank" className="flex h-10 items-center gap-2 rounded-xl border border-ink-200 bg-white px-3.5 text-sm font-semibold text-ink-900 hover:bg-ink-50 print:hidden"><ExternalLink className="h-4 w-4" />Όπως τη βλέπει ο πελάτης</Link>
       </PageHeader>
+
+      {order.paymentFlag === 'review' && (
+        <div role="alert" className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 print:hidden">
+          <p className="font-bold text-red-900">Χρειάζεται έλεγχο η πληρωμή αυτής της παραγγελίας</p>
+          <p className="mt-1 text-sm text-red-900">Δείτε τις γραμμές «ΠΡΟΣΟΧΗ» στο ιστορικό. Όταν το χειριστείτε (π.χ. επιστρέψατε τα χρήματα από τον πάροχο πληρωμών), πατήστε το κουμπί.</p>
+          <form action={resolvePaymentReview} className="mt-3">
+            <input type="hidden" name="id" value={order.id} />
+            <button type="submit" className="cursor-pointer rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800">Το χειρίστηκα</button>
+          </form>
+        </div>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr] xl:items-start">
         <div className="space-y-6">
@@ -77,6 +89,13 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                 {pickup ? 'Ο πελάτης θα παραλάβει από το κατάστημα.' : <>{order.street}<br />{order.postalCode} {order.city}{order.region ? `, ${order.region}` : ''}</>}
               </p>
               <p className="mt-3 text-sm text-ink-800"><strong>Πληρωμή:</strong> {PAYMENT_LABELS[order.paymentMethod]}{order.paymentProvider ? ` (${order.paymentProvider})` : ''}</p>
+              {order.paymentTransactionId && <p className="mt-1 text-sm text-ink-800"><strong>Κωδικός συναλλαγής:</strong> <span className="tabular break-all">{order.paymentTransactionId}</span></p>}
+              {attempts.length > 0 && (
+                <div className="mt-1 text-sm text-ink-800">
+                  <strong>Προσπάθειες πληρωμής:</strong>
+                  <ul className="tabular mt-0.5 text-xs text-ink-600">{attempts.map((a) => <li key={a.id}>{a.provider} · {a.ref} · {a.status}</li>)}</ul>
+                </div>
+              )}
               <p className="mt-1 text-sm text-ink-800"><strong>Παραστατικό:</strong> {order.docType === 'invoice' ? 'Τιμολόγιο' : 'Απόδειξη'}</p>
               {order.docType === 'invoice' && <p className="mt-1 text-sm leading-relaxed text-ink-700">{order.companyName}<br />ΑΦΜ <span className="tabular">{order.vatNumber}</span> · ΔΟΥ {order.taxOffice}<br />{order.companyActivity}{order.companyAddress ? <><br />{order.companyAddress}</> : null}</p>}
             </Card>
@@ -94,7 +113,11 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                   </select>
                 </Field>
                 <Check name="notify" label="Ενημέρωση του πελάτη με e-mail" hint="Στέλνεται μόνο όταν αλλάζει η κατάσταση." defaultChecked />
-                <Check name="paid" label="Η παραγγελία έχει εξοφληθεί" defaultChecked={order.paymentStatus === 'paid'} hint={order.paymentMethod === 'card' ? 'Οι πληρωμές με κάρτα σημειώνονται αυτόματα.' : 'Σημειώστε το όταν εισπράξετε (αντικαταβολή, κατάθεση, κατάστημα).'} />
+                <Field label="Πληρωμή" hint={order.paymentMethod === 'card' ? 'Οι πληρωμές με κάρτα σημειώνονται αυτόματα. Μετά από επιστροφή χρημάτων στον πάροχο πληρωμών, επιλέξτε «Επιστροφή χρημάτων».' : 'Σημειώστε «Εξοφλημένη» όταν εισπράξετε (αντικαταβολή, κατάθεση, στο κατάστημα).'}>
+                  <select name="paymentStatus" defaultValue={order.paymentStatus} className="field cursor-pointer">
+                    {(Object.keys(PAYMENT_STATUS_LABELS) as PaymentStatus[]).map((p) => <option key={p} value={p}>{PAYMENT_STATUS_LABELS[p]}</option>)}
+                  </select>
+                </Field>
                 {!pickup && (
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Courier"><input name="trackingCarrier" defaultValue={order.trackingCarrier ?? ''} placeholder="π.χ. ACS" className="field" /></Field>
@@ -112,7 +135,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
               {order.events.map((e) => (
                 <li key={e.id} className="relative text-sm">
                   <span className="absolute top-1.5 -left-[1.4rem] h-2.5 w-2.5 rounded-full bg-oil-500 ring-4 ring-white" />
-                  <p className="text-ink-800">{e.message}</p>
+                  <p className={cn('text-ink-800', e.message.startsWith('ΠΡΟΣΟΧΗ') && 'font-semibold text-red-700')}>{e.message}</p>
                   <p className="text-xs text-ink-500">{formatDateTime(e.createdAt)} · {e.actor === 'system' ? 'σύστημα' : e.actor === 'customer' ? 'πελάτης' : e.actor}</p>
                 </li>
               ))}
