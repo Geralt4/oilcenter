@@ -5,6 +5,7 @@ import { bestAvailability, effectiveAvailability, type Availability } from '@/li
 import { db } from '@/lib/db';
 import { brands, categories, productImages, products, variants, type BaseType, type Brand, type Category } from '@/lib/db/schema';
 import { brandAliases, brandWords, compactGrades, greeklish, matchesTerm, searchTerms } from '@/lib/search-keywords';
+import { getSaleContext, withSale } from '@/lib/sales';
 import { normalizeText } from '@/lib/utils';
 
 /*
@@ -75,19 +76,24 @@ export const BASE_TYPE_LABELS: Record<BaseType, string> = {
 };
 
 const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
-  const [productRows, variantRows, imageRows, brandRows] = await Promise.all([
+  const [productRows, variantRows, imageRows, brandRows, saleCtx] = await Promise.all([
     db.select().from(products).where(eq(products.isActive, true)),
     db.select().from(variants).where(eq(variants.isActive, true)).orderBy(asc(variants.sort), asc(variants.volumeMl)),
     db.select().from(productImages).orderBy(asc(productImages.sort), asc(productImages.id)),
     db.select().from(brands),
+    getSaleContext(),
   ]);
+  const productById = new Map(productRows.map((p) => [p.id, p]));
 
   const brandById = new Map(brandRows.map((b) => [b.id, b]));
   const firstImage = new Map<number, string>();
   for (const img of imageRows) if (!firstImage.has(img.productId)) firstImage.set(img.productId, img.url);
 
   const variantsByProduct = new Map<number, CatalogVariant[]>();
-  for (const v of variantRows) {
+  for (const row of variantRows) {
+    const owner = productById.get(row.productId);
+    if (!owner) continue;
+    const v = withSale(saleCtx, owner, row, row.priceVerified);
     const list = variantsByProduct.get(v.productId) ?? [];
     const availability = effectiveAvailability(v);
     list.push({
@@ -544,7 +550,8 @@ export async function getProductBySlug(slug: string) {
     },
   });
   if (!product || product.variants.length === 0) return null;
-  return product;
+  const saleCtx = await getSaleContext();
+  return { ...product, variants: product.variants.map((v) => withSale(saleCtx, product, v, v.priceVerified)) };
 }
 
 export type ProductDetail = NonNullable<Awaited<ReturnType<typeof getProductBySlug>>>;
@@ -569,6 +576,8 @@ export async function getRelatedProducts(product: { id: number; categoryId: numb
 export type ResolvedCartLine = {
   variantId: number;
   productId: number;
+  brandId: number | null;
+  categoryId: number | null;
   slug: string;
   name: string;
   brandName: string | null;
@@ -601,6 +610,7 @@ export async function resolveCartLines(lines: Array<{ variantId: number; quantit
   }
   if (!wanted.size) return [];
 
+  const saleCtx = await getSaleContext();
   const rows = await db
     .select({ v: variants, p: products, brandName: brands.name })
     .from(variants)
@@ -622,13 +632,14 @@ export async function resolveCartLines(lines: Array<{ variantId: number; quantit
     // a size whose price the owner has not confirmed cannot be bought: same treatment as a withdrawn product
     if (!row || !row.v.isActive || !row.p.isActive || !row.v.priceVerified) {
       out.push({
-        variantId, productId: row?.p.id ?? 0, slug: row?.p.slug ?? '', name: row?.p.name ?? 'Μη διαθέσιμο προϊόν', brandName: row?.brandName ?? null,
+        variantId, productId: row?.p.id ?? 0, brandId: null, categoryId: null, slug: row?.p.slug ?? '', name: row?.p.name ?? 'Μη διαθέσιμο προϊόν', brandName: row?.brandName ?? null,
         variantLabel: row?.v.label ?? '', sku: row?.v.sku ?? '', imageUrl: null, unitPriceCents: 0, compareAtCents: null, quantity: 0, maxQuantity: 0,
         lineTotalCents: 0, weightGrams: 0, unitWeightGrams: 0, availability: null, issue: 'unavailable',
       });
       continue;
     }
-    const { v, p } = row;
+    const { p } = row;
+    const v = withSale(saleCtx, p, row.v, row.v.priceVerified);
     // a size the owner marked "not available" is treated exactly like counted stock that ran out
     const availability = effectiveAvailability(v);
     const max = availability === 'unavailable' ? 0 : v.trackStock ? Math.max(0, v.stock) : null;
@@ -636,6 +647,8 @@ export async function resolveCartLines(lines: Array<{ variantId: number; quantit
     out.push({
       variantId,
       productId: p.id,
+      brandId: p.brandId,
+      categoryId: p.categoryId,
       slug: p.slug,
       name: p.name,
       brandName: row.brandName ?? null,

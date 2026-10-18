@@ -122,6 +122,11 @@ export function cartCount(lines: CartLine[]): number {
   return lines.reduce((sum, l) => sum + l.quantity, 0);
 }
 
+/** the lines as the coupon maths wants them */
+export function cartCouponLines(lines: CartLine[]): Array<{ variantId: number; lineTotalCents: number }> {
+  return lines.map((l) => ({ variantId: l.variantId, lineTotalCents: l.quantity * l.snapshot.unitPriceCents }));
+}
+
 export function cartSubtotalCents(lines: CartLine[]): number {
   return lines.reduce((sum, l) => sum + l.quantity * l.snapshot.unitPriceCents, 0);
 }

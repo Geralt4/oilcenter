@@ -10,7 +10,7 @@ import { AvailabilityTag } from '@/components/store/availability';
 import { syncCartWithServer } from '@/components/store/cart-drawer';
 import { useStoreConfig } from '@/components/store/store-context';
 import { buttonClass } from '@/components/ui/button';
-import { cartSubtotalCents, cartWeightGrams, useCart, useHydrated } from '@/lib/cart-store';
+import { cartCouponLines, cartSubtotalCents, cartWeightGrams, useCart, useHydrated } from '@/lib/cart-store';
 import type { DocType, PaymentMethod, ShippingMethod } from '@/lib/db/schema';
 import { availablePaymentMethods, computeTotals, PAYMENT_LABELS, type AppliedCoupon } from '@/lib/pricing';
 import { cn, formatPrice } from '@/lib/utils';
@@ -125,8 +125,9 @@ export function CheckoutForm({ prefill, pickupAddress }: { prefill: CheckoutPref
 
   const subtotal = cartSubtotalCents(lines);
   const weight = cartWeightGrams(lines);
-  const totals = computeTotals({ subtotalCents: subtotal, weightGrams: weight, shippingMethod, paymentMethod, coupon, shipping: config.shipping, vatRate: config.vatRate });
-  const courierTotals = computeTotals({ subtotalCents: subtotal, weightGrams: weight, shippingMethod: 'courier', paymentMethod: null, coupon, shipping: config.shipping, vatRate: config.vatRate });
+  const couponLines = cartCouponLines(lines);
+  const totals = computeTotals({ subtotalCents: subtotal, weightGrams: weight, shippingMethod, paymentMethod, coupon, lines: couponLines, shipping: config.shipping, vatRate: config.vatRate });
+  const courierTotals = computeTotals({ subtotalCents: subtotal, weightGrams: weight, shippingMethod: 'courier', paymentMethod: null, coupon, lines: couponLines, shipping: config.shipping, vatRate: config.vatRate });
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();

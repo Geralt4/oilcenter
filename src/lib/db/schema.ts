@@ -1,4 +1,4 @@
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { Availability } from '@/lib/availability';
 import type { HazardInfo } from '@/lib/ghs';
@@ -355,6 +355,14 @@ export const orderEvents = sqliteTable(
 
 // ─── Marketing ───────────────────────────────────────────────────────────────
 export type CouponType = 'percent' | 'fixed' | 'free_shipping';
+export type SaleType = 'percent' | 'fixed';
+
+/** what a coupon or a sale applies to; all three empty = everything. A category also covers its sub-categories. */
+const targetColumns = () => ({
+  productIds: text('product_ids', { mode: 'json' }).$type<number[]>().notNull().default(sql`'[]'`),
+  brandIds: text('brand_ids', { mode: 'json' }).$type<number[]>().notNull().default(sql`'[]'`),
+  categoryIds: text('category_ids', { mode: 'json' }).$type<number[]>().notNull().default(sql`'[]'`),
+});
 
 export const coupons = sqliteTable(
   'coupons',
@@ -370,10 +378,27 @@ export const coupons = sqliteTable(
     startsAt: integer('starts_at', { mode: 'timestamp_ms' }),
     endsAt: integer('ends_at', { mode: 'timestamp_ms' }),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    /** skip pack sizes that already show a "was" price (an automatic sale or a hand-set one) */
+    excludeSaleItems: integer('exclude_sale_items', { mode: 'boolean' }).notNull().default(false),
+    ...targetColumns(),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('coupons_code_uq').on(t.code)],
 );
+
+/** Automatic discount on chosen products: the shop price drops, no code needed. */
+export const sales = sqliteTable('sales', {
+  id: id(),
+  name: text('name').notNull(),
+  type: text('type').$type<SaleType>().notNull(),
+  /** percent (1–90) for 'percent', cents for 'fixed' */
+  value: integer('value').notNull(),
+  ...targetColumns(),
+  startsAt: integer('starts_at', { mode: 'timestamp_ms' }),
+  endsAt: integer('ends_at', { mode: 'timestamp_ms' }),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  createdAt: createdAt(),
+});
 
 /** which form a message came from: the contact page, «Ποιο λάδι χρειάζεται το όχημά μου;», or the quote form for professionals */
 export type EnquiryKind = 'contact' | 'oil-finder' | 'quote';
@@ -486,6 +511,7 @@ export type Order =typeof orders.$inferSelect;
 export type OrderItem = typeof orderItems.$inferSelect;
 export type OrderEvent = typeof orderEvents.$inferSelect;
 export type Coupon = typeof coupons.$inferSelect;
+export type Sale = typeof sales.$inferSelect;
 export type Customer = typeof customers.$inferSelect;
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type ContactMessage = typeof contactMessages.$inferSelect;

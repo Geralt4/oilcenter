@@ -1,11 +1,13 @@
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/lib/db';
-import { coupons, orderEvents, orderItems, orders, variants, type Order, type OrderStatus } from '@/lib/db/schema';
+import { coupons, orderEvents, orderItems, orders, variants, type Coupon, type Order, type OrderStatus } from '@/lib/db/schema';
 import { randomToken } from '@/lib/auth/password';
-import { resolveCartLines } from '@/lib/catalog';
+import { resolveCartLines, type ResolvedCartLine } from '@/lib/catalog';
 import { commerceEnabled } from '@/lib/commerce-flag';
+import { cleanIds, hasTargets, matchesTargets } from '@/lib/discounts';
 import { availablePaymentMethods, computeTotals, type AppliedCoupon } from '@/lib/pricing';
+import { loadCategoryPaths } from '@/lib/sales';
 import type { ShopSettings } from '@/lib/settings';
 import { isGreekPostalCode, isValidAfm } from '@/lib/utils';
 
@@ -64,7 +66,19 @@ export const CheckoutSchema = z
 export type CheckoutInput = z.infer<typeof CheckoutSchema>;
 
 // ─── Coupons ─────────────────────────────────────────────────────────────────
-export async function findCoupon(code: string | undefined | null, subtotalCents: number): Promise<{ coupon: AppliedCoupon | null; error: string | null }> {
+/** Which of the cart's lines a coupon works on: the ones inside its targets and, if it says so, not already marked down. */
+async function eligibleVariantIds(row: Coupon, lines: ResolvedCartLine[]): Promise<number[]> {
+  const targets = { productIds: cleanIds(row.productIds), brandIds: cleanIds(row.brandIds), categoryIds: cleanIds(row.categoryIds) };
+  const paths = hasTargets(targets) ? await loadCategoryPaths() : new Map<number, number[]>();
+  return lines
+    .filter((l) => l.quantity > 0 && l.issue !== 'unavailable')
+    .filter((l) => !row.excludeSaleItems || l.compareAtCents === null)
+    .filter((l) => matchesTargets(targets, { productId: l.productId, brandId: l.brandId, categoryPath: l.categoryId !== null ? (paths.get(l.categoryId) ?? [l.categoryId]) : [] }))
+    .map((l) => l.variantId);
+}
+
+export async function findCoupon(code: string | undefined | null, lines: ResolvedCartLine[]): Promise<{ coupon: AppliedCoupon | null; error: string | null }> {
+  const subtotalCents = lines.reduce((s, l) => s + l.lineTotalCents, 0);
   const clean = (code ?? '').trim().toUpperCase();
   if (!clean) return { coupon: null, error: null };
   const [row] = await db.select().from(coupons).where(eq(coupons.code, clean));
@@ -73,8 +87,15 @@ export async function findCoupon(code: string | undefined | null, subtotalCents:
   if (row.startsAt && row.startsAt.getTime() > now) return { coupon: null, error: 'Το κουπόνι δεν έχει ενεργοποιηθεί ακόμη.' };
   if (row.endsAt && row.endsAt.getTime() < now) return { coupon: null, error: 'Το κουπόνι έχει λήξει.' };
   if (row.maxUses !== null && row.usedCount >= row.maxUses) return { coupon: null, error: 'Το κουπόνι έχει εξαντληθεί.' };
-  if (subtotalCents < row.minSubtotalCents) return { coupon: null, error: `Το κουπόνι ισχύει για αγορές άνω των ${(row.minSubtotalCents / 100).toFixed(2).replace('.', ',')} €.` };
-  return { coupon: { code: row.code, type: row.type, value: row.value, minSubtotalCents: row.minSubtotalCents }, error: null };
+  const limited = hasTargets({ productIds: cleanIds(row.productIds), brandIds: cleanIds(row.brandIds), categoryIds: cleanIds(row.categoryIds) }) || row.excludeSaleItems;
+  const variantIds = limited ? await eligibleVariantIds(row, lines) : null;
+  if (variantIds && variantIds.length === 0) return { coupon: null, error: 'Το κουπόνι δεν ισχύει για τα προϊόντα του καλαθιού σας.' };
+  const eligibleCents = variantIds ? lines.filter((l) => variantIds.includes(l.variantId)).reduce((s, l) => s + l.lineTotalCents, 0) : subtotalCents;
+  if (eligibleCents < row.minSubtotalCents) {
+    const min = (row.minSubtotalCents / 100).toFixed(2).replace('.', ',');
+    return { coupon: null, error: variantIds ? `Το κουπόνι ισχύει για αγορές άνω των ${min} € στα προϊόντα της προσφοράς.` : `Το κουπόνι ισχύει για αγορές άνω των ${min} €.` };
+  }
+  return { coupon: { code: row.code, type: row.type, value: row.value, minSubtotalCents: row.minSubtotalCents, variantIds }, error: null };
 }
 
 // ─── Create ──────────────────────────────────────────────────────────────────
@@ -106,10 +127,10 @@ export async function createOrder(input: CheckoutInput, settings: ShopSettings, 
 
   const subtotalCents = lines.reduce((s, l) => s + l.lineTotalCents, 0);
   const weightGrams = lines.reduce((s, l) => s + l.weightGrams, 0);
-  const { coupon, error: couponError } = await findCoupon(input.couponCode, subtotalCents);
+  const { coupon, error: couponError } = await findCoupon(input.couponCode, lines);
   if (couponError) return { ok: false, reason: 'coupon', message: couponError };
 
-  const totals = computeTotals({ subtotalCents, weightGrams, shippingMethod: input.shippingMethod, paymentMethod: input.paymentMethod, coupon, shipping, vatRate: tax.vatRate });
+  const totals = computeTotals({ subtotalCents, weightGrams, shippingMethod: input.shippingMethod, paymentMethod: input.paymentMethod, coupon, lines, shipping, vatRate: tax.vatRate });
   const courier = input.shippingMethod === 'courier';
 
   try {

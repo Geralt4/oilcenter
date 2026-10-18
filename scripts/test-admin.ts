@@ -16,6 +16,22 @@ function check(name: string, ok: boolean, detail?: unknown) {
 
 async function main() {
   dir = await cloneDatabase('oc-admin-');
+  // Admin sessions without a request: next/headers' cookies() is replaced by an in-memory jar before anything imports it.
+  const cookieJar = new Map<string, string>();
+  const headersPath = require.resolve('next/headers');
+  require.cache[headersPath] = {
+    id: headersPath, filename: headersPath, loaded: true,
+    exports: {
+      cookies: async () => ({
+        get: (name: string) => (cookieJar.has(name) ? { name, value: cookieJar.get(name)! } : undefined),
+        set: (name: string, value: string) => void cookieJar.set(name, value),
+        delete: (name: string) => void cookieJar.delete(name),
+      }),
+    },
+  } as unknown as NodeJS.Module;
+  // revalidatePath needs a request's cache store; outside a request there is nothing to revalidate.
+  const cachePath = require.resolve('next/cache');
+  require.cache[cachePath] = { id: cachePath, filename: cachePath, loaded: true, exports: { revalidatePath: () => undefined, revalidateTag: () => undefined } } as unknown as NodeJS.Module;
   const { asc, eq } = await import('drizzle-orm');
   const { migrate } = await import('drizzle-orm/libsql/migrator');
   const { db } = await import('../src/lib/db');
@@ -110,6 +126,110 @@ async function main() {
   const before = await snapshot();
   await applySearchKeywords();
   check('running the repair twice changes nothing', before === (await snapshot()));
+
+  console.log('Sales and coupons (admin actions)');
+  const { adminUsers, coupons, sales } = await import('../src/lib/db/schema');
+  const { createSession } = await import('../src/lib/auth/session');
+  const { saveSale, deleteSale, searchAdminProducts, saveCoupon } = await import('../src/app/admin/actions');
+  const { formatAthensDate, parseAthensDate } = await import('../src/lib/utils');
+  const form = (fields: Record<string, string | string[]>) => {
+    const fd = new FormData();
+    for (const [key, value] of Object.entries(fields)) for (const v of [value].flat()) fd.append(key, v);
+    return fd;
+  };
+  const [admin] = await db.select().from(adminUsers);
+  await createSession('admin', admin.id, admin.tokenVersion);
+  const [anyBrand] = await db.select().from(brands).limit(1);
+  const brandId = String(anyBrand.id);
+
+  // the actions answer null only before the first submit; every call here is a submit
+  const runSale = async (fd: FormData) => (await saveSale(null, fd))!;
+  const runCoupon = async (fd: FormData) => (await saveCoupon(null, fd))!;
+  const badSale = async (fields: Record<string, string | string[]>) => runSale(form({ name: 'Δοκιμή έκπτωσης', type: 'percent', value: '20', brandIds: brandId, ...fields }));
+  const missingName = await runSale(form({ type: 'percent', value: '20', brandIds: brandId }));
+  check('a sale without a name is refused', missingName.ok === false, missingName);
+  const tooBig = await badSale({ value: '91' });
+  check('a percent sale above 90 is refused', tooBig.ok === false && tooBig.message === 'Μέγιστο 90%.', tooBig);
+  const zero = await badSale({ value: '0' });
+  check('a zero value is refused', zero.ok === false, zero);
+  const noTargets = await badSale({ brandIds: [] });
+  check('a sale with no targets is refused', noTargets.ok === false && noTargets.message === 'Επιλέξτε τουλάχιστον ένα προϊόν, μάρκα ή κατηγορία.', noTargets);
+  const reversed = await badSale({ startsAt: '2026-10-20', endsAt: '2026-10-10' });
+  check('an end date before the start date is refused', reversed.ok === false, reversed);
+  const notADate = await badSale({ startsAt: 'x' });
+  check('an invalid date is refused', notADate.ok === false && notADate.message === 'Μη έγκυρη ημερομηνία.', notADate);
+
+  const salesBefore = (await db.select().from(sales)).length;
+  const valid = await badSale({});
+  check('a valid percent sale for a real brand is saved', valid.ok === true, valid);
+  const [saved] = await db.select().from(sales).where(eq(sales.name, 'Δοκιμή έκπτωσης'));
+  check('…and its row targets that brand', saved !== undefined && JSON.stringify(saved.brandIds) === JSON.stringify([anyBrand.id]) && saved.value === 20, saved);
+  const droppedIds = await badSale({ name: 'Δοκιμή με άκυρα', brandIds: ['999999', brandId] });
+  const [withDropped] = await db.select().from(sales).where(eq(sales.name, 'Δοκιμή με άκυρα'));
+  check('nonexistent ids are dropped while a valid one stays', droppedIds.ok === true && JSON.stringify(withDropped?.brandIds) === JSON.stringify([anyBrand.id]), withDropped);
+  const allMissing = await badSale({ name: 'Δοκιμή χωρίς στόχους', brandIds: ['999999'] });
+  check('a target list of only nonexistent ids counts as no targets', allMissing.ok === false && allMissing.message === 'Επιλέξτε τουλάχιστον ένα προϊόν, μάρκα ή κατηγορία.', allMissing);
+
+  const fixed = await badSale({ name: 'Δοκιμή σταθερή', type: 'fixed', value: '2,50' });
+  const [fixedRow] = await db.select().from(sales).where(eq(sales.name, 'Δοκιμή σταθερή'));
+  check('a fixed amount "2,50" is stored as 250 cents', fixed.ok === true && fixedRow?.value === 250, fixedRow);
+
+  const countBeforeEdit = (await db.select().from(sales)).length;
+  const edited = await badSale({ id: String(saved.id), value: '25' });
+  const [editedRow] = await db.select().from(sales).where(eq(sales.id, saved.id));
+  check('saving with an id updates that row, not a new one', edited.ok === true && (await db.select().from(sales)).length === countBeforeEdit && editedRow?.value === 25, editedRow);
+  check('the sale count grew only by the new rows', countBeforeEdit === salesBefore + 3, { salesBefore, countBeforeEdit });
+
+  await deleteSale(form({ id: String(saved.id) }));
+  check('deleteSale removes the row', (await db.select().from(sales).where(eq(sales.id, saved.id))).length === 0);
+
+  console.log('Coupons: targets, exclusions and Athens dates');
+  const targeted = await runCoupon(form({ code: 'TESTBRAND', type: 'percent', value: '10', brandIds: brandId, excludeSaleItems: 'on', isActive: 'on' }));
+  const [brandCoupon] = await db.select().from(coupons).where(eq(coupons.code, 'TESTBRAND'));
+  check('a targeted coupon saves with its brand and the exclusion flag', targeted.ok === true && JSON.stringify(brandCoupon?.brandIds) === JSON.stringify([anyBrand.id]) && brandCoupon?.excludeSaleItems === true, brandCoupon);
+  const untargeted = await runCoupon(form({ code: 'TESTFREE', type: 'free_shipping' }));
+  const [freeCoupon] = await db.select().from(coupons).where(eq(coupons.code, 'TESTFREE'));
+  check('an untargeted coupon saves with empty arrays', untargeted.ok === true && freeCoupon?.productIds.length === 0 && freeCoupon?.brandIds.length === 0 && freeCoupon?.categoryIds.length === 0, freeCoupon);
+  const dated = await runCoupon(form({ code: 'TESTDATES', type: 'percent', value: '5', startsAt: '2026-10-31', endsAt: '2026-10-31' }));
+  const [datedCoupon] = await db.select().from(coupons).where(eq(coupons.code, 'TESTDATES'));
+  check('a coupon starting on Athens day 2026-10-31 starts at its local midnight', dated.ok === true && datedCoupon?.startsAt?.toISOString() === '2026-10-30T22:00:00.000Z', datedCoupon?.startsAt?.toISOString());
+  check('…and ends at the last millisecond of that Athens day', datedCoupon?.endsAt?.toISOString() === '2026-10-31T21:59:59.999Z', datedCoupon?.endsAt?.toISOString());
+  const duplicate = await runCoupon(form({ code: 'TESTBRAND', type: 'percent', value: '10' }));
+  check('a duplicate code is refused', duplicate.ok === false && duplicate.message === 'Υπάρχει ήδη κουπόνι με αυτόν τον κωδικό.', duplicate);
+
+  console.log('Athens dates survive a round trip');
+  const days = ['2026-01-15', '2026-03-28', '2026-03-29', '2026-03-30', '2026-10-24', '2026-10-25', '2026-10-26', '2026-07-01'];
+  const trips = days.flatMap((d) => [
+    [d, 'start', formatAthensDate(parseAthensDate(d, 'start'))] as const,
+    [d, 'end', formatAthensDate(parseAthensDate(d, 'end'))] as const,
+  ]).filter(([d, , out]) => out !== d);
+  check('every listed day comes back unchanged from both edges', trips.length === 0, trips);
+  check('a day that does not exist is refused', parseAthensDate('2026-02-30', 'start') === null);
+  check('text that is not a date is refused', parseAthensDate('x', 'end') === null);
+
+  console.log('Admin product search');
+  const [sample] = await db.select({ name: products.name, brand: brands.name }).from(products).innerJoin(brands, eq(products.brandId, brands.id)).limit(1);
+  const oneLetter = await searchAdminProducts('a');
+  check('a single letter finds nothing', oneLetter.length === 0, oneLetter.length);
+  const fragment = `${sample.brand} ${sample.name.split(' ')[0]}`;
+  const hits = await searchAdminProducts(fragment);
+  check('a brand plus a name fragment finds the product', hits.some((h) => h.name === `${sample.brand} ${sample.name}`), { fragment, hits: hits.slice(0, 3) });
+  const broad = await searchAdminProducts('λαδι');
+  check('a broad query never returns more than 50', broad.length <= 50, broad.length);
+
+  console.log('Sales and coupons refuse without an administrator');
+  cookieJar.clear();
+  const refusedWithoutSession = async (run: () => Promise<unknown>) => {
+    try {
+      await run();
+      return false;
+    } catch (err) {
+      return String((err as { digest?: string }).digest ?? '').startsWith('NEXT_REDIRECT');
+    }
+  };
+  check('saveSale redirects to login without a session', await refusedWithoutSession(() => saveSale(null, form({ name: 'Χωρίς σύνδεση', type: 'percent', value: '20', brandIds: brandId }))));
+  check('deleteSale redirects to login without a session', await refusedWithoutSession(() => deleteSale(form({ id: '1' }))));
+  check('searchAdminProducts redirects to login without a session', await refusedWithoutSession(() => searchAdminProducts('λαδι')));
 }
 
 main()
