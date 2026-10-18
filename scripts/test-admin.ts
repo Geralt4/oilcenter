@@ -440,15 +440,17 @@ async function main() {
   const accepted90 = await runSale(form({ name: 'Δοκιμή 90', type: 'percent', value: '90', brandIds: brandId }));
   check('valid 12 and 100 (coupon) and 90 (sale) are accepted', accepted12.ok === true && accepted100.ok === true && accepted90.ok === true, [accepted12, accepted100, accepted90]);
 
-  console.log('Cancelling an order whose payment landed after the page loaded');
-  // the row is created pending and loaded; a gateway payment then lands on it directly in the database
-  const landed = await makeOrder({ status: 'pending', paymentStatus: 'pending' });
-  await db.update(orders).set({ paymentStatus: 'paid', paidAt: new Date() }).where(eq(orders.id, landed.id));
-  const rLanded = await updateOrder(null, form({ id: String(landed.id), status: 'cancelled', paymentStatus: 'pending' }));
-  const landedAfter = await orderNow(landed.id);
-  check('the cancel with the stale «pending» is accepted and the order is cancelled', rLanded?.ok === true && landedAfter.status === 'cancelled', [rLanded, landedAfter.status]);
-  check('the payment that landed after the page loaded is flagged for review', landedAfter.paymentFlag === 'review', landedAfter.paymentFlag);
-  check('…with a «ΠΡΟΣΟΧΗ» event', (await eventsNow(landed.id)).some((m) => m.includes('ΠΡΟΣΟΧΗ')));
+  console.log('Cancelling a hand-marked paid order while un-paying it');
+  // The owner marked a card order paid by hand (no gateway reference), then un-pays and cancels it in one save: no money was
+  // taken, so there is no refund alarm. (A payment landing between the two reads inside updateOrder cannot be driven from
+  // outside; the case "cancel while it stays paid" is covered above and does flag.)
+  const handPaid = await makeOrder({ status: 'pending', paymentStatus: 'pending' });
+  await db.update(orders).set({ paymentStatus: 'paid', paidAt: new Date() }).where(eq(orders.id, handPaid.id));
+  const rHand = await updateOrder(null, form({ id: String(handPaid.id), status: 'cancelled', paymentStatus: 'pending' }));
+  const handAfter = await orderNow(handPaid.id);
+  check('the cancel together with un-paying a hand-marked order is accepted', rHand?.ok === true && handAfter.status === 'cancelled', [rHand, handAfter.status]);
+  check('…it ends unpaid, with no review flag', handAfter.paymentStatus === 'pending' && handAfter.paymentFlag === null, [handAfter.paymentStatus, handAfter.paymentFlag]);
+  check('…and no refund alarm in its history', !(await eventsNow(handPaid.id)).some((m) => m.includes('ΠΡΟΣΟΧΗ')));
 
   console.log('Cleanup');
   for (const code of fixCodes) await db.delete(coupons).where(eq(coupons.code, code));

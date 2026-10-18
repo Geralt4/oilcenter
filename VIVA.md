@@ -67,6 +67,15 @@ Effort S ≈ hours, M ≈ a day or two. "Money risk" is what goes wrong if it is
 | 9 | **A paid payment that matches no order** (Viva reports money for a checkout we cannot find) left only a log line. It is now kept in `unmatched_payments`, the shop is e-mailed once, and it shows on the admin dashboard until it is marked handled. | payment with no trace | M | should-fix | **done** |
 | 10 | **Admin could not see payment problems**, and the «paid» checkbox could undo a card payment. Orders with a payment problem now sit on a dashboard list (and a nav count, and an orders filter) until marked handled; the payment status is a select with «Επιστροφή χρημάτων» for refunds done by hand in Viva; un-paying a card payment is refused. | missed alerts | M | should-fix | **done** |
 
+**Review of 19.10.2026** (two independent code reviews, findings reproduced or traced before fixing): closed a payment replayed
+after a refund re-confirming the order and mailing the buyer again, a gateway payment on an order the owner had marked paid
+by hand going unnoticed, a late payment showing the buyer a success page when the webhook arrived first, the automatic
+release cancelling a paid or flagged order, and a stale status being written by `recordPayment` (now one transaction, the
+status decided in SQL). Known and left alone: the database client is synchronous, so two writers inside one process can wait
+on each other; the code already lived with that (`createOrder`, `cancelOrder`), writes serialise, and it is tolerable at
+this volume. A sale that ends while a customer sits on the checkout page charges the regular price (the server re-prices);
+fixing it means sending the displayed total with the order, which risks blocking real orders, so it waits until ordering opens.
+
 Not a gap but a decision: installments (δόσεις) are off in the code (`maxInstallments: 0`). Viva offers 2–36 installments
 to Greek merchant accounts; the owner decides whether to want them (section 8).
 
