@@ -94,6 +94,5 @@ export async function checkCoupon(code: string, lines: Array<{ variantId: number
   const limited = await rateLimit(`coupon:${await clientIp()}`, 15, 10 * 60 * 1000);
   if (!limited.ok) return { coupon: null, error: 'Πολλές προσπάθειες. Δοκιμάστε ξανά σε λίγο.' };
   const resolved = await resolveCartLines(Array.isArray(lines) ? lines.slice(0, 100) : []);
-  const subtotal = resolved.reduce((s, l) => s + l.lineTotalCents, 0);
-  return findCoupon(String(code ?? '').slice(0, 40), subtotal);
+  return findCoupon(String(code ?? '').slice(0, 40), resolved);
 }

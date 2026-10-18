@@ -19,6 +19,9 @@ async function main() {
   dir = await cloneDatabase('oc-test-');
   const { eq, ne } = await import('drizzle-orm');
   const { db } = await import('../src/lib/db');
+  // the local database can be behind the code: bring the throwaway copy up to date before anything reads `sales`
+  const { migrate } = await import('drizzle-orm/libsql/migrator');
+  await migrate(db, { migrationsFolder: './drizzle' });
   const { coupons, orderEvents, orders, variants } = await import('../src/lib/db/schema');
   const { cancelOrder, createOrder, markOrderPaid } = await import('../src/lib/orders');
   const { computeTotals, courierRateCents } = await import('../src/lib/pricing');
@@ -125,6 +128,163 @@ async function main() {
   check('free shipping at the 60 € threshold', light.freeShipping && light.shippingCents === 0, light);
   const pickup = computeTotals({ subtotalCents: 1000, weightGrams: 5000, shippingMethod: 'pickup', paymentMethod: 'cod', shipping: s, vatRate: 24 });
   check('pickup never pays shipping or COD', pickup.shippingCents === 0 && pickup.codFeeCents === 0, pickup);
+
+  console.log('Targeted coupons and sales');
+  const { and, inArray, isNotNull } = await import('drizzle-orm');
+  const { salePriceCents, bestSale, matchesTargets } = await import('../src/lib/discounts');
+  const { getProductBySlug } = await import('../src/lib/catalog');
+  const { buildSkroutzFeed } = await import('../src/lib/skroutz-feed');
+  const { findCoupon } = await import('../src/lib/orders');
+  const { categories, products, sales } = await import('../src/lib/db/schema');
+
+  const flat = { productIds: [], brandIds: [], categoryIds: [] };
+  check('a 20% sale on 10,00 is 8,00', salePriceCents(1000, { type: 'percent', value: 20 }) === 800);
+  check('a fixed 3,00 sale on 10,00 is 7,00', salePriceCents(1000, { type: 'fixed', value: 300 }) === 700);
+  check('a fixed sale that is not below the price does not apply', salePriceCents(1000, { type: 'fixed', value: 1000 }) === null && salePriceCents(1000, { type: 'fixed', value: 1200 }) === null);
+  check('a percent sale leaving less than one cent does not apply', salePriceCents(1, { type: 'percent', value: 90 }) === null);
+  const item = { productId: 7, brandId: 3, categoryPath: [11, 10] };
+  const overlapping = [
+    { id: 1, type: 'percent' as const, value: 10, ...flat, brandIds: [3] },
+    { id: 2, type: 'fixed' as const, value: 300, ...flat, productIds: [7] },
+  ];
+  const best = bestSale(1000, item, overlapping);
+  check('of two overlapping sales the lower price wins', best?.priceCents === 700 && best?.saleId === 2, best);
+  check('empty targets match every product', matchesTargets(flat, item));
+  check('a product id matches', matchesTargets({ ...flat, productIds: [7] }, item) && !matchesTargets({ ...flat, productIds: [8] }, item));
+  check('a brand matches', matchesTargets({ ...flat, brandIds: [3] }, item) && !matchesTargets({ ...flat, brandIds: [4] }, item));
+  check('a parent category matches a child item', matchesTargets({ ...flat, categoryIds: [10] }, item) && !matchesTargets({ ...flat, categoryIds: [12] }, item));
+  check('a sale with empty targets never applies in bestSale', bestSale(1000, item, [{ id: 5, type: 'percent', value: 50, ...flat }]) === null);
+
+  // two verified, active products from different brands, both with a category and no "was" price
+  const ready = await db
+    .select({ v: variants, p: products })
+    .from(variants)
+    .innerJoin(products, eq(variants.productId, products.id))
+    .where(and(eq(variants.priceVerified, true), eq(variants.isActive, true), eq(products.isActive, true), isNotNull(products.brandId), isNotNull(products.categoryId)));
+  const readyA = ready[0];
+  const readyB = ready.find((r) => r.p.brandId !== readyA.p.brandId)!;
+  check('two products from different brands exist', !!readyA && !!readyB);
+  for (const r of [readyA, readyB]) {
+    await db.update(variants).set({ trackStock: false, compareAtCents: null, availability: 'in_stock' }).where(eq(variants.id, r.v.id));
+  }
+  const P1 = readyA.v;
+  const P2 = readyB.v;
+  const b1 = readyA.p.brandId!;
+  const b2 = readyB.p.brandId!;
+
+  // a parent/child category pair, and a product in the child category (of the readyB brand)
+  const [parentCat] = await db.insert(categories).values({ slug: 'test-parent-category', name: 'Τεστ γονική κατηγορία' }).returning();
+  const [childCat] = await db.insert(categories).values({ slug: 'test-child-category', name: 'Τεστ θυγατρική κατηγορία', parentId: parentCat.id }).returning();
+  const [p3] = await db.insert(products).values({ slug: 'test-category-product', name: 'Τεστ προϊόν κατηγορίας', brandId: b2, categoryId: childCat.id }).returning();
+  const [v3] = await db
+    .insert(variants)
+    .values({ productId: p3.id, sku: 'TEST-CATEGORY-1', label: '1 L', priceCents: 1500, compareAtCents: 1800, trackStock: false, weightGrams: 1000, priceVerified: true })
+    .returning();
+  const [unverified] = await db
+    .insert(variants)
+    .values({ productId: P1.productId, sku: 'TEST-UNVERIFIED-1', label: 'Τεστ 2 L', priceCents: 1500, trackStock: false, weightGrams: 2000, priceVerified: false })
+    .returning();
+
+  const unitPrice = async (variantId: number) => (await resolveCartLines([{ variantId, quantity: 1 }]))[0].unitPriceCents;
+  const sale = async (over: Partial<typeof sales.$inferInsert>) => (await db.insert(sales).values({ name: 'Τεστ έκπτωση', type: 'percent', value: 20, brandIds: [b1], ...over }).returning())[0];
+
+  console.log('Sales');
+  const offSale = await sale({ isActive: false });
+  check('an inactive sale has no effect', (await unitPrice(P1.id)) === P1.priceCents);
+  await db.delete(sales).where(eq(sales.id, offSale.id));
+  const futureSale = await sale({ isActive: true, startsAt: new Date(Date.now() + 7 * 86400000) });
+  check('a sale that starts in the future has no effect', (await unitPrice(P1.id)) === P1.priceCents);
+  await db.delete(sales).where(eq(sales.id, futureSale.id));
+  const pastSale = await sale({ isActive: true, endsAt: new Date(Date.now() - 86400000) });
+  check('a sale that ended in the past has no effect', (await unitPrice(P1.id)) === P1.priceCents);
+  await db.delete(sales).where(eq(sales.id, pastSale.id));
+
+  const running = await sale({ isActive: true });
+  const [s1] = await resolveCartLines([{ variantId: P1.id, quantity: 1 }]);
+  check('a running sale sets the price of the targeted brand', s1.unitPriceCents === Math.round(P1.priceCents * 0.8), s1.unitPriceCents);
+  check('…and the regular price is shown as «was»', s1.compareAtCents === P1.priceCents, s1.compareAtCents);
+  const [s2] = await resolveCartLines([{ variantId: P2.id, quantity: 1 }]);
+  check('a variant of another brand is unchanged', s2.unitPriceCents === P2.priceCents && s2.compareAtCents === null, s2);
+  const detail = await getProductBySlug(readyA.p.slug);
+  const shownUnverified = detail?.variants.find((v) => v.id === unverified.id);
+  check('a size with an unconfirmed price is untouched on the product page', shownUnverified === undefined || (shownUnverified.priceCents === 1500 && shownUnverified.compareAtCents === null), shownUnverified);
+  const shownP1 = detail?.variants.find((v) => v.id === P1.id);
+  check('the product page shows the sale price', shownP1?.priceCents === Math.round(P1.priceCents * 0.8) && shownP1?.compareAtCents === P1.priceCents, shownP1);
+  const feed = await buildSkroutzFeed(settings);
+  const feedP1 = feed.items.find((i) => i.variantId === P1.id);
+  check('the Skroutz feed carries the sale price', feedP1?.priceCents === Math.round(P1.priceCents * 0.8), feedP1 ?? feed.leftOut.find((l) => l.variantId === P1.id));
+
+  console.log('Targeted coupons');
+  const addCoupon = (over: Partial<typeof coupons.$inferInsert> & { code: string }) => db.insert(coupons).values({ type: 'percent', value: 10, isActive: true, ...over });
+  const quote = async (code: string, items: Array<{ variantId: number; quantity: number }>) => {
+    const lines = await resolveCartLines(items);
+    const subtotalCents = lines.reduce((s, l) => s + l.lineTotalCents, 0);
+    const weightGrams = lines.reduce((s, l) => s + l.weightGrams, 0);
+    const { coupon, error } = await findCoupon(code, lines);
+    const totals = coupon
+      ? computeTotals({ subtotalCents, weightGrams, shippingMethod: 'courier', paymentMethod: 'bank_transfer', coupon, lines, shipping: settings.shipping, vatRate: settings.tax.vatRate })
+      : null;
+    return { lines, coupon, error, totals, subtotalCents };
+  };
+  const lineOf = (lines: Array<{ variantId: number; lineTotalCents: number }>, variantId: number) => lines.find((l) => l.variantId === variantId)!.lineTotalCents;
+  const cart = (...ids: number[]) => ids.map((variantId) => ({ variantId, quantity: 1 }));
+  const CODES = ['TEST-PRODUCT', 'TEST-CAP', 'TEST-MIN', 'TEST-BRAND', 'TEST-CATEGORY', 'TEST-NOSALE', 'TEST-STACK', 'TEST-STACK-P1'];
+
+  await addCoupon({ code: 'TEST-PRODUCT', productIds: [P1.productId] });
+  const productQ = await quote('TEST-PRODUCT', cart(P1.id, P2.id));
+  check('a product coupon discounts only the targeted line', productQ.totals?.discountCents === Math.round(lineOf(productQ.lines, P1.id) * 0.1) && productQ.coupon?.variantIds?.join() === String(P1.id), productQ);
+
+  await addCoupon({ code: 'TEST-CAP', type: 'fixed', value: 1000000, productIds: [P1.productId] });
+  const capQ = await quote('TEST-CAP', cart(P1.id, P2.id));
+  check('a fixed coupon larger than the eligible lines is capped at them', capQ.totals?.discountCents === lineOf(capQ.lines, P1.id), capQ.totals);
+
+  const minLines = await resolveCartLines(cart(P1.id, P2.id));
+  const minCents = lineOf(minLines, P1.id) + 1;
+  await addCoupon({ code: 'TEST-MIN', productIds: [P1.productId], minSubtotalCents: minCents });
+  const minQ = await quote('TEST-MIN', cart(P1.id, P2.id));
+  check('the minimum is measured on the eligible lines only', minQ.subtotalCents >= minCents && minQ.coupon === null && !!minQ.error && minQ.error.includes('στα προϊόντα της προσφοράς'), minQ.error);
+
+  const wrongQ = await quote('TEST-PRODUCT', cart(P2.id));
+  check('a cart without any targeted product is refused', wrongQ.coupon === null && wrongQ.error === 'Το κουπόνι δεν ισχύει για τα προϊόντα του καλαθιού σας.', wrongQ.error);
+
+  await addCoupon({ code: 'TEST-BRAND', brandIds: [b2] });
+  const brandQ = await quote('TEST-BRAND', cart(P1.id, P2.id, v3.id));
+  check('a brand coupon covers that brand only', brandQ.coupon?.variantIds?.sort().join() === [P2.id, v3.id].sort().join() && brandQ.totals?.discountCents === Math.round((lineOf(brandQ.lines, P2.id) + lineOf(brandQ.lines, v3.id)) * 0.1), brandQ.coupon);
+
+  await addCoupon({ code: 'TEST-CATEGORY', categoryIds: [parentCat.id] });
+  const categoryQ = await quote('TEST-CATEGORY', cart(v3.id, P2.id));
+  check('a parent-category coupon covers a product in the child category', categoryQ.coupon?.variantIds?.join() === String(v3.id) && categoryQ.totals?.discountCents === Math.round(lineOf(categoryQ.lines, v3.id) * 0.1), categoryQ.coupon);
+
+  await addCoupon({ code: 'TEST-NOSALE', excludeSaleItems: true });
+  const noSaleQ = await quote('TEST-NOSALE', cart(P1.id, P2.id, v3.id));
+  check('excludeSaleItems skips a line on a sale and a line with a hand-set "was" price', noSaleQ.coupon?.variantIds?.join() === String(P2.id) && noSaleQ.totals?.discountCents === Math.round(lineOf(noSaleQ.lines, P2.id) * 0.1), noSaleQ.coupon);
+
+  await addCoupon({ code: 'TEST-STACK', excludeSaleItems: false });
+  const stackQ = await quote('TEST-STACK', cart(P1.id, P2.id, v3.id));
+  check('an untargeted coupon without exclusion covers the whole cart as before', stackQ.coupon?.variantIds === null && stackQ.totals?.discountCents === Math.round(stackQ.subtotalCents * 0.1), stackQ.coupon);
+
+  await addCoupon({ code: 'TEST-STACK-P1', productIds: [P1.productId], excludeSaleItems: false });
+  const stackP1Q = await quote('TEST-STACK-P1', cart(P1.id));
+  check('without exclusion a coupon stacks on a running sale', stackP1Q.totals?.discountCents === Math.round(lineOf(stackP1Q.lines, P1.id) * 0.1), stackP1Q.error);
+
+  console.log('Targeted coupons at checkout');
+  const checkout = await createOrder({ ...base, paymentMethod: 'bank_transfer', couponCode: 'TEST-PRODUCT', lines: cart(P1.id, P2.id) }, settings, opts);
+  check('an order with a targeted coupon is accepted', checkout.ok, checkout);
+  if (checkout.ok) {
+    check('the stored discount equals the checkout computation', checkout.order.discountCents === productQ.totals?.discountCents, [checkout.order.discountCents, productQ.totals?.discountCents]);
+    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, checkout.order.id));
+    const p1Item = items.find((i) => i.variantId === P1.id);
+    check('the order line keeps the sale price', p1Item?.unitPriceCents === Math.round(P1.priceCents * 0.8), p1Item);
+  }
+
+  console.log('Cleanup');
+  await db.delete(sales).where(eq(sales.id, running.id));
+  await db.delete(coupons).where(inArray(coupons.code, CODES));
+  await db.delete(variants).where(inArray(variants.id, [v3.id, unverified.id]));
+  await db.delete(products).where(eq(products.id, p3.id));
+  await db.delete(categories).where(eq(categories.id, childCat.id));
+  await db.delete(categories).where(eq(categories.id, parentCat.id));
+  check('the test rows are gone', (await db.select().from(sales)).length === 0 && (await db.select().from(coupons).where(inArray(coupons.code, CODES))).length === 0);
 }
 
 main()

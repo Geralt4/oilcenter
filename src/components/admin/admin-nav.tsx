@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
-import { BadgeEuro, Boxes, ChartColumn, Inbox, LayoutDashboard, Menu, Package, Rss, Settings, ShoppingBag, Tags, Ticket, X } from 'lucide-react';
+import { BadgeEuro, Boxes, ChartColumn, Inbox, LayoutDashboard, Menu, Package, Percent, Rss, Settings, ShoppingBag, Tags, Ticket, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const ITEMS = [
@@ -13,6 +13,7 @@ const ITEMS = [
   { href: '/admin/products', label: 'Προϊόντα', icon: Package },
   { href: '/admin/categories', label: 'Κατηγορίες', icon: Boxes },
   { href: '/admin/brands', label: 'Μάρκες', icon: Tags },
+  { href: '/admin/sales', label: 'Προσφορές', icon: Percent },
   { href: '/admin/coupons', label: 'Κουπόνια', icon: Ticket },
   { href: '/admin/messages', label: 'Μηνύματα', icon: Inbox, badge: 'messages' as const },
   { href: '/admin/stats', label: 'Στατιστικά', icon: ChartColumn },

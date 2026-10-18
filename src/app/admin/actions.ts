@@ -11,8 +11,9 @@ import { hashPassword, randomToken, verifyPassword } from '@/lib/auth/password';
 import { newTotpSecret, totpStep } from '@/lib/auth/totp';
 import { createSession, createSudoSession, destroySession, destroySudoSession, getAdmin, hasSudoSession, requireAdmin, revokeAllSessions } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, variants, type BaseType, type OrderStatus } from '@/lib/db/schema';
+import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, sales, variants, type BaseType, type OrderStatus } from '@/lib/db/schema';
 import { orderStatusMail, sendMail } from '@/lib/email';
+import { cleanIds, hasTargets, type Targets } from '@/lib/discounts';
 import { buildHazard } from '@/lib/ghs';
 import { isValidGtin, normalizeGtin } from '@/lib/gtin';
 import { addOrderEvent, cancelOrder, getOrderByNumber, ORDER_STATUS_LABELS } from '@/lib/orders';
@@ -22,7 +23,7 @@ import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours
 import { buildSearchText } from '@/lib/search-keywords';
 import { getSettings, saveSettingsGroup } from '@/lib/settings.server';
 import { claimUpload, finishUpload, moveClaimed, readStagedText, releaseUpload } from '@/lib/uploads';
-import { parsePriceToCents, parseVolumeMl, slugify } from '@/lib/utils';
+import { normalizeText, parseAthensDate, parsePriceToCents, parseVolumeMl, slugify } from '@/lib/utils';
 
 /* Every action below starts with requireAdmin(): page-level protection alone would not cover direct action calls. */
 
@@ -724,6 +725,26 @@ export async function deleteTaxon(fd: FormData): Promise<void> {
   }
 }
 
+/** The «Ισχύει για» picker: ids that still exist, nothing else. Empty lists = everything. */
+async function readTargets(fd: FormData): Promise<Targets> {
+  const pick = async (key: string, table: typeof products | typeof brands | typeof categories) => {
+    const ids = cleanIds(fd.getAll(key));
+    if (!ids.length) return [];
+    const rows = await db.select({ id: table.id }).from(table).where(inArray(table.id, ids));
+    return rows.map((r) => r.id);
+  };
+  return { productIds: await pick('productIds', products), brandIds: await pick('brandIds', brands), categoryIds: await pick('categoryIds', categories) };
+}
+
+/** «από» / «έως» as Athens calendar days; the last day counts all the way to midnight. */
+function readDateRange(fd: FormData): { ok: true; startsAt: Date | null; endsAt: Date | null } | { ok: false; message: string } {
+  const startsAt = str(fd, 'startsAt') ? parseAthensDate(str(fd, 'startsAt'), 'start') : null;
+  const endsAt = str(fd, 'endsAt') ? parseAthensDate(str(fd, 'endsAt'), 'end') : null;
+  if ((str(fd, 'startsAt') && !startsAt) || (str(fd, 'endsAt') && !endsAt)) return { ok: false, message: 'Μη έγκυρη ημερομηνία.' };
+  if (startsAt && endsAt && endsAt < startsAt) return { ok: false, message: 'Η ημερομηνία λήξης είναι πριν από την έναρξη.' };
+  return { ok: true, startsAt, endsAt };
+}
+
 export async function saveCoupon(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   await requireAdmin();
   const id = int(fd, 'id') || null;
@@ -732,8 +753,15 @@ export async function saveCoupon(_prev: AdminFormState, fd: FormData): Promise<A
   if (code.length < 3 || !type) return { ok: false, message: 'Συμπληρώστε κωδικό (τουλάχιστον 3 χαρακτήρες) και τύπο.' };
   const value = type === 'percent' ? Math.min(100, Math.max(1, int(fd, 'value'))) : type === 'fixed' ? (parsePriceToCents(str(fd, 'value')) ?? 0) : 0;
   if (type !== 'free_shipping' && value <= 0) return { ok: false, message: 'Συμπληρώστε αξία έκπτωσης.' };
-  const date = (key: string) => (str(fd, key) ? new Date(`${str(fd, key)}T00:00:00`) : null);
-  const values = { code, type, value, minSubtotalCents: parsePriceToCents(str(fd, 'minSubtotal')) ?? 0, maxUses: str(fd, 'maxUses') ? int(fd, 'maxUses') : null, startsAt: date('startsAt'), endsAt: date('endsAt'), isActive: bool(fd, 'isActive') };
+  const range = readDateRange(fd);
+  if (!range.ok) return { ok: false, message: range.message };
+  const targets = await readTargets(fd);
+  const values = {
+    code, type, value, minSubtotalCents: parsePriceToCents(str(fd, 'minSubtotal')) ?? 0, maxUses: str(fd, 'maxUses') ? int(fd, 'maxUses') : null,
+    startsAt: range.startsAt, endsAt: range.endsAt, isActive: bool(fd, 'isActive'),
+    // free shipping takes nothing off a price, so "skip sale items" would only make it refuse a cart of sale items
+    excludeSaleItems: type !== 'free_shipping' && bool(fd, 'excludeSaleItems'), ...targets,
+  };
   try {
     if (id) await db.update(coupons).set(values).where(eq(coupons.id, id));
     else await db.insert(coupons).values(values);
@@ -748,6 +776,52 @@ export async function deleteCoupon(fd: FormData): Promise<void> {
   await requireAdmin();
   await db.delete(coupons).where(eq(coupons.id, int(fd, 'id')));
   revalidatePath('/admin/coupons');
+}
+
+export async function saveSale(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
+  await requireAdmin();
+  const id = int(fd, 'id') || null;
+  const name = str(fd, 'name').slice(0, 120);
+  const type = (['percent', 'fixed'] as const).find((t) => t === str(fd, 'type'));
+  if (name.length < 2 || !type) return { ok: false, message: 'Συμπληρώστε όνομα και τύπο έκπτωσης.' };
+  const value = type === 'percent' ? int(fd, 'value') : (parsePriceToCents(str(fd, 'value')) ?? 0);
+  if (value <= 0) return { ok: false, message: 'Συμπληρώστε αξία έκπτωσης.' };
+  if (type === 'percent' && value > 90) return { ok: false, message: 'Μέγιστο 90%.' };
+  const targets = await readTargets(fd);
+  if (!hasTargets(targets)) return { ok: false, message: 'Επιλέξτε τουλάχιστον ένα προϊόν, μάρκα ή κατηγορία.' };
+  const range = readDateRange(fd);
+  if (!range.ok) return { ok: false, message: range.message };
+  const values = { name, type, value, ...targets, startsAt: range.startsAt, endsAt: range.endsAt, isActive: bool(fd, 'isActive') };
+  if (id) await db.update(sales).set(values).where(eq(sales.id, id));
+  else await db.insert(sales).values(values);
+  // every storefront page reads prices per request, so the new price shows on the next load
+  revalidatePath('/admin/sales');
+  return { ok: true, message: 'Αποθηκεύτηκε.' };
+}
+
+export async function deleteSale(fd: FormData): Promise<void> {
+  await requireAdmin();
+  await db.delete(sales).where(eq(sales.id, int(fd, 'id')));
+  revalidatePath('/admin/sales');
+}
+
+/** Product search for the «Ισχύει για» picker: at most 50 hits, so a form never carries the whole catalogue. */
+export async function searchAdminProducts(query: string): Promise<{ id: number; name: string }[]> {
+  await requireAdmin();
+  const normalized = normalizeText(String(query ?? '').slice(0, 80));
+  if (normalized.length < 2) return [];
+  const terms = normalized.split(' ').filter(Boolean);
+  const rows = await db
+    .select({ id: products.id, name: products.name, brand: brands.name, searchText: products.searchText })
+    .from(products)
+    .leftJoin(brands, eq(products.brandId, brands.id));
+  return rows
+    .filter((r) => {
+      const hay = normalizeText(`${r.brand ?? ''} ${r.name} ${r.searchText}`);
+      return terms.every((t) => hay.includes(t));
+    })
+    .slice(0, 50)
+    .map((r) => ({ id: r.id, name: [r.brand, r.name].filter(Boolean).join(' ') }));
 }
 
 export async function messageAction(fd: FormData): Promise<void> {

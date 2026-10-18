@@ -4,6 +4,7 @@ import { BASE_TYPE_LABELS } from '@/lib/catalog';
 import { db } from '@/lib/db';
 import { brands, categories, productImages, products, settings as settingsTable, variants } from '@/lib/db/schema';
 import { isValidGtin, normalizeGtin } from '@/lib/gtin';
+import { getSaleContext, withSale } from '@/lib/sales';
 import { SKROUTZ_AVAILABILITY, type ShopSettings } from '@/lib/settings';
 import { siteUrl } from '@/lib/site-url';
 
@@ -121,12 +122,13 @@ export function feedName(brand: string, name: string, label: string): string {
 
 // ─── Build ───────────────────────────────────────────────────────────────────
 export async function buildSkroutzFeed(settings: ShopSettings, now: Date = new Date()): Promise<SkroutzFeed> {
-  const [productRows, variantRows, imageRows, brandRows, categoryRows] = await Promise.all([
+  const [productRows, variantRows, imageRows, brandRows, categoryRows, saleCtx] = await Promise.all([
     db.select().from(products),
     db.select().from(variants).orderBy(asc(variants.productId), asc(variants.sort), asc(variants.volumeMl)),
     db.select().from(productImages).orderBy(asc(productImages.sort), asc(productImages.id)),
     db.select().from(brands),
     db.select().from(categories),
+    getSaleContext(),
   ]);
 
   const base = siteUrl();
@@ -207,7 +209,8 @@ export async function buildSkroutzFeed(settings: ShopSettings, now: Date = new D
       image: main ? absolute(main) : null,
       additionalImages: extras.map(absolute),
       category,
-      priceCents: v.priceCents,
+      // what the shop charges: a running sale included, as Skroutz compares the feed with the page
+      priceCents: withSale(saleCtx, p, v, v.priceVerified).priceCents,
       manufacturer: brand!.name,
       mpn: v.mpn?.trim() || null,
       ean: barcode && isValidGtin(barcode) ? barcode : null,

@@ -42,6 +42,39 @@ export function vatPortion(grossCents: number, ratePercent: number): number {
   return Math.round(grossCents - grossCents / (1 + ratePercent / 100));
 }
 
+// ─── Dates (the shop runs on Greek time, the server on UTC) ──────────────────
+const ATHENS = 'Europe/Athens';
+const athensParts = new Intl.DateTimeFormat('en-GB', { timeZone: ATHENS, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const athensDay = new Intl.DateTimeFormat('sv-SE', { timeZone: ATHENS, year: 'numeric', month: '2-digit', day: '2-digit' });
+
+/** how far Athens clocks are ahead of UTC at this instant, in ms (2 h in winter, 3 h in summer) */
+function athensOffsetMs(at: number): number {
+  const p = Object.fromEntries(athensParts.formatToParts(at).map((x) => [x.type, Number(x.value)]));
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(at / 1000) * 1000;
+}
+
+/**
+ * A date typed in a form ("2026-10-31") → the instant that day starts (or, for 'end', its last millisecond) in Athens.
+ * Returns null for anything that is not a real calendar day.
+ */
+export function parseAthensDate(input: string, edge: 'start' | 'end'): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input.trim());
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const check = new Date(Date.UTC(y, mo - 1, d));
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d) return null;
+  const wall = edge === 'start' ? Date.UTC(y, mo - 1, d, 0, 0, 0, 0) : Date.UTC(y, mo - 1, d, 23, 59, 59, 999);
+  // two passes so a day that straddles the clock change still lands on the right side
+  let at = wall - athensOffsetMs(wall);
+  at = wall - athensOffsetMs(at);
+  return new Date(at);
+}
+
+/** the inverse of parseAthensDate, for <input type="date"> default values */
+export function formatAthensDate(d: Date | null | undefined): string {
+  return d ? athensDay.format(d) : '';
+}
+
 // ─── Text ────────────────────────────────────────────────────────────────────
 /**
  * Lower-case, strip accents/diaeresis and fold final sigma so that

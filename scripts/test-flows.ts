@@ -288,6 +288,53 @@ async function main() {
     const staged = await db.select({ kind: pendingUploads.kind, claimedAt: pendingUploads.claimedAt }).from(pendingUploads);
     check('no CSV upload is left claimed', staged.filter((row) => row.kind.endsWith('-csv')).every((row) => row.claimedAt === null), staged.map((row) => `${row.kind}:${row.claimedAt ? 'claimed' : 'open'}`));
 
+    console.log('Sales and targeted coupons');
+    // The owner's path end to end: the form posts the ticked brand and the picked product, the shop shows the sale,
+    // and the coupon list says what the code is limited to. (The unit tests build their FormData by hand.)
+    const { brands, coupons, sales } = await import('../src/lib/db/schema');
+    const [target] = await db.select({ id: products.id, slug: products.slug, name: products.name, brandId: products.brandId }).from(products).where(eq(products.id, product.id));
+    await db.update(variants).set({ priceVerified: true, compareAtCents: null, isActive: true }).where(eq(variants.productId, product.id));
+    await db.update(products).set({ isActive: true }).where(eq(products.id, product.id));
+    const [size] = await db.select({ priceCents: variants.priceCents }).from(variants).where(eq(variants.productId, product.id)).orderBy(asc(variants.sort), asc(variants.volumeMl)).limit(1);
+    const [brand] = target.brandId ? await db.select({ id: brands.id }).from(brands).where(eq(brands.id, target.brandId)) : [];
+    check('the test product has a brand to put on sale', !!brand);
+
+    await page.goto(`${base}/admin/sales`);
+    const newSale = page.locator('section', { has: page.getByRole('heading', { name: 'Νέα προσφορά' }) });
+    await newSale.locator('input[name="name"]').fill('E2E προσφορά');
+    await newSale.locator('input[name="value"]').fill('20');
+    await newSale.getByRole('button', { name: 'Δημιουργία' }).click();
+    await newSale.getByText('Επιλέξτε τουλάχιστον ένα προϊόν, μάρκα ή κατηγορία.').waitFor({ timeout: 20_000 });
+    check('a sale with nothing ticked is refused in the form', (await db.select().from(sales)).length === 0);
+    await newSale.locator(`input[name="brandIds"][value="${brand.id}"]`).check();
+    await newSale.getByRole('button', { name: 'Δημιουργία' }).click();
+    await newSale.getByText('Αποθηκεύτηκε.').waitFor({ timeout: 20_000 });
+    const [savedSale] = await db.select().from(sales);
+    check('the ticked brand is what the form saved', !!savedSale && savedSale.brandIds.length === 1 && savedSale.brandIds[0] === brand.id && savedSale.type === 'percent' && savedSale.value === 20, savedSale);
+
+    await page.goto(`${base}/product/${target.slug}`);
+    const regular = page.locator('.line-through').first();
+    await regular.waitFor({ timeout: 20_000 });
+    check('the shop strikes through the regular price', ((await regular.textContent()) ?? '').includes(amount(size.priceCents)));
+    check('…and shows the sale price', ((await page.locator('main').textContent()) ?? '').includes(amount(Math.round(size.priceCents * 0.8))));
+
+    await page.goto(`${base}/admin/coupons`);
+    const newCoupon = page.locator('section', { has: page.getByRole('heading', { name: 'Νέο κουπόνι' }) });
+    await newCoupon.locator('input[name="code"]').fill('E2EPICK');
+    await newCoupon.locator('input[name="value"]').fill('10');
+    await newCoupon.getByPlaceholder('Αναζήτηση προϊόντος για προσθήκη…').fill(target.name.slice(0, 8));
+    await newCoupon.getByRole('button', { name: new RegExp(target.name.slice(0, 8).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }).first().click();
+    check('the picked product becomes a chip', (await newCoupon.locator('input[type="hidden"][name="productIds"]').count()) === 1);
+    await newCoupon.getByRole('button', { name: 'Δημιουργία' }).click();
+    await newCoupon.getByText('Αποθηκεύτηκε.').waitFor({ timeout: 20_000 });
+    const [savedCoupon] = await db.select().from(coupons).where(eq(coupons.code, 'E2EPICK'));
+    check('the coupon is limited to the picked product', !!savedCoupon && savedCoupon.productIds.length === 1 && savedCoupon.productIds[0] === target.id && savedCoupon.excludeSaleItems === true, savedCoupon);
+    await page.reload();
+    check('the coupon list names what the coupon covers', await page.getByText('1 προϊόν').first().isVisible());
+
+    await db.delete(sales);
+    await db.delete(coupons).where(eq(coupons.code, 'E2EPICK'));
+
     console.log('Sign out');
     await page.goto(`${base}/admin`);
     await page.getByRole('button', { name: 'Αποσύνδεση' }).click();

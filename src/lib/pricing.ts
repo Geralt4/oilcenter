@@ -13,7 +13,11 @@ export type AppliedCoupon = {
   type: CouponType;
   value: number;
   minSubtotalCents: number;
+  /** the cart lines the coupon applies to; null = the whole order */
+  variantIds: number[] | null;
 };
+
+export type CouponLine = { variantId: number; lineTotalCents: number };
 
 export type Totals = {
   subtotalCents: number;
@@ -27,10 +31,20 @@ export type Totals = {
   freeShippingRemainingCents: number | null;
 };
 
-export function discountFor(coupon: AppliedCoupon | null | undefined, subtotalCents: number): number {
-  if (!coupon || subtotalCents < coupon.minSubtotalCents) return 0;
-  if (coupon.type === 'percent') return Math.min(subtotalCents, Math.round((subtotalCents * coupon.value) / 100));
-  if (coupon.type === 'fixed') return Math.min(subtotalCents, coupon.value);
+/** What the coupon works on: the whole subtotal, or only the lines it is limited to. */
+export function eligibleSubtotalCents(coupon: AppliedCoupon, subtotalCents: number, lines?: CouponLine[]): number {
+  if (!coupon.variantIds) return subtotalCents;
+  const ids = new Set(coupon.variantIds);
+  return (lines ?? []).reduce((sum, l) => (ids.has(l.variantId) ? sum + l.lineTotalCents : sum), 0);
+}
+
+export function discountFor(coupon: AppliedCoupon | null | undefined, subtotalCents: number, lines?: CouponLine[]): number {
+  if (!coupon) return 0;
+  const eligible = eligibleSubtotalCents(coupon, subtotalCents, lines);
+  if (eligible <= 0 && coupon.variantIds) return 0;
+  if (eligible < coupon.minSubtotalCents) return 0;
+  if (coupon.type === 'percent') return Math.min(eligible, Math.round((eligible * coupon.value) / 100));
+  if (coupon.type === 'fixed') return Math.min(eligible, coupon.value);
   return 0;
 }
 
@@ -47,11 +61,13 @@ export function computeTotals(input: {
   shippingMethod: ShippingMethod;
   paymentMethod: PaymentMethod | null;
   coupon?: AppliedCoupon | null;
+  /** needed when the coupon is limited to some products */
+  lines?: CouponLine[];
   shipping: ShippingConfig;
   vatRate: number;
 }): Totals {
-  const { subtotalCents, weightGrams, shippingMethod, paymentMethod, coupon, shipping, vatRate } = input;
-  const discountCents = discountFor(coupon, subtotalCents);
+  const { subtotalCents, weightGrams, shippingMethod, paymentMethod, coupon, lines, shipping, vatRate } = input;
+  const discountCents = discountFor(coupon, subtotalCents, lines);
   const afterDiscount = subtotalCents - discountCents;
 
   let shippingCents = 0;
@@ -61,7 +77,8 @@ export function computeTotals(input: {
   if (shippingMethod === 'courier') {
     const withinWeightCap = shipping.freeMaxWeightKg <= 0 || weightGrams <= shipping.freeMaxWeightKg * 1000;
     const thresholdActive = shipping.freeOverCents > 0 && withinWeightCap;
-    const couponFree = coupon?.type === 'free_shipping' && subtotalCents >= coupon.minSubtotalCents;
+    const eligible = coupon ? eligibleSubtotalCents(coupon, subtotalCents, lines) : 0;
+    const couponFree = coupon?.type === 'free_shipping' && eligible >= coupon.minSubtotalCents && (!coupon.variantIds || eligible > 0);
     if (couponFree || (thresholdActive && afterDiscount >= shipping.freeOverCents)) {
       freeShipping = true;
     } else {
