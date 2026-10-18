@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { coupons, orderEvents, orderItems, orders, variants, type Coupon, type Order, type OrderStatus } from '@/lib/db/schema';
 import { randomToken } from '@/lib/auth/password';
-import { setAttemptStatus } from '@/lib/payments/attempts';
+import { claimAttemptStatus, setAttemptStatus } from '@/lib/payments/attempts';
 import { resolveCartLines, type ResolvedCartLine } from '@/lib/catalog';
 import { commerceEnabled } from '@/lib/commerce-flag';
 import { cleanIds, hasTargets, matchesTargets } from '@/lib/discounts';
@@ -230,7 +230,17 @@ export async function addOrderEvent(orderId: number, type: string, message: stri
   await db.insert(orderEvents).values({ orderId, type, message, actor });
 }
 
-export type PaymentOutcome = 'paid' | 'already_paid' | 'unknown_order' | 'amount_mismatch' | 'currency_mismatch' | 'late_cancelled';
+export type PaymentOutcome =
+  | 'paid'
+  | 'already_paid'
+  | 'unknown_order'
+  | 'amount_mismatch'
+  | 'currency_mismatch'
+  | 'late_cancelled'
+  /** a second, different payment for an order that is already paid (two open checkouts both paid) */
+  | 'duplicate_payment'
+  /** a problem the owner was already told about for this checkout (the browser return and the webhook both report it) */
+  | 'already_flagged';
 
 export type PaymentInfo = {
   provider: string;
@@ -250,19 +260,26 @@ export type PaymentInfo = {
 export async function recordPayment(orderId: number, info: PaymentInfo): Promise<PaymentOutcome> {
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
   if (!order) return 'unknown_order';
-  if (order.paymentStatus === 'paid') return 'already_paid';
+  if (order.paymentStatus === 'paid') {
+    // The same payment arrives twice (browser return + webhook) with the same reference. A DIFFERENT reference on a paid
+    // order is a second charge: the buyer paid on two checkouts. Only gateways that identify the checkout (attemptRef) can say.
+    const second = info.attemptRef && order.paymentTransactionId && order.paymentTransactionId !== info.ref;
+    if (!second) return 'already_paid';
+    if (!(await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'failed']))) return 'already_flagged';
+    await addOrderEvent(orderId, 'payment', `ΠΡΟΣΟΧΗ: δεύτερη πληρωμή για την ίδια παραγγελία (${info.provider}, αναφορά ${info.ref}, ${info.amountCents / 100} €). Η παραγγελία είχε ήδη πληρωθεί (αναφορά ${order.paymentTransactionId}). Επιστρέψτε τα χρήματα της δεύτερης πληρωμής.`);
+    return 'duplicate_payment';
+  }
 
   const currency = info.currency ? info.currency.toUpperCase() : null;
   const problem: PaymentOutcome | null = currency && currency !== 'EUR' ? 'currency_mismatch' : info.amountCents !== order.totalCents ? 'amount_mismatch' : null;
+  // the browser return and the webhook both report the same wrong payment: only the first one raises the alarm
+  if (problem && info.attemptRef && !(await claimAttemptStatus(orderId, info.provider, info.attemptRef, 'mismatch', info.ref, ['created', 'failed']))) return 'already_flagged';
   if (problem === 'currency_mismatch') {
     await addOrderEvent(orderId, 'payment', `ΠΡΟΣΟΧΗ: η πληρωμή έγινε σε νόμισμα ${currency} αντί για EUR. Αναφορά ${info.provider}: ${info.ref}`);
   } else if (problem === 'amount_mismatch') {
     await addOrderEvent(orderId, 'payment', `ΠΡΟΣΟΧΗ: το ποσό που εισπράχθηκε (${info.amountCents / 100} €) διαφέρει από το σύνολο της παραγγελίας (${order.totalCents / 100} €). Αναφορά ${info.provider}: ${info.ref}`);
   }
-  if (problem) {
-    if (info.attemptRef) await setAttemptStatus(info.provider, info.attemptRef, 'mismatch', info.ref);
-    return problem;
-  }
+  if (problem) return problem;
 
   // The order was cancelled (e.g. the 2 h release of unpaid card orders) and the money arrived anyway. It is recorded as
   // received so nobody forgets it, but the order is not revived: its stock is already back on the shelf.

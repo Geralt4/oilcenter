@@ -39,6 +39,24 @@ export async function findOrderByPayment(provider: string, ref: string, merchant
 }
 
 /**
+ * Like setAttemptStatus, but creates the attempt when it was never recorded (an order found through merchantTrns). True when
+ * this call made the change, false when the attempt was already in a status outside `onlyFrom`: the "first to report it"
+ * guard that keeps a repeated notification from raising the same alarm twice.
+ */
+export async function claimAttemptStatus(
+  orderId: number,
+  provider: string,
+  ref: string,
+  status: PaymentAttemptStatus,
+  transactionId: string | null,
+  onlyFrom: PaymentAttemptStatus[],
+): Promise<boolean> {
+  const created = await db.insert(paymentAttempts).values({ orderId, provider, ref, status, transactionId }).onConflictDoNothing().returning({ id: paymentAttempts.id });
+  if (created.length > 0) return true;
+  return setAttemptStatus(provider, ref, status, transactionId, onlyFrom);
+}
+
+/**
  * Moves an attempt to a new status (optionally only from certain statuses) and reports whether it changed, which is how
  * callers avoid writing the same order event twice when a gateway repeats a notification.
  */

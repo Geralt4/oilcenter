@@ -405,6 +405,60 @@ async function main() {
   check('I: ?failed=1 redirects to /order-status', locFailed === `${siteUrl()}/order-status`, locFailed);
   check('I: ?failed=1 makes no Viva call', callsOf('transaction').length === txBeforeFailed);
 
+  console.log('K. Double charge');
+  fromIp('198.51.100.40');
+  const RK1 = '9515982136483001'; // older checkout
+  const RK2 = '9515982136483002'; // newer checkout, the one that is paid first
+  const TX_K1 = '3fa85f64-5717-4562-b3fc-2c963f66a0b1';
+  const TX_K2 = '3fa85f64-5717-4562-b3fc-2c963f66a0b2';
+  const oK = await addOrder('OC-TEST-VIVA-K', RK2, 1999);
+  await newAttempt(oK.id, RK1);
+  await newAttempt(oK.id, RK2);
+  canned.txBody = txJson({ amount: 19.99, orderCode: RK2, merchantTrns: 'OC-TEST-VIVA-K' });
+  await hook(1796, TX_K2, RK2);
+  check('K: the newer checkout settles the order with its transaction id', (await orderRow(oK.id)).paymentTransactionId === TX_K2, (await orderRow(oK.id)).paymentTransactionId);
+  const dupK = async () => (await eventsOf(oK.id)).filter((e) => e.message.includes('δεύτερη πληρωμή')).length;
+  canned.txBody = txJson({ amount: 19.99, orderCode: RK1, merchantTrns: 'OC-TEST-VIVA-K' });
+  const resK1 = await hook(1796, TX_K1, RK1);
+  check('K: 1796 for the older checkout answers 200', resK1.status === 200, resK1.status);
+  const rowK = await orderRow(oK.id);
+  check('K: the order stays paid with its original transaction id', rowK.paymentStatus === 'paid' && rowK.paymentTransactionId === TX_K2, rowK.paymentTransactionId);
+  check("K: exactly one 'δεύτερη πληρωμή' event", (await dupK()) === 1, await dupK());
+  check("K: the older attempt is 'paid'", (await attemptOf(RK1))?.status === 'paid', await attemptOf(RK1));
+  const eventsK = (await eventsOf(oK.id)).length;
+  await hook(1796, TX_K1, RK1);
+  check('K: the same webhook again adds no event', (await eventsOf(oK.id)).length === eventsK && (await dupK()) === 1, { eventsK, after: (await eventsOf(oK.id)).length });
+  const retK1 = await ret(`t=${TX_K1}&s=${RK1}`);
+  const locK1 = retK1.headers.get('location') ?? '';
+  check('K: the return route for the older checkout redirects to /order-status', locK1 === `${siteUrl()}/order-status`, locK1);
+  check('K: ... with no secret link in the Location header', !locK1.includes('at-OC-TEST-VIVA-K'), locK1);
+
+  console.log('L. Same payment twice');
+  fromIp('198.51.100.41');
+  const RL = '9515982136483101';
+  const TX_L = '3fa85f64-5717-4562-b3fc-2c963f66a0b3';
+  const oL = await addOrder('OC-TEST-VIVA-L', RL, 1999);
+  await newAttempt(oL.id, RL);
+  canned.txBody = txJson({ amount: 19.99, orderCode: RL, merchantTrns: 'OC-TEST-VIVA-L' });
+  await hook(1796, TX_L, RL);
+  const retL = await ret(`t=${TX_L}&s=${RL}`);
+  check('L: the return route for the same transaction answers a redirect', retL.status === 302 || retL.status === 307, retL.status);
+  check("L: no 'δεύτερη πληρωμή' event for the same payment", !(await eventsOf(oL.id)).some((e) => e.message.includes('δεύτερη πληρωμή')));
+  check('L: the order is paid once', (await orderRow(oL.id)).paymentTransactionId === TX_L);
+
+  console.log('M. Repeated amount mismatch');
+  fromIp('198.51.100.42');
+  const RM3 = '9515982136483201';
+  const TX_M = '3fa85f64-5717-4562-b3fc-2c963f66a0b4';
+  const oM = await addOrder('OC-TEST-VIVA-M', RM3, 1999);
+  await newAttempt(oM.id, RM3);
+  canned.txBody = txJson({ amount: 9.99, orderCode: RM3, merchantTrns: 'OC-TEST-VIVA-M' });
+  await hook(1796, TX_M, RM3);
+  await hook(1796, TX_M, RM3);
+  const warnM = (await eventsOf(oM.id)).filter((e) => e.message.includes('ΠΡΟΣΟΧΗ')).length;
+  check('M: the same mismatched webhook twice leaves one ΠΡΟΣΟΧΗ event', warnM === 1, warnM);
+  check('M: the order stays unpaid', (await orderRow(oM.id)).paymentStatus !== 'paid');
+
   console.log('8. Closed gates');
   process.env.COMMERCE_ENABLED = 'false';
   calls.length = 0;

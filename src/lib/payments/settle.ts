@@ -5,6 +5,7 @@ import { getSettings } from '@/lib/settings.server';
 const PROBLEMS: Partial<Record<PaymentOutcome, string>> = {
   amount_mismatch: 'Το ποσό που εισπράχθηκε δεν ταιριάζει με το σύνολο της παραγγελίας. Η παραγγελία δεν σημειώθηκε ως πληρωμένη.',
   currency_mismatch: 'Η πληρωμή έγινε σε νόμισμα διαφορετικό από το ευρώ. Η παραγγελία δεν σημειώθηκε ως πληρωμένη.',
+  duplicate_payment: 'Η παραγγελία πληρώθηκε δύο φορές, με δύο διαφορετικές πληρωμές. Επιστρέψτε τα χρήματα της δεύτερης.',
   late_cancelled: 'Εισπράχθηκε πληρωμή για παραγγελία που είχε ήδη ακυρωθεί. Επιστρέψτε τα χρήματα ή ξανανοίξτε την παραγγελία.',
 };
 
@@ -15,7 +16,7 @@ const PROBLEMS: Partial<Record<PaymentOutcome, string>> = {
  */
 export async function settleCardPayment(order: { id: number; number: string }, info: PaymentInfo): Promise<PaymentOutcome> {
   const outcome = await recordPayment(order.id, info);
-  if (outcome === 'already_paid' || outcome === 'unknown_order') return outcome;
+  if (outcome === 'already_paid' || outcome === 'unknown_order' || outcome === 'already_flagged') return outcome;
   const [full, settings] = await Promise.all([getOrderByNumber(order.number), getSettings()]);
   if (!full) return outcome;
 

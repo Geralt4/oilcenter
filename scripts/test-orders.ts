@@ -300,6 +300,7 @@ async function main() {
     const row = async (id: number) => (await db.select().from(orders).where(eq(orders.id, id)))[0];
     const eventsOf = (orderId: number) => db.select().from(orderEvents).where(eq(orderEvents.orderId, orderId));
     const warningsOf = async (orderId: number) => (await eventsOf(orderId)).filter((e) => e.message.includes('ΠΡΟΣΟΧΗ')).length;
+    const attemptByRef = async (ref: string) => (await db.select().from(paymentAttempts).where(eq(paymentAttempts.ref, ref)))[0];
     const cardOpts = { customerId: null, cardProviderConfigured: true };
     const newCardOrder = async (quantity = 1) => {
       const r = await createOrder({ ...base, paymentMethod: 'card', lines: [{ variantId: variant.id, quantity }] }, settings, cardOpts);
@@ -413,6 +414,56 @@ async function main() {
     check('an old card order with no checkout is cancelled', (await row(oB.id)).status === 'cancelled', (await row(oB.id)).status);
     check('…its stock is restored', (await stock()) === stockBeforeRelease + 1, [await stock(), stockBeforeRelease]);
     check('the release reports at least that order', released >= 1, released);
+
+    console.log('  Double payment');
+    const o7 = await newCardOrder();
+    await recordPaymentAttempt(o7.id, { provider: 'viva', ref: 'R1-7' });
+    await recordPaymentAttempt(o7.id, { provider: 'viva', ref: 'R2-7' });
+    check('a payment on the newer checkout → paid', (await recordPayment(o7.id, { provider: 'viva', ref: 'T2-7', amountCents: o7.totalCents, attemptRef: 'R2-7' })) === 'paid');
+    const dupEvents7 = async () => (await eventsOf(o7.id)).filter((e) => e.message.includes('δεύτερη πληρωμή')).length;
+    check('a payment on the older checkout while paid → duplicate_payment', (await recordPayment(o7.id, { provider: 'viva', ref: 'T1-7', amountCents: o7.totalCents, attemptRef: 'R1-7' })) === 'duplicate_payment');
+    check('…and the timeline has one «δεύτερη πληρωμή» entry', (await dupEvents7()) === 1, await dupEvents7());
+    const att7 = await attemptByRef('R1-7');
+    check("…the older attempt is marked 'paid' with the second transaction id", att7?.status === 'paid' && att7?.transactionId === 'T1-7', att7);
+    const row7 = await row(o7.id);
+    check('…the order stays paid with its ORIGINAL transaction id', row7.paymentStatus === 'paid' && row7.paymentTransactionId === 'T2-7', [row7.paymentStatus, row7.paymentTransactionId]);
+    check('a repeat of the same second payment → already_flagged', (await recordPayment(o7.id, { provider: 'viva', ref: 'T1-7', amountCents: o7.totalCents, attemptRef: 'R1-7' })) === 'already_flagged');
+    check('…and writes no second event', (await dupEvents7()) === 1, await dupEvents7());
+    check('the first payment again (same ref) → already_paid', (await recordPayment(o7.id, { provider: 'viva', ref: 'T2-7', amountCents: o7.totalCents, attemptRef: 'R2-7' })) === 'already_paid');
+
+    console.log('  Double payment without a known attempt');
+    const o8 = await newCardOrder();
+    check('the first payment (no attemptRef) → paid', (await recordPayment(o8.id, { provider: 'viva', ref: 'T2-8', amountCents: o8.totalCents })) === 'paid');
+    check('a second payment with an unrecorded attemptRef → duplicate_payment', (await recordPayment(o8.id, { provider: 'viva', ref: 'T1-8', amountCents: o8.totalCents, attemptRef: 'R-NOROW-8' })) === 'duplicate_payment');
+    const att8 = await attemptByRef('R-NOROW-8');
+    check('…and the attempt row is created as paid', att8?.status === 'paid' && att8?.transactionId === 'T1-8' && att8?.orderId === o8.id, att8);
+    check('…the order keeps its original transaction id', (await row(o8.id)).paymentTransactionId === 'T2-8', (await row(o8.id)).paymentTransactionId);
+    check('a paid order with no attemptRef and a different ref → already_paid', (await recordPayment(o8.id, { provider: 'viva', ref: 'T3-8', amountCents: o8.totalCents })) === 'already_paid');
+
+    console.log('  Repeated mismatch');
+    const o9 = await newCardOrder();
+    await recordPaymentAttempt(o9.id, { provider: 'viva', ref: 'R-MM-9' });
+    check('a wrong amount with attemptRef → amount_mismatch', (await recordPayment(o9.id, { provider: 'viva', ref: 'TM-9', amountCents: o9.totalCents + 1, attemptRef: 'R-MM-9' })) === 'amount_mismatch');
+    check('…a repeat of the identical report → already_flagged', (await recordPayment(o9.id, { provider: 'viva', ref: 'TM-9', amountCents: o9.totalCents + 1, attemptRef: 'R-MM-9' })) === 'already_flagged');
+    check('…and only one ΠΡΟΣΟΧΗ event is written', (await warningsOf(o9.id)) === 1, await warningsOf(o9.id));
+    check("…the attempt is 'mismatch'", (await attemptByRef('R-MM-9'))?.status === 'mismatch', await attemptByRef('R-MM-9'));
+    check('a correct payment afterwards still → paid', (await recordPayment(o9.id, { provider: 'viva', ref: 'TM-9b', amountCents: o9.totalCents, attemptRef: 'R-MM-9' })) === 'paid');
+
+    console.log('  Duplicate owner alert');
+    const o10 = await newCardOrder();
+    await recordPaymentAttempt(o10.id, { provider: 'viva', ref: 'R1-10' });
+    await recordPaymentAttempt(o10.id, { provider: 'viva', ref: 'R2-10' });
+    await recordPayment(o10.id, { provider: 'viva', ref: 'T2-10', amountCents: o10.totalCents, attemptRef: 'R2-10' });
+    const outbox10 = new Set(outboxFiles());
+    const r10 = await settleCardPayment({ id: o10.id, number: o10.number }, { provider: 'viva', ref: 'T1-10', amountCents: o10.totalCents, attemptRef: 'R1-10' });
+    check('settleCardPayment on a second payment → duplicate_payment', r10 === 'duplicate_payment', r10);
+    const new10 = outboxFiles().filter((f) => !outbox10.has(f));
+    check('…one owner alert is written to the outbox', new10.length === 1, new10);
+    check('…and no file is addressed to the buyer', !new10.some((f) => f.includes(base.email)), new10);
+    const outbox10b = new Set(outboxFiles());
+    const r10b = await settleCardPayment({ id: o10.id, number: o10.number }, { provider: 'viva', ref: 'T1-10', amountCents: o10.totalCents, attemptRef: 'R1-10' });
+    check('a repeat → already_flagged', r10b === 'already_flagged', r10b);
+    check('…and sends no new mail', outboxFiles().filter((f) => !outbox10b.has(f)).length === 0, outboxFiles().filter((f) => !outbox10b.has(f)));
   }
 
   console.log('Cleanup');
