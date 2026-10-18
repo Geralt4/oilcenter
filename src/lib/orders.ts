@@ -300,7 +300,7 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
   if (info.attemptRef) await setAttemptStatus(info.provider, info.attemptRef, 'paid', info.ref);
   if (late) {
     await flagForReview(orderId);
-    await addOrderEvent(orderId, 'payment', `ΠΡΟΣΟΧΗ: η πληρωμή (${info.provider}, αναφορά ${info.ref}, ${info.amountCents / 100} €) ήρθε αφού η παραγγελία είχε ακυρωθεί και το απόθεμα είχε επανέλθει. Επιστρέψτε τα χρήματα από τον πάροχο πληρωμών ή ξανανοίξτε την παραγγελία.`);
+    await addOrderEvent(orderId, 'payment', `ΠΡΟΣΟΧΗ: η πληρωμή (${info.provider}, αναφορά ${info.ref}, ${info.amountCents / 100} €) ήρθε αφού η παραγγελία είχε ακυρωθεί και το απόθεμα είχε επανέλθει. Επιστρέψτε τα χρήματα από τον πάροχο πληρωμών ή δημιουργήστε νέα παραγγελία.`);
     return 'late_cancelled';
   }
   await addOrderEvent(orderId, 'payment', `Η πληρωμή με κάρτα ολοκληρώθηκε (${info.provider}, αναφορά ${info.ref}).`);

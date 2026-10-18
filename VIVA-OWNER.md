@@ -31,6 +31,10 @@
    - Αποτυχία: `https://www.oilcenter.gr/api/payments/viva/return?failed=1`
 
    Ο τετραψήφιος κωδικός της πηγής (source code) είναι ένα από τα στοιχεία που θα χρειαστούμε.
+   **Προσοχή στη διεύθυνση:** η πηγή πληρωμών δένεται με μια διεύθυνση. Πρέπει να είναι αυτή στην οποία απαντά πραγματικά το
+   site την ημέρα που ανοίγουν οι πληρωμές. Αν το `oilcenter.gr` δεν έχει ακόμη μεταφερθεί στο νέο site, είτε κάνουμε
+   πρώτα τη μεταφορά του domain είτε φτιάχνουμε την πηγή με τη διεύθυνση του Railway και την αλλάζουμε αργότερα
+   (το ίδιο ισχύει για το webhook παρακάτω).
 2. **Webhook** (Settings → API Access → Webhooks): διεύθυνση `https://www.oilcenter.gr/api/payments/viva/webhook`, για τα
    γεγονότα «Transaction Payment Created» και «Transaction Failed». Η Viva ελέγχει τη διεύθυνση μόνη της όταν πατηθεί
    «Verify».

@@ -150,9 +150,18 @@ online cards from domestic/EEA consumers 2.19 % + €0.24 per transaction; domes
 
 ## 10. Switching it on — and off again
 
-Order on the day the e-shop opens: (1) fix gaps 1–3 and re-run the tests; (2) demo run (section 6); (3) real account and
-its payment source and webhook; (4) set the live keys and `VIVA_ENV=live` on Railway; (5) remove
-`COMMERCE_ENABLED=false`; (6) turn ordering on in Admin → Ρυθμίσεις; (7) place and refund one real small order.
+Order on the day the e-shop opens: (1) re-run all tests (`test:viva`, `test:orders`, `test:admin`, `test:card`); (2) demo run
+(section 6); (3) real account and its payment source and webhook; (4) set the live keys and `VIVA_ENV=live` on Railway;
+(5) remove `COMMERCE_ENABLED=false`; (6) turn ordering on in Admin → Ρυθμίσεις; (7) place and refund one real small order.
+
+Two things to remember on that day:
+- **The domain.** Viva binds the payment source (and the Success/Failure/Webhook URLs) to the address the shop really
+  answers on. If `oilcenter.gr` still points at the old site, either move the domain first, or set the payment source up
+  with the Railway address and change it when the domain moves; `SITE_URL` must match whichever it is.
+- **Railway variables.** Every variable set on Railway must also be in the `keep` list of `.railway/railway.ts`, or the next
+  `railway config apply` deletes it (read `railway config plan` first). That includes the `VIVA_*` keys and, if used,
+  `VIVA_WEBHOOK_IPS`. `VIVA_TEST_BASE_URL` is test-only: it must never be set on a server, and the startup check refuses to
+  boot with it when `VIVA_ENV=live`.
 
 **Off again at any moment:** set `COMMERCE_ENABLED=false` (orders, accounts and payments refuse server-side), or unset the
 `VIVA_CLIENT_ID` key (card disappears from checkout and is refused). Orders already paid stay paid.
