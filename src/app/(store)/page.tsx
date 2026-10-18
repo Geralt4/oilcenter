@@ -96,7 +96,7 @@ export default async function HomePage() {
 
           <div className="relative mx-auto w-full max-w-md lg:max-w-none">
             <div className="relative aspect-[4/5] overflow-hidden rounded-[2rem] shadow-lift ring-1 ring-white/10">
-              <Image src="/shop/counter-mobil-1.webp" alt="Λιπαντικά στον πάγκο του καταστήματος Oil Center, με τα ράφια στο βάθος" fill priority sizes="(min-width: 1024px) 520px, 90vw" className="object-cover" />
+              <Image src="/shop/counter-total-quartz.webp" alt="Λιπαντικά TotalEnergies Quartz Ineo RCP 5W-30 σε συσκευασίες 5 L και 1 L στον πάγκο του καταστήματος, με τα ράφια στο βάθος" fill priority sizes="(min-width: 1024px) 520px, 90vw" className="object-cover" />
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink-950/90 to-transparent p-6 pt-20">
                 <p className="eyebrow text-oil-300">Το κατάστημά μας</p>
                 <p className="mt-1 text-lg font-semibold">{shop.street}, {shop.city}</p>

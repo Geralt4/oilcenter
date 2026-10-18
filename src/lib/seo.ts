@@ -42,7 +42,7 @@ export function localBusinessJsonLd(settings: ShopSettings) {
     url: siteUrl(),
     telephone: phone,
     ...(shop.email && { email: shop.email }),
-    image: `${siteUrl()}/shop/counter-mobil-1.webp`,
+    image: `${siteUrl()}/shop/counter-total-quartz.webp`,
     priceRange: '€',
     ...(shop.foundedYear > 0 && { foundingDate: String(shop.foundedYear) }),
     currenciesAccepted: 'EUR',
