@@ -13,6 +13,7 @@ import { createSession, createSudoSession, destroySession, destroySudoSession, g
 import { db } from '@/lib/db';
 import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, sales, unmatchedPayments, variants, type BaseType, type OrderStatus, type PaymentStatus } from '@/lib/db/schema';
 import { orderStatusMail, sendMail } from '@/lib/email';
+import { forgetTarget } from '@/lib/discount-cleanup';
 import { cleanIds, hasTargets, type Targets } from '@/lib/discounts';
 import { buildHazard } from '@/lib/ghs';
 import { isValidGtin, normalizeGtin } from '@/lib/gtin';
@@ -582,6 +583,7 @@ export async function deleteProduct(fd: FormData): Promise<void> {
     await tx.delete(productImages).where(eq(productImages.productId, id));
     await tx.delete(products).where(eq(products.id, id));
   });
+  await forgetTarget('product', id);
   await Promise.all([...images.map((i) => i.url), ...(row?.hazard?.sdsUrl ? [row.hazard.sdsUrl] : [])].map(removeUpload));
   redirect('/admin/products?deleted=1');
 }
@@ -760,11 +762,13 @@ export async function deleteTaxon(fd: FormData): Promise<void> {
   if (str(fd, 'kind') === 'brand') {
     await db.update(products).set({ brandId: null }).where(eq(products.brandId, id));
     await db.delete(brands).where(eq(brands.id, id));
+    await forgetTarget('brand', id);
     revalidatePath('/admin/brands');
   } else {
     await db.update(products).set({ categoryId: null }).where(eq(products.categoryId, id));
     await db.update(categories).set({ parentId: null }).where(eq(categories.parentId, id));
     await db.delete(categories).where(eq(categories.id, id));
+    await forgetTarget('category', id);
     revalidatePath('/admin/categories');
   }
 }
@@ -778,6 +782,16 @@ async function readTargets(fd: FormData): Promise<Targets> {
     return rows.map((r) => r.id);
   };
   return { productIds: await pick('productIds', products), brandIds: await pick('brandIds', brands), categoryIds: await pick('categoryIds', categories) };
+}
+
+/** A typed percent, refused (not rounded or clamped) when it is not a whole number in range: «12,5» must not quietly become 13. */
+function readPercent(fd: FormData, max: number): number | string {
+  const raw = str(fd, 'value');
+  if (!/^\d+$/.test(raw)) return raw ? 'Το ποσοστό πρέπει να είναι ακέραιος αριθμός.' : 'Συμπληρώστε αξία έκπτωσης.';
+  const n = Number(raw);
+  if (n < 1) return 'Συμπληρώστε αξία έκπτωσης.';
+  if (n > max) return `Μέγιστο ${max}%.`;
+  return n;
 }
 
 /** «από» / «έως» as Athens calendar days; the last day counts all the way to midnight. */
@@ -795,8 +809,15 @@ export async function saveCoupon(_prev: AdminFormState, fd: FormData): Promise<A
   const code = str(fd, 'code').toUpperCase().replace(/[^A-Z0-9_-]/g, '');
   const type = (['percent', 'fixed', 'free_shipping'] as const).find((t) => t === str(fd, 'type'));
   if (code.length < 3 || !type) return { ok: false, message: 'Συμπληρώστε κωδικό (τουλάχιστον 3 χαρακτήρες) και τύπο.' };
-  const value = type === 'percent' ? Math.min(100, Math.max(1, int(fd, 'value'))) : type === 'fixed' ? (parsePriceToCents(str(fd, 'value')) ?? 0) : 0;
-  if (type !== 'free_shipping' && value <= 0) return { ok: false, message: 'Συμπληρώστε αξία έκπτωσης.' };
+  let value = 0;
+  if (type === 'percent') {
+    const percent = readPercent(fd, 100);
+    if (typeof percent === 'string') return { ok: false, message: percent };
+    value = percent;
+  } else if (type === 'fixed') {
+    value = parsePriceToCents(str(fd, 'value')) ?? 0;
+    if (value <= 0) return { ok: false, message: 'Συμπληρώστε αξία έκπτωσης.' };
+  }
   const range = readDateRange(fd);
   if (!range.ok) return { ok: false, message: range.message };
   const targets = await readTargets(fd);
@@ -828,9 +849,15 @@ export async function saveSale(_prev: AdminFormState, fd: FormData): Promise<Adm
   const name = str(fd, 'name').slice(0, 120);
   const type = (['percent', 'fixed'] as const).find((t) => t === str(fd, 'type'));
   if (name.length < 2 || !type) return { ok: false, message: 'Συμπληρώστε όνομα και τύπο έκπτωσης.' };
-  const value = type === 'percent' ? int(fd, 'value') : (parsePriceToCents(str(fd, 'value')) ?? 0);
-  if (value <= 0) return { ok: false, message: 'Συμπληρώστε αξία έκπτωσης.' };
-  if (type === 'percent' && value > 90) return { ok: false, message: 'Μέγιστο 90%.' };
+  let value: number;
+  if (type === 'percent') {
+    const percent = readPercent(fd, 90);
+    if (typeof percent === 'string') return { ok: false, message: percent };
+    value = percent;
+  } else {
+    value = parsePriceToCents(str(fd, 'value')) ?? 0;
+    if (value <= 0) return { ok: false, message: 'Συμπληρώστε αξία έκπτωσης.' };
+  }
   const targets = await readTargets(fd);
   if (!hasTargets(targets)) return { ok: false, message: 'Επιλέξτε τουλάχιστον ένα προϊόν, μάρκα ή κατηγορία.' };
   const range = readDateRange(fd);

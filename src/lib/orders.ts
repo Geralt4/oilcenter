@@ -88,13 +88,20 @@ export async function findCoupon(code: string | undefined | null, lines: Resolve
   if (row.startsAt && row.startsAt.getTime() > now) return { coupon: null, error: 'Το κουπόνι δεν έχει ενεργοποιηθεί ακόμη.' };
   if (row.endsAt && row.endsAt.getTime() < now) return { coupon: null, error: 'Το κουπόνι έχει λήξει.' };
   if (row.maxUses !== null && row.usedCount >= row.maxUses) return { coupon: null, error: 'Το κουπόνι έχει εξαντληθεί.' };
-  const limited = hasTargets({ productIds: cleanIds(row.productIds), brandIds: cleanIds(row.brandIds), categoryIds: cleanIds(row.categoryIds) }) || row.excludeSaleItems;
+  const targeted = hasTargets({ productIds: cleanIds(row.productIds), brandIds: cleanIds(row.brandIds), categoryIds: cleanIds(row.categoryIds) });
+  const limited = targeted || row.excludeSaleItems;
   const variantIds = limited ? await eligibleVariantIds(row, lines) : null;
   if (variantIds && variantIds.length === 0) return { coupon: null, error: 'Το κουπόνι δεν ισχύει για τα προϊόντα του καλαθιού σας.' };
   const eligibleCents = variantIds ? lines.filter((l) => variantIds.includes(l.variantId)).reduce((s, l) => s + l.lineTotalCents, 0) : subtotalCents;
   if (eligibleCents < row.minSubtotalCents) {
     const min = (row.minSubtotalCents / 100).toFixed(2).replace('.', ',');
-    return { coupon: null, error: variantIds ? `Το κουπόνι ισχύει για αγορές άνω των ${min} € στα προϊόντα της προσφοράς.` : `Το κουπόνι ισχύει για αγορές άνω των ${min} €.` };
+    // a coupon that only skips sale items measures the minimum on what is NOT on sale: say that, not "the offer's products"
+    const error = !variantIds
+      ? `Το κουπόνι ισχύει για αγορές άνω των ${min} €.`
+      : targeted
+        ? `Το κουπόνι ισχύει για αγορές άνω των ${min} € στα προϊόντα της προσφοράς.`
+        : `Το κουπόνι ισχύει για αγορές άνω των ${min} € σε προϊόντα που δεν είναι σε προσφορά.`;
+    return { coupon: null, error };
   }
   return { coupon: { code: row.code, type: row.type, value: row.value, minSubtotalCents: row.minSubtotalCents, variantIds }, error: null };
 }
