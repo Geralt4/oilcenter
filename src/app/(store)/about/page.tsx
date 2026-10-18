@@ -59,7 +59,7 @@ export default async function AboutPage() {
             <Image src="/shop/counter-castrol-magnatec.webp" alt="Castrol Magnatec 10W-40 σε τρεις συσκευασίες στον πάγκο του καταστήματος" fill priority sizes="(min-width: 1024px) 600px, 100vw" className="object-cover" />
           </div>
           <div className="relative aspect-square overflow-hidden rounded-3xl shadow-tile">
-            <Image src="/shop/counter-mobil-1.webp" alt="Mobil 1 στον πάγκο του καταστήματος" fill sizes="(min-width: 1024px) 300px, 50vw" className="object-cover" />
+            <Image src="/shop/counter-mercedes-bosch.webp" alt="Λιπαντικό Mercedes-Benz 5W-30 και φίλτρα Bosch στον πάγκο του καταστήματος" fill sizes="(min-width: 1024px) 300px, 50vw" className="object-cover object-bottom" />
           </div>
           <div className="relative aspect-square overflow-hidden rounded-3xl shadow-tile">
             <Image src="/shop/counter-mobil-esp.webp" alt="Mobil 1 ESP στον πάγκο του καταστήματος" fill sizes="(min-width: 1024px) 300px, 50vw" className="object-cover" />
