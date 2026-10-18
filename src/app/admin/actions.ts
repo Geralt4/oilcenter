@@ -279,8 +279,10 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
 
   if (status === 'cancelled' && order.status !== 'cancelled') {
     await cancelOrder(id, actor); // restocks
-    // Cancelling an order that was paid leaves money with the shop: put it on the owner's list until it is refunded.
-    if (order.paymentStatus === 'paid' && payment === 'paid') {
+    // Cancelling an order that was paid leaves money with the shop: put it on the owner's list until it is refunded. The
+    // payment status is read again here: a gateway payment may have landed after this page was loaded.
+    const [now] = await db.select({ paymentStatus: orders.paymentStatus }).from(orders).where(eq(orders.id, id));
+    if (now?.paymentStatus === 'paid' && payment !== 'refunded') {
       await flagForReview(id);
       await addOrderEvent(id, 'payment', 'ΠΡΟΣΟΧΗ: ακυρώθηκε παραγγελία που είχε εξοφληθεί. Επιστρέψτε τα χρήματα στον πελάτη και σημειώστε «Επιστροφή χρημάτων».', actor);
     }

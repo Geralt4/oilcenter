@@ -2,6 +2,9 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { orders, paymentAttempts, unmatchedPayments, type Order, type PaymentAttemptStatus } from '@/lib/db/schema';
 
+/** The shared client or the transaction a caller is inside: writes that must succeed or fail together take the latter. */
+export type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 /*
  * Payment attempts. Each gateway checkout opened for an order is kept, so a payment made on an older checkout (a buyer
  * who retried, or has two tabs open) still finds its order. orders.paymentRef only ever holds the latest one.
@@ -50,10 +53,11 @@ export async function claimAttemptStatus(
   status: PaymentAttemptStatus,
   transactionId: string | null,
   onlyFrom: PaymentAttemptStatus[],
+  exec: Executor = db,
 ): Promise<boolean> {
-  const created = await db.insert(paymentAttempts).values({ orderId, provider, ref, status, transactionId }).onConflictDoNothing().returning({ id: paymentAttempts.id });
+  const created = await exec.insert(paymentAttempts).values({ orderId, provider, ref, status, transactionId }).onConflictDoNothing().returning({ id: paymentAttempts.id });
   if (created.length > 0) return true;
-  return setAttemptStatus(provider, ref, status, transactionId, onlyFrom);
+  return setAttemptStatus(provider, ref, status, transactionId, onlyFrom, exec);
 }
 
 /**
@@ -66,9 +70,10 @@ export async function setAttemptStatus(
   status: PaymentAttemptStatus,
   transactionId: string | null,
   onlyFrom?: PaymentAttemptStatus[],
+  exec: Executor = db,
 ): Promise<boolean> {
   const where = and(eq(paymentAttempts.provider, provider), eq(paymentAttempts.ref, ref), onlyFrom ? inArray(paymentAttempts.status, onlyFrom) : undefined);
-  const changed = await db.update(paymentAttempts).set({ status, transactionId }).where(where).returning({ id: paymentAttempts.id });
+  const changed = await exec.update(paymentAttempts).set({ status, transactionId }).where(where).returning({ id: paymentAttempts.id });
   return changed.length > 0;
 }
 

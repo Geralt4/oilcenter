@@ -1,16 +1,16 @@
-import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import { coupons, orderEvents, orderItems, orders, variants, type Coupon, type Order, type OrderStatus } from '@/lib/db/schema';
 import { randomToken } from '@/lib/auth/password';
-import { claimAttemptStatus, setAttemptStatus } from '@/lib/payments/attempts';
+import { claimAttemptStatus, setAttemptStatus, type Executor } from '@/lib/payments/attempts';
 import { resolveCartLines, type ResolvedCartLine } from '@/lib/catalog';
 import { commerceEnabled } from '@/lib/commerce-flag';
 import { cleanIds, hasTargets, matchesTargets } from '@/lib/discounts';
 import { availablePaymentMethods, computeTotals, type AppliedCoupon } from '@/lib/pricing';
 import { loadCategoryPaths } from '@/lib/sales';
 import type { ShopSettings } from '@/lib/settings';
-import { isGreekPostalCode, isValidAfm } from '@/lib/utils';
+import { formatPrice, isGreekPostalCode, isValidAfm } from '@/lib/utils';
 
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   pending: 'Σε αναμονή',
@@ -233,8 +233,8 @@ class OutOfStockError extends Error {}
 class CouponGoneError extends Error {}
 
 // ─── Lifecycle ───────────────────────────────────────────────────────────────
-export async function addOrderEvent(orderId: number, type: string, message: string, actor = 'system') {
-  await db.insert(orderEvents).values({ orderId, type, message, actor });
+export async function addOrderEvent(orderId: number, type: string, message: string, actor = 'system', exec: Executor = db) {
+  await exec.insert(orderEvents).values({ orderId, type, message, actor });
 }
 
 export type PaymentOutcome =
@@ -250,8 +250,8 @@ export type PaymentOutcome =
   | 'already_flagged';
 
 /** Puts the order on the owner's «χρειάζεται έλεγχο» list (dashboard, order list); cleared by hand once it has been dealt with. */
-export async function flagForReview(orderId: number): Promise<void> {
-  await db.update(orders).set({ paymentFlag: 'review' }).where(eq(orders.id, orderId));
+export async function flagForReview(orderId: number, exec: Executor = db): Promise<void> {
+  await exec.update(orders).set({ paymentFlag: 'review' }).where(eq(orders.id, orderId));
 }
 
 export type PaymentInfo = {
@@ -270,48 +270,79 @@ export type PaymentInfo = {
  * payment. Only 'paid' means "treat as a normal sale"; every other outcome except 'already_paid' needs the owner's attention.
  */
 export async function recordPayment(orderId: number, info: PaymentInfo): Promise<PaymentOutcome> {
-  const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
-  if (!order) return 'unknown_order';
-  if (order.paymentStatus === 'paid') {
-    // The same payment arrives twice (browser return + webhook) with the same reference. A DIFFERENT reference on a paid
-    // order is a second charge: the buyer paid on two checkouts. Only gateways that identify the checkout (attemptRef) can say.
-    const second = info.attemptRef && order.paymentTransactionId && order.paymentTransactionId !== info.ref;
-    if (!second) return 'already_paid';
-    if (!(await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'failed']))) return 'already_flagged';
-    await flagForReview(orderId);
-    await addOrderEvent(orderId, 'payment', `ΠΡΟΣΟΧΗ: δεύτερη πληρωμή για την ίδια παραγγελία (${info.provider}, αναφορά ${info.ref}, ${info.amountCents / 100} €). Η παραγγελία είχε ήδη πληρωθεί (αναφορά ${order.paymentTransactionId}). Επιστρέψτε τα χρήματα της δεύτερης πληρωμής.`);
-    return 'duplicate_payment';
-  }
+  // One transaction: the order, its attempt, the flag and the history line are written together or not at all. A failure
+  // half-way would otherwise leave a paid order with no history and no confirmation, and Viva's retry would only find
+  // 'already_paid'.
+  return db.transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
+    if (!order) return 'unknown_order';
+    if (order.paymentStatus === 'paid' || order.paymentStatus === 'refunded') {
+      // The same payment arrives twice (browser return + webhook, or a replayed return URL) with the same reference. A
+      // DIFFERENT reference on a paid order is a second charge: the buyer paid on two checkouts, or paid online after the
+      // owner had already marked the order paid by hand (no stored reference). Only gateways that identify the checkout
+      // (attemptRef) can say; a payment replayed after a refund changes nothing.
+      const second = Boolean(info.attemptRef) && info.ref !== order.paymentTransactionId;
+      if (!second) return 'already_paid';
+      if (!(await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'failed'], tx))) return 'already_flagged';
+      await flagForReview(orderId, tx);
+      await addOrderEvent(
+        orderId,
+        'payment',
+        `ΠΡΟΣΟΧΗ: δεύτερη πληρωμή για την ίδια παραγγελία (${info.provider}, αναφορά ${info.ref}, ${formatPrice(info.amountCents)}). Η παραγγελία είχε ήδη πληρωθεί${order.paymentTransactionId ? ` (αναφορά ${order.paymentTransactionId})` : ' (σημειωμένη χειροκίνητα)'}. Επιστρέψτε τα χρήματα της δεύτερης πληρωμής.`,
+        'system',
+        tx,
+      );
+      return 'duplicate_payment';
+    }
 
-  const currency = info.currency ? info.currency.toUpperCase() : null;
-  const problem: PaymentOutcome | null = currency && currency !== 'EUR' ? 'currency_mismatch' : info.amountCents !== order.totalCents ? 'amount_mismatch' : null;
-  // the browser return and the webhook both report the same wrong payment: only the first one raises the alarm
-  if (problem && info.attemptRef && !(await claimAttemptStatus(orderId, info.provider, info.attemptRef, 'mismatch', info.ref, ['created', 'failed']))) return 'already_flagged';
-  if (problem) await flagForReview(orderId);
-  if (problem === 'currency_mismatch') {
-    await addOrderEvent(orderId, 'payment', `ΠΡΟΣΟΧΗ: η πληρωμή έγινε σε νόμισμα ${currency} αντί για EUR. Αναφορά ${info.provider}: ${info.ref}`);
-  } else if (problem === 'amount_mismatch') {
-    await addOrderEvent(orderId, 'payment', `ΠΡΟΣΟΧΗ: το ποσό που εισπράχθηκε (${info.amountCents / 100} €) διαφέρει από το σύνολο της παραγγελίας (${order.totalCents / 100} €). Αναφορά ${info.provider}: ${info.ref}`);
-  }
-  if (problem) return problem;
+    const currency = info.currency ? info.currency.toUpperCase() : null;
+    const problem: PaymentOutcome | null = currency && currency !== 'EUR' ? 'currency_mismatch' : info.amountCents !== order.totalCents ? 'amount_mismatch' : null;
+    if (problem) {
+      // the browser return and the webhook both report the same wrong payment: only the first one raises the alarm
+      if (info.attemptRef && !(await claimAttemptStatus(orderId, info.provider, info.attemptRef, 'mismatch', info.ref, ['created', 'failed'], tx))) return 'already_flagged';
+      await flagForReview(orderId, tx);
+      await addOrderEvent(
+        orderId,
+        'payment',
+        problem === 'currency_mismatch'
+          ? `ΠΡΟΣΟΧΗ: η πληρωμή έγινε σε νόμισμα ${currency} αντί για EUR. Αναφορά ${info.provider}: ${info.ref}`
+          : `ΠΡΟΣΟΧΗ: το ποσό που εισπράχθηκε (${formatPrice(info.amountCents)}) διαφέρει από το σύνολο της παραγγελίας (${formatPrice(order.totalCents)}). Αναφορά ${info.provider}: ${info.ref}`,
+        'system',
+        tx,
+      );
+      return problem;
+    }
 
-  // The order was cancelled (e.g. the 2 h release of unpaid card orders) and the money arrived anyway. It is recorded as
-  // received so nobody forgets it, but the order is not revived: its stock is already back on the shelf.
-  const late = order.status === 'cancelled';
-  const updated = await db
-    .update(orders)
-    .set({ paymentStatus: 'paid', paidAt: new Date(), paymentProvider: info.provider, paymentTransactionId: info.ref, status: order.status === 'pending' ? 'confirmed' : order.status })
-    .where(and(eq(orders.id, orderId), sql`${orders.paymentStatus} <> 'paid'`))
-    .returning({ id: orders.id });
-  if (updated.length === 0) return 'already_paid';
-  if (info.attemptRef) await setAttemptStatus(info.provider, info.attemptRef, 'paid', info.ref);
-  if (late) {
-    await flagForReview(orderId);
-    await addOrderEvent(orderId, 'payment', `ΠΡΟΣΟΧΗ: η πληρωμή (${info.provider}, αναφορά ${info.ref}, ${info.amountCents / 100} €) ήρθε αφού η παραγγελία είχε ακυρωθεί και το απόθεμα είχε επανέλθει. Επιστρέψτε τα χρήματα από τον πάροχο πληρωμών ή δημιουργήστε νέα παραγγελία.`);
-    return 'late_cancelled';
-  }
-  await addOrderEvent(orderId, 'payment', `Η πληρωμή με κάρτα ολοκληρώθηκε (${info.provider}, αναφορά ${info.ref}).`);
-  return 'paid';
+    // The status is decided in SQL from what the row holds right now, never from the copy read above. A cancelled order
+    // (e.g. the 2 h release of unpaid card orders) keeps its status: the money is recorded as received so nobody forgets it,
+    // but the order is not revived, its stock is already back on the shelf.
+    const updated = await tx
+      .update(orders)
+      .set({
+        paymentStatus: 'paid',
+        paidAt: new Date(),
+        paymentProvider: info.provider,
+        paymentTransactionId: info.ref,
+        status: sql`CASE WHEN ${orders.status} = 'pending' THEN 'confirmed' ELSE ${orders.status} END`,
+      })
+      .where(and(eq(orders.id, orderId), sql`${orders.paymentStatus} NOT IN ('paid', 'refunded')`))
+      .returning({ status: orders.status });
+    if (updated.length === 0) return 'already_paid';
+    if (info.attemptRef) await setAttemptStatus(info.provider, info.attemptRef, 'paid', info.ref, undefined, tx);
+    if (updated[0].status === 'cancelled') {
+      await flagForReview(orderId, tx);
+      await addOrderEvent(
+        orderId,
+        'payment',
+        `ΠΡΟΣΟΧΗ: η πληρωμή (${info.provider}, αναφορά ${info.ref}, ${formatPrice(info.amountCents)}) ήρθε αφού η παραγγελία είχε ακυρωθεί και το απόθεμα είχε επανέλθει. Επιστρέψτε τα χρήματα από τον πάροχο πληρωμών ή δημιουργήστε νέα παραγγελία.`,
+        'system',
+        tx,
+      );
+      return 'late_cancelled';
+    }
+    await addOrderEvent(orderId, 'payment', `Η πληρωμή με κάρτα ολοκληρώθηκε (${info.provider}, αναφορά ${info.ref}).`, 'system', tx);
+    return 'paid';
+  });
 }
 
 /** True the first time a payment is settled as an ordinary sale. */
@@ -320,12 +351,13 @@ export async function markOrderPaid(orderId: number, info: PaymentInfo): Promise
 }
 
 /** Puts reserved stock back. Safe to call once per order: guarded by the status transition. */
-export async function cancelOrder(orderId: number, actor: string, reason?: string): Promise<boolean> {
+export async function cancelOrder(orderId: number, actor: string, reason?: string, opts: { requireUnpaid?: boolean } = {}): Promise<boolean> {
   return db.transaction(async (tx) => {
     const flipped = await tx
       .update(orders)
       .set({ status: 'cancelled' })
-      .where(and(eq(orders.id, orderId), sql`${orders.status} <> 'cancelled'`))
+      // requireUnpaid: the automatic release must never cancel an order whose payment landed after it was selected
+      .where(and(eq(orders.id, orderId), sql`${orders.status} <> 'cancelled'`, opts.requireUnpaid ? sql`${orders.paymentStatus} NOT IN ('paid', 'refunded')` : undefined))
       .returning({ id: orders.id });
     if (flipped.length === 0) return false;
 
@@ -358,13 +390,15 @@ export async function releaseAbandonedCardOrders(): Promise<number> {
         eq(orders.paymentMethod, 'card'),
         eq(orders.paymentStatus, 'pending'),
         eq(orders.status, 'pending'),
+        // an order with a payment problem waits for the owner (the money may already be taken): never auto-cancelled
+        isNull(orders.paymentFlag),
         lt(orders.createdAt, cutoff),
         // a retry opened shortly before the cutoff is still payable: leave the order alone until that checkout has expired too
         sql`NOT EXISTS (SELECT 1 FROM payment_attempts a WHERE a.order_id = ${orders.id} AND a.created_at >= ${cutoff.getTime()})`,
       ),
     );
   let released = 0;
-  for (const o of stale) if (await cancelOrder(o.id, 'system', 'η πληρωμή με κάρτα δεν ολοκληρώθηκε')) released++;
+  for (const o of stale) if (await cancelOrder(o.id, 'system', 'η πληρωμή με κάρτα δεν ολοκληρώθηκε', { requireUnpaid: true })) released++;
   return released;
 }
 

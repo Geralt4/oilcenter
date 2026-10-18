@@ -208,7 +208,7 @@ async function main() {
   check('a variant of another brand is unchanged', s2.unitPriceCents === P2.priceCents && s2.compareAtCents === null, s2);
   const detail = await getProductBySlug(readyA.p.slug);
   const shownUnverified = detail?.variants.find((v) => v.id === unverified.id);
-  check('a size with an unconfirmed price is untouched on the product page', shownUnverified === undefined || (shownUnverified.priceCents === 1500 && shownUnverified.compareAtCents === null), shownUnverified);
+  check('a size with an unconfirmed price is untouched on the product page', shownUnverified !== undefined && shownUnverified.priceCents === 1500 && shownUnverified.compareAtCents === null, shownUnverified);
   const shownP1 = detail?.variants.find((v) => v.id === P1.id);
   check('the product page shows the sale price', shownP1?.priceCents === Math.round(P1.priceCents * 0.8) && shownP1?.compareAtCents === P1.priceCents, shownP1);
   const feed = await buildSkroutzFeed(settings);
@@ -534,6 +534,141 @@ async function main() {
     for (const id of madeOrderIds) await db.delete(orders).where(eq(orders.id, id));
     await db.delete(unmatchedPayments).where(eq(unmatchedPayments.orderCode, '9515982136480001'));
     check('the rows of this section are gone', (await db.select().from(orders).where(eq(orders.id, madeOrderIds[0]))).length === 0);
+  }
+
+  console.log('Fixes from the bug hunt');
+  {
+    const { recordPayment, releaseAbandonedCardOrders } = await import('../src/lib/orders');
+    const { recordPaymentAttempt } = await import('../src/lib/payments/attempts');
+    const { settleCardPayment } = await import('../src/lib/payments/settle');
+    const { paymentAttempts } = await import('../src/lib/db/schema');
+    const { sql } = await import('drizzle-orm');
+    const outbox = path.join(dir, 'data', 'outbox');
+    const outboxFiles = () => {
+      try {
+        return readdirSync(outbox);
+      } catch {
+        return [] as string[];
+      }
+    };
+    const row = async (id: number) => (await db.select().from(orders).where(eq(orders.id, id)))[0];
+    const eventsOf = (orderId: number) => db.select().from(orderEvents).where(eq(orderEvents.orderId, orderId));
+    const attemptByRef = async (ref: string) => (await db.select().from(paymentAttempts).where(eq(paymentAttempts.ref, ref)))[0];
+    const cardOpts = { customerId: null, cardProviderConfigured: true };
+    const newCard = async () => {
+      const r = await createOrder({ ...base, paymentMethod: 'card', lines: [{ variantId: variant.id, quantity: 1 }] }, settings, cardOpts);
+      if (!r.ok) throw new Error(`card order not created: ${r.message}`);
+      return r.order;
+    };
+    const backdate = (id: number) => db.update(orders).set({ createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000) }).where(eq(orders.id, id));
+    // enough units for the orders of this section
+    await db.update(variants).set({ stock: 50 }).where(eq(variants.id, variant.id));
+
+    console.log('  Refund replay');
+    const rf = await newCard();
+    await recordPaymentAttempt(rf.id, { provider: 'viva', ref: 'R1-RF' });
+    const rfInfo = { provider: 'viva', ref: 'T1-RF', amountCents: rf.totalCents, attemptRef: 'R1-RF' };
+    check('a payment → paid', (await recordPayment(rf.id, rfInfo)) === 'paid');
+    await db.update(orders).set({ paymentStatus: 'refunded' }).where(eq(orders.id, rf.id));
+    const rfEvents = (await eventsOf(rf.id)).length;
+    check('the same payment replayed after a refund → already_paid', (await recordPayment(rf.id, rfInfo)) === 'already_paid');
+    const rfAfter = await row(rf.id);
+    check('…the order stays refunded with its reference', rfAfter.paymentStatus === 'refunded' && rfAfter.paymentTransactionId === 'T1-RF', [rfAfter.paymentStatus, rfAfter.paymentTransactionId]);
+    check('…and writes no event', (await eventsOf(rf.id)).length === rfEvents, [rfEvents, (await eventsOf(rf.id)).length]);
+    const outboxRf = new Set(outboxFiles());
+    check('settleCardPayment on the replay → already_paid', (await settleCardPayment({ id: rf.id, number: rf.number }, rfInfo)) === 'already_paid');
+    const newRfFiles = outboxFiles().filter((f) => !outboxRf.has(f));
+    check('…and the outbox gets no new file', newRfFiles.length === 0, newRfFiles);
+    await recordPaymentAttempt(rf.id, { provider: 'viva', ref: 'R2-RF' });
+    check('a different payment on the refunded order → duplicate_payment', (await recordPayment(rf.id, { provider: 'viva', ref: 'T2-RF', amountCents: rf.totalCents, attemptRef: 'R2-RF' })) === 'duplicate_payment');
+    check('…and it is flagged for review', (await row(rf.id)).paymentFlag === 'review', (await row(rf.id)).paymentFlag);
+
+    console.log('  Paid by hand');
+    const mp = await newCard();
+    await db.update(orders).set({ paymentStatus: 'paid', paidAt: new Date() }).where(eq(orders.id, mp.id));
+    const mpInfo = { provider: 'viva', ref: 'T-MAN-1', amountCents: mp.totalCents, attemptRef: 'R-MAN-1' };
+    check('a card payment on an order marked paid by hand → duplicate_payment', (await recordPayment(mp.id, mpInfo)) === 'duplicate_payment');
+    const mpRow = await row(mp.id);
+    check('…flagged for review', mpRow.paymentFlag === 'review', mpRow.paymentFlag);
+    check("…the timeline says it was marked by hand", (await eventsOf(mp.id)).some((e) => e.message.includes('σημειωμένη χειροκίνητα')));
+    check('…the transaction id stays empty', mpRow.paymentTransactionId === null, mpRow.paymentTransactionId);
+    check('a repeat → already_flagged', (await recordPayment(mp.id, mpInfo)) === 'already_flagged');
+
+    console.log('  Cancel only unpaid');
+    const s0 = await stock();
+    const cp = await newCard();
+    await recordPayment(cp.id, { provider: 'viva', ref: 'RU-PAID', amountCents: cp.totalCents });
+    const cpStatus = (await row(cp.id)).status;
+    check('cancelOrder with requireUnpaid on a paid order → false', (await cancelOrder(cp.id, 'test', undefined, { requireUnpaid: true })) === false);
+    check('…and the status is unchanged', (await row(cp.id)).status === cpStatus, [(await row(cp.id)).status, cpStatus]);
+    const cu = await newCard();
+    check('cancelOrder with requireUnpaid on an unpaid order → true', (await cancelOrder(cu.id, 'test', undefined, { requireUnpaid: true })) === true);
+    check('…and its stock is restored', (await stock()) === s0 - 1, [await stock(), s0 - 1]);
+
+    console.log('  Abandoned orders with a payment flag');
+    const ab1 = await newCard();
+    await backdate(ab1.id);
+    await db.update(orders).set({ paymentFlag: 'review' }).where(eq(orders.id, ab1.id));
+    const ab2 = await newCard();
+    await backdate(ab2.id);
+    await releaseAbandonedCardOrders();
+    check('an old unpaid card order with a review flag is skipped', (await row(ab1.id)).status === 'pending', (await row(ab1.id)).status);
+    check('an old unflagged card order is still cancelled', (await row(ab2.id)).status === 'cancelled', (await row(ab2.id)).status);
+
+    console.log('  Rollback');
+    const rb = await newCard();
+    await recordPaymentAttempt(rb.id, { provider: 'viva', ref: 'RB-ATT' });
+    const rbInfo = { provider: 'viva', ref: 'RB-TX', amountCents: rb.totalCents, attemptRef: 'RB-ATT' };
+    await db.run(sql`ALTER TABLE order_events RENAME TO order_events_x`);
+    let threw = false;
+    try {
+      await recordPayment(rb.id, rbInfo);
+    } catch {
+      threw = true;
+    } finally {
+      await db.run(sql`ALTER TABLE order_events_x RENAME TO order_events`);
+    }
+    check('a failing write inside the payment throws', threw);
+    const rbRow = await row(rb.id);
+    check('…the order stays pending and unpaid (rolled back)', rbRow.paymentStatus === 'pending' && rbRow.status === 'pending', [rbRow.paymentStatus, rbRow.status]);
+    check("…the attempt row is unchanged ('created')", (await attemptByRef('RB-ATT'))?.status === 'created', await attemptByRef('RB-ATT'));
+    check('the same payment once the table is back → paid', (await recordPayment(rb.id, rbInfo)) === 'paid');
+
+    console.log('  Money format');
+    const mf = await newCard();
+    await recordPayment(mf.id, { provider: 'viva', ref: 'MF-1', amountCents: mf.totalCents + 1 });
+    const mfMsg = (await eventsOf(mf.id)).find((e) => e.message.includes('ΠΡΟΣΟΧΗ'))?.message ?? '';
+    check('the ΠΡΟΣΟΧΗ amounts use a Greek comma', /\d+,\d{2}/.test(mfMsg), mfMsg);
+    check('…and no raw dot amount', !/\d\.\d{1,2}\s?€/.test(mfMsg), mfMsg);
+
+    console.log('  Coupon messages');
+    await addCoupon({ code: 'TEST-MSG-NOSALE', excludeSaleItems: true, minSubtotalCents: lineOf(minLines, P2.id) + 1 });
+    const noSaleMinQ = await quote('TEST-MSG-NOSALE', cart(P1.id, P2.id));
+    check('no targets + skips sale items: the minimum message names the non-sale products', !!noSaleMinQ.error && noSaleMinQ.error.endsWith('σε προϊόντα που δεν είναι σε προσφορά.'), noSaleMinQ.error);
+    await addCoupon({ code: 'TEST-MSG-TARGET', productIds: [P1.productId], minSubtotalCents: lineOf(minLines, P1.id) + 1 });
+    const targetMinQ = await quote('TEST-MSG-TARGET', cart(P1.id));
+    check('a targeted coupon keeps the offer wording', !!targetMinQ.error && targetMinQ.error.endsWith('στα προϊόντα της προσφοράς.'), targetMinQ.error);
+    await addCoupon({ code: 'TEST-MSG-PLAIN', excludeSaleItems: false, minSubtotalCents: 10000000 });
+    const plainMinQ = await quote('TEST-MSG-PLAIN', cart(P1.id, P2.id));
+    check('an untargeted coupon without exclusion keeps the plain message', plainMinQ.error === `Το κουπόνι ισχύει για αγορές άνω των ${(10000000 / 100).toFixed(2).replace('.', ',')} €.`, plainMinQ.error);
+    await db.delete(coupons).where(inArray(coupons.code, ['TEST-MSG-NOSALE', 'TEST-MSG-TARGET', 'TEST-MSG-PLAIN']));
+
+    console.log('  Sales with an unreadable target list');
+    const { getSaleContext } = await import('../src/lib/sales');
+    const [goodSale] = await db.insert(sales).values({ name: 'Τεστ έγκυρη έκπτωση', type: 'percent', value: 10, isActive: true }).returning();
+    const [badSale] = await db.insert(sales).values({ name: 'Τεστ κατεστραμμένη έκπτωση', type: 'percent', value: 10, isActive: true }).returning();
+    await db.run(sql`UPDATE sales SET product_ids = 'not json' WHERE id = ${badSale.id}`);
+    let ctxSales: Array<{ id: number }> = [];
+    let ctxError: unknown = null;
+    try {
+      ctxSales = (await getSaleContext()).sales;
+    } catch (err) {
+      ctxError = err;
+    }
+    check('the sale context loads despite one unreadable row', ctxError === null, ctxError);
+    check('…it contains the valid sale', ctxSales.some((s) => s.id === goodSale.id));
+    check('…and not the unreadable one', !ctxSales.some((s) => s.id === badSale.id));
+    await db.delete(sales).where(inArray(sales.id, [goodSale.id, badSale.id]));
   }
 
   console.log('Cleanup');

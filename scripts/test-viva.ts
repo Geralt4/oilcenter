@@ -510,6 +510,52 @@ async function main() {
   check('N2: and sends no mail', unmatchedMails().length === mailsBeforeF, unmatchedMails().length - mailsBeforeF);
   delete process.env.ORDERS_NOTIFY_EMAIL;
 
+  console.log('Q. Late payment and refund through the return route');
+  {
+    const TX_Q1 = '3fa85f64-5717-4562-b3fc-2c963f66a0c1';
+    const TX_Q2 = '3fa85f64-5717-4562-b3fc-2c963f66a0c2';
+    const RQ1 = '9515982136486001';
+    const RQ3 = '9515982136486003';
+    // mails the shop wrote for one order's confirmation
+    const confirmationsFor = (number: string) =>
+      readdirSync(outboxDir).filter((f) => {
+        const text = readFileSync(path.join(outboxDir, f), 'utf8');
+        const firstLine = text.split('\n', 1)[0] ?? '';
+        return firstLine.includes('subject: Η παραγγελία σας') && firstLine.includes(number);
+      });
+
+    fromIp('198.51.100.70');
+    const oQ1 = await addOrder('OC-TEST-VIVA-Q1', RQ1, 1999);
+    await newAttempt(oQ1.id, RQ1);
+    await cancelOrder(oQ1.id, 'test', 'late payment test');
+    canned.txBody = txJson({ amount: 19.99, orderCode: RQ1, merchantTrns: 'OC-TEST-VIVA-Q1' });
+    await hook(1796, TX_Q1, RQ1);
+    const q1Row = await orderRow(oQ1.id);
+    check("Q: the webhook records the late payment (paid, order still cancelled)", q1Row.paymentStatus === 'paid' && q1Row.status === 'cancelled', q1Row);
+    const q1Events = (await eventsOf(oQ1.id)).length;
+    fromIp('198.51.100.71');
+    const retQ1 = await ret(`t=${TX_Q1}&s=${RQ1}`);
+    const locQ1 = retQ1.headers.get('location') ?? '';
+    check('Q: the return route after the webhook redirects to /order-status', locQ1 === `${siteUrl()}/order-status`, locQ1);
+    check('Q: ...with no t= and no payment=success', !locQ1.includes('t=') && !locQ1.includes('payment='), locQ1);
+    const q1After = await orderRow(oQ1.id);
+    check('Q: the second delivery adds no event and changes no status', (await eventsOf(oQ1.id)).length === q1Events && q1After.paymentStatus === 'paid' && q1After.status === 'cancelled', { q1Events, after: (await eventsOf(oQ1.id)).length });
+
+    fromIp('198.51.100.72');
+    const oQ2 = await addOrder('OC-TEST-VIVA-Q2', RQ3, 1999);
+    await newAttempt(oQ2.id, RQ3);
+    canned.txBody = txJson({ amount: 19.99, orderCode: RQ3, merchantTrns: 'OC-TEST-VIVA-Q2' });
+    await hook(1796, TX_Q2, RQ3);
+    await db.update(orders).set({ paymentStatus: 'refunded' }).where(eq(orders.id, oQ2.id));
+    const confBefore = confirmationsFor('OC-TEST-VIVA-Q2').length;
+    check('Q: the webhook sent one confirmation mail', confBefore === 1, confBefore);
+    fromIp('198.51.100.73');
+    const retQ2 = await ret(`t=${TX_Q2}&s=${RQ3}`);
+    check('Q: the return route for the refunded payment answers a redirect', retQ2.status === 302 || retQ2.status === 307, retQ2.status);
+    check('Q: the replayed return sends no new confirmation mail', confirmationsFor('OC-TEST-VIVA-Q2').length === confBefore, confirmationsFor('OC-TEST-VIVA-Q2').length);
+    check("Q: the order is still 'refunded'", (await orderRow(oQ2.id)).paymentStatus === 'refunded', (await orderRow(oQ2.id)).paymentStatus);
+  }
+
   console.log('O. VIVA_TEST_BASE_URL is honoured only outside live');
   const TB = 'http://127.0.0.1:9999/';
   const savedEnvO = { env: process.env.VIVA_ENV, base: process.env.VIVA_TEST_BASE_URL };

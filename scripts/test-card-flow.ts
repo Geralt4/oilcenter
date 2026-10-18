@@ -389,6 +389,35 @@ async function main() {
       }
     };
 
+    // ── S7 ─────────────────────────────────────────────────────────────────────
+    const s7 = async () => {
+      console.log('S7 payment lands after the order was cancelled');
+      fake.webhookMode = 'before-return';
+      const { ctx, page } = await newPage();
+      try {
+        const before = snapshot();
+        const ref = await placeCardOrder(page);
+        const placed = await orderByRef(ref);
+        await db.update(orders).set({ status: 'cancelled' }).where(eq(orders.id, placed.id));
+        await page.getByRole('link', { name: 'Πληρωμή', exact: true }).click();
+        await page.waitForURL((url) => url.pathname === '/order-status', { timeout: 30_000 });
+        const landed = new URL(page.url());
+        check('the late payment ends on the lookup page, with no secret link or success state', !landed.searchParams.has('t') && !landed.searchParams.has('payment'), page.url());
+
+        const after = await orderByNumber(placed.number);
+        check("the payment is recorded as paid while the order stays cancelled", after.paymentStatus === 'paid' && after.status === 'cancelled', { paymentStatus: after.paymentStatus, status: after.status });
+        check('the order is flagged for review', after.paymentFlag === 'review', after.paymentFlag);
+        const mails = mailsSince(before).filter((mail) => mail.subject.includes(placed.number));
+        const review = mails.filter((mail) => mail.subject.startsWith('Χρειάζεται έλεγχος: πληρωμή OC-'));
+        check('exactly one owner review mail', review.length === 1, mails.map((mail) => mail.subject));
+        check('no customer confirmation mail for that order', !mails.some((mail) => mail.subject.startsWith('Η παραγγελία σας')), mails.map((mail) => mail.subject));
+        const events = await eventsOf(placed.id);
+        check("an event says the order had been cancelled", events.some((event) => event.message.includes('ακυρωθεί')), events.map((event) => event.message));
+      } finally {
+        await ctx.close();
+      }
+    };
+
     const run = async (fn: () => Promise<void>, label: string) => {
       try {
         await fn();
@@ -402,6 +431,7 @@ async function main() {
     await run(s4, 'S4');
     await run(s5, 'S5');
     await run(s6, 'S6');
+    await run(s7, 'S7');
   } finally {
     await browser?.close().catch(() => undefined);
     if (server && server.exitCode === null) {

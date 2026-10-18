@@ -9,6 +9,7 @@ import { db } from '@/lib/db';
 import { mailConfigured } from '@/lib/email';
 import { adminUsers, categories, orderEvents, orders, products, unmatchedPayments, variants } from '@/lib/db/schema';
 import { hazardPriorityCategoryIds, needsHazardCheck } from '@/lib/ghs';
+import { commerceEnabled } from '@/lib/commerce-flag';
 import { releaseAbandonedCardOrders } from '@/lib/orders';
 import { cardProvider } from '@/lib/payments';
 import { getSettings } from '@/lib/settings.server';
@@ -21,7 +22,8 @@ const daysAgo = (days: number) => new Date(Date.now() - days * DAY);
 
 export default async function AdminDashboard() {
   const me = await requireAdmin();
-  await releaseAbandonedCardOrders();
+  // like the hourly job: nothing to release (and nothing to touch) while the shop is a website only
+  if (commerceEnabled()) await releaseAbandonedCardOrders();
   const settings = await getSettings();
   const real = and(eq(orders.isTest, false), ne(orders.status, 'cancelled'));
   const since = daysAgo;

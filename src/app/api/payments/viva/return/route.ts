@@ -37,8 +37,9 @@ export async function GET(request: Request) {
         return lookup;
       }
       const outcome = await settleCardPayment(order, { provider: 'viva', ref: transactionId, amountCents: tx.amountCents, currency: tx.currency, attemptRef: orderCode });
-      // a payment that does not add up (or lands on a cancelled order) is the owner's to sort out: no "success" page, no secret link
-      if (outcome !== 'paid' && outcome !== 'already_paid') return lookup;
+      // A payment that does not add up, or that belongs to a cancelled order, is the owner's to sort out: no "success" page and
+      // no secret link, whichever of the browser return and the webhook got there first (hence the order's own status too).
+      if (order.status === 'cancelled' || (outcome !== 'paid' && outcome !== 'already_paid')) return lookup;
       return NextResponse.redirect(`${siteUrl()}/order/${order.number}?t=${order.accessToken}&payment=success`);
     }
   } catch (err) {
