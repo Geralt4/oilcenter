@@ -5,6 +5,8 @@
  *
  * Fails the boot when a required setting is missing; never reads secret VALUES, only their shape.
  */
+import { invalidWebhookIps } from '@/lib/payments/viva';
+
 export function checkProductionConfig(): string[] {
   const problems: string[] = [];
 
@@ -34,6 +36,21 @@ export function checkProductionConfig(): string[] {
   const commerce = process.env.COMMERCE_ENABLED;
   if (commerce !== undefined && commerce !== 'false' && commerce !== 'true') {
     problems.push(`COMMERCE_ENABLED is "${commerce}" — the only meaningful values are "true" and "false" (false = website only, see src/lib/commerce-flag.ts).`);
+  }
+
+  // Viva. Anything but an explicit demo/live would silently run as demo (src/lib/payments/viva.ts): refuse a typo like "Live".
+  const viva = process.env.VIVA_ENV;
+  if (process.env.VIVA_CLIENT_ID && viva !== 'demo' && viva !== 'live') {
+    problems.push(`VIVA_ENV is "${viva ?? ''}" — it must be exactly "demo" or "live" when the Viva keys are set (anything else would run as demo).`);
+  }
+  // VIVA_TEST_BASE_URL exists only so tests can point the payment code at a fake server. src/lib/payments/viva.ts ignores it
+  // when VIVA_ENV=live; it is refused outright anywhere but an explicit demo setup, so a typo cannot let it through.
+  if (process.env.VIVA_TEST_BASE_URL && viva !== 'demo') {
+    problems.push('VIVA_TEST_BASE_URL is set but VIVA_ENV is not "demo" — it is a test-only switch and must never be set on a real server. Remove it.');
+  }
+  const badIps = invalidWebhookIps(process.env.VIVA_WEBHOOK_IPS);
+  if (badIps.length > 0) {
+    problems.push(`VIVA_WEBHOOK_IPS has entries that are not an IPv4 address, an IPv4 range like 40.127.253.112/28 or an IPv6 address: ${badIps.join(', ')} — a typo here would lock Viva's webhooks out.`);
   }
 
   // Off-site backups: either fully configured or not at all — a half-configured uploader that silently

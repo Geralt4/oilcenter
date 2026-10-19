@@ -7,7 +7,7 @@ import { BadgeEuro, Boxes, ChartColumn, Inbox, LayoutDashboard, Menu, Package, P
 import { cn } from '@/lib/utils';
 
 const ITEMS = [
-  { href: '/admin', label: 'Επισκόπηση', icon: LayoutDashboard, exact: true },
+  { href: '/admin', label: 'Επισκόπηση', icon: LayoutDashboard, exact: true, badge: 'attention' as const },
   { href: '/admin/orders', label: 'Παραγγελίες', icon: ShoppingBag, badge: 'orders' as const },
   { href: '/admin/prices', label: 'Τιμές', icon: BadgeEuro, badge: 'prices' as const },
   { href: '/admin/products', label: 'Προϊόντα', icon: Package },
@@ -21,7 +21,7 @@ const ITEMS = [
   { href: '/admin/settings', label: 'Ρυθμίσεις', icon: Settings },
 ];
 
-export function AdminNav({ badges }: { badges: { orders: number; prices: number; messages: number } }) {
+export function AdminNav({ badges }: { badges: { orders: number; prices: number; messages: number; attention: number } }) {
   const pathname = usePathname();
   // Remember WHERE the drawer was opened: navigating away closes it with no effect / extra render.
   const [openedAt, setOpenedAt] = useState<string | null>(null);

@@ -21,7 +21,8 @@ export async function GET(request: Request) {
     const orderUrl = `${siteUrl()}/order/${order.number}?t=${order.accessToken}`;
     if (session.paid) {
       await settleCardPayment(order, { provider: 'stripe', ref: session.paymentIntent ?? sessionId, amountCents: session.amountCents });
-      return NextResponse.redirect(`${orderUrl}&payment=success`);
+      // a cancelled order must not get the "thank you" page (the Viva route does the same)
+      return NextResponse.redirect(order.status === 'cancelled' ? orderUrl : `${orderUrl}&payment=success`);
     }
     return NextResponse.redirect(`${orderUrl}&payment=failed`);
   } catch (err) {

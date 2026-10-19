@@ -1,13 +1,15 @@
 import Link from 'next/link';
-import { and, count, desc, eq, gte, isNotNull, ne, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, like, ne, sql } from 'drizzle-orm';
 import { BadgeEuro, CircleAlert, CircleCheck } from 'lucide-react';
+import { resolvePaymentReview, resolveUnmatchedPayment } from '@/app/admin/actions';
 import { Card, PageHeader, PaymentBadge, StatusBadge, td, th } from '@/components/admin/ui';
 import { buttonClass } from '@/components/ui/button';
 import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { mailConfigured } from '@/lib/email';
-import { adminUsers, categories, orders, products, variants } from '@/lib/db/schema';
+import { adminUsers, categories, orderEvents, orders, products, unmatchedPayments, variants } from '@/lib/db/schema';
 import { hazardPriorityCategoryIds, needsHazardCheck } from '@/lib/ghs';
+import { commerceEnabled } from '@/lib/commerce-flag';
 import { releaseAbandonedCardOrders } from '@/lib/orders';
 import { cardProvider } from '@/lib/payments';
 import { getSettings } from '@/lib/settings.server';
@@ -20,13 +22,14 @@ const daysAgo = (days: number) => new Date(Date.now() - days * DAY);
 
 export default async function AdminDashboard() {
   const me = await requireAdmin();
-  await releaseAbandonedCardOrders();
+  // like the hourly job: nothing to release (and nothing to touch) while the shop is a website only
+  if (commerceEnabled()) await releaseAbandonedCardOrders();
   const settings = await getSettings();
   const real = and(eq(orders.isTest, false), ne(orders.status, 'cancelled'));
   const since = daysAgo;
   const sum = sql<number>`coalesce(sum(${orders.totalCents}), 0)`;
 
-  const [[today], [week], [month], [pending], [unverified], [flagged], [productCount], recent, categoryRows, hazardRows] = await Promise.all([
+  const [[today], [week], [month], [pending], [unverified], [flagged], [productCount], recent, categoryRows, hazardRows, flaggedOrders, unmatched] = await Promise.all([
     db.select({ n: count(), total: sum }).from(orders).where(and(real, gte(orders.createdAt, since(1)))),
     db.select({ n: count(), total: sum }).from(orders).where(and(real, gte(orders.createdAt, since(7)))),
     db.select({ n: count(), total: sum }).from(orders).where(and(real, gte(orders.createdAt, since(30)))),
@@ -37,7 +40,21 @@ export default async function AdminDashboard() {
     db.select().from(orders).orderBy(desc(orders.createdAt)).limit(8),
     db.select({ id: categories.id, slug: categories.slug, parentId: categories.parentId }).from(categories),
     db.select({ isActive: products.isActive, categoryId: products.categoryId, hazard: products.hazard }).from(products),
+    // payment problems waiting for the owner (see recordPayment in lib/orders.ts): flagged orders, and paid payments that matched no order
+    db.select().from(orders).where(eq(orders.paymentFlag, 'review')).orderBy(asc(orders.updatedAt)).limit(20),
+    db.select().from(unmatchedPayments).where(isNull(unmatchedPayments.resolvedAt)).orderBy(asc(unmatchedPayments.createdAt)).limit(20),
   ]);
+  // the card lists at most 20 of each: say how many are not shown
+  const [[flaggedTotal], [unmatchedTotal]] = await Promise.all([
+    db.select({ n: count() }).from(orders).where(eq(orders.paymentFlag, 'review')),
+    db.select({ n: count() }).from(unmatchedPayments).where(isNull(unmatchedPayments.resolvedAt)),
+  ]);
+  const hiddenProblems = flaggedTotal.n - flaggedOrders.length + (unmatchedTotal.n - unmatched.length);
+  const problemEvents = flaggedOrders.length
+    ? await db.select().from(orderEvents).where(and(inArray(orderEvents.orderId, flaggedOrders.map((o) => o.id)), eq(orderEvents.type, 'payment'), like(orderEvents.message, 'ΠΡΟΣΟΧΗ%'))).orderBy(desc(orderEvents.id))
+    : [];
+  const latestProblem = new Map<number, string>();
+  for (const e of problemEvents) if (!latestProblem.has(e.orderId)) latestProblem.set(e.orderId, e.message);
   // chemicals, fluids and 2-stroke oils whose hazard labelling has not been checked against the pack yet (lib/ghs.ts)
   const hazardIds = hazardPriorityCategoryIds(categoryRows);
   const hazardTodo = hazardRows.filter((p) => needsHazardCheck(p, hazardIds)).length;
@@ -98,6 +115,34 @@ export default async function AdminDashboard() {
         ))}
       </div>
       <p className="mt-2 text-xs text-ink-500">Στα ποσά δεν περιλαμβάνονται δοκιμαστικές και ακυρωμένες παραγγελίες.</p>
+
+      {(flaggedOrders.length > 0 || unmatched.length > 0) && (
+        <Card title="Πληρωμές που θέλουν έλεγχο" description="Εδώ φαίνεται κάθε πληρωμή που δεν συμφωνεί με την παραγγελία της. Όταν τη χειριστείτε, πατήστε «Το χειρίστηκα»." className="mt-6 border-red-200">
+          <ul className="divide-y divide-line">
+            {flaggedOrders.map((o) => (
+              <li key={`o${o.id}`} className="flex flex-wrap items-center gap-3 py-3 text-sm">
+                <Link href={`/admin/orders/${o.id}`} className="tabular font-semibold text-petrol-500 hover:underline">{o.number}</Link>
+                <span className="text-ink-700">{o.firstName} {o.lastName} · {formatPrice(o.totalCents)}</span>
+                <span className="min-w-0 flex-1 basis-64 font-medium text-red-700">{latestProblem.get(o.id) ?? 'Χρειάζεται έλεγχο η πληρωμή.'}</span>
+                <form action={resolvePaymentReview}><input type="hidden" name="id" value={o.id} /><button type="submit" className="cursor-pointer rounded-lg border border-line px-3 py-1.5 font-semibold text-ink-900 hover:bg-ink-50">Το χειρίστηκα</button></form>
+              </li>
+            ))}
+            {unmatched.map((u) => (
+              <li key={`u${u.id}`} className="flex flex-wrap items-center gap-3 py-3 text-sm">
+                <span className="font-semibold text-ink-950">Πληρωμή χωρίς παραγγελία</span>
+                <span className="tabular text-ink-700">{formatPrice(u.amountCents)}{u.currency && u.currency !== 'EUR' ? ` (${u.currency})` : ''} · {u.provider}</span>
+                <span className="tabular min-w-0 flex-1 basis-64 break-all text-xs text-ink-500">συναλλαγή {u.transactionId} · κωδικός {u.orderCode}{u.merchantTrns ? ` · ${u.merchantTrns}` : ''} · {formatDateTime(u.createdAt)}</span>
+                <form action={resolveUnmatchedPayment} className="flex gap-2">
+                  <input type="hidden" name="id" value={u.id} />
+                  <input name="note" placeholder="Τι έγινε (προαιρετικά)" className="field h-9 w-48 text-sm" />
+                  <button type="submit" className="cursor-pointer rounded-lg border border-line px-3 py-1.5 font-semibold text-ink-900 hover:bg-ink-50">Το χειρίστηκα</button>
+                </form>
+              </li>
+            ))}
+          </ul>
+          {hiddenProblems > 0 && <p className="mt-3 text-sm text-ink-600">… και {hiddenProblems} ακόμη. Οι παραγγελίες βρίσκονται στις Παραγγελίες → «Χρειάζονται έλεγχο».</p>}
+        </Card>
+      )}
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_1.1fr]">
         <Card title={remaining ? `Για να δημοσιευτεί η ιστοσελίδα — απομένουν ${remaining}` : 'Η ιστοσελίδα είναι έτοιμη να δημοσιευτεί'} description="Η λίστα ενημερώνεται αυτόματα καθώς ολοκληρώνετε κάθε βήμα.">

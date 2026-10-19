@@ -41,7 +41,8 @@ export default async function OrderPage({ params, searchParams }: Props) {
 
   const justPlaced = sp.placed === '1' || sp.payment === 'success';
   const paymentProblem = sp.payment === 'failed' || sp.payment === 'cancelled';
-  const awaitingCard = order.paymentMethod === 'card' && order.paymentStatus !== 'paid' && order.status !== 'cancelled';
+  // only a payment that is still open asks for a card: a REFUNDED order must not offer to be paid again
+  const awaitingCard = order.paymentMethod === 'card' && (order.paymentStatus === 'pending' || order.paymentStatus === 'failed') && order.status !== 'cancelled';
 
   return (
     <div className="container-page max-w-4xl py-8 sm:py-12">
@@ -53,6 +54,12 @@ export default async function OrderPage({ params, searchParams }: Props) {
         </div>
       )}
 
+      {order.status === 'cancelled' && (
+        <p className="mb-6 rounded-2xl bg-ink-50 p-4 text-sm text-ink-800">
+          Η παραγγελία ακυρώθηκε.
+          {order.paymentStatus === 'paid' ? ' Η πληρωμή σας θα επιστραφεί: θα επικοινωνήσουμε μαζί σας.' : order.paymentStatus === 'refunded' ? ' Η πληρωμή σας έχει επιστραφεί.' : ' Δεν υπάρχει οφειλή.'}
+        </p>
+      )}
       {awaitingCard && (
         <div role="alert" className="mb-8 rounded-3xl border border-amber-200 bg-amber-50 p-6">
           <h2 className="flex items-center gap-2 font-bold text-amber-950"><CircleAlert className="h-5 w-5" />{paymentProblem ? 'Η πληρωμή δεν ολοκληρώθηκε' : 'Εκκρεμεί η πληρωμή με κάρτα'}</h2>
@@ -99,7 +106,7 @@ export default async function OrderPage({ params, searchParams }: Props) {
         <p className="mt-6 rounded-2xl bg-ink-900 p-4 text-sm text-white">Αριθμός αποστολής{order.trackingCarrier ? ` (${order.trackingCarrier})` : ''}: <strong className="tabular text-oil-300">{order.trackingNumber}</strong></p>
       )}
 
-      {order.paymentMethod === 'bank_transfer' && order.paymentStatus !== 'paid' && order.status !== 'cancelled' && (
+      {order.paymentMethod === 'bank_transfer' && order.paymentStatus === 'pending' && order.status !== 'cancelled' && (
         <section className="mt-6 rounded-3xl border border-oil-200 bg-oil-50 p-6">
           <h3 className="font-bold text-ink-950">Πληρωμή με τραπεζική κατάθεση</h3>
           <p className="mt-1 text-sm text-ink-700">Καταθέστε <strong className="tabular">{formatPrice(order.totalCents)}</strong> με αιτιολογία <strong className="tabular">{order.number}</strong>. Η παραγγελία αποστέλλεται μόλις επιβεβαιωθεί η κατάθεση.</p>

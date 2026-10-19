@@ -29,7 +29,7 @@ function CouponFields({ coupon, options }: { coupon?: Coupon; options: Options }
       <Field label="Μέγιστες χρήσεις" hint="Κενό = απεριόριστες."><input name="maxUses" inputMode="numeric" defaultValue={coupon?.maxUses ?? ''} className="field tabular" /></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Από"><input type="date" name="startsAt" defaultValue={formatAthensDate(coupon?.startsAt)} className="field" /></Field>
-        <Field label="Έως"><input type="date" name="endsAt" defaultValue={formatAthensDate(coupon?.endsAt)} className="field" /></Field>
+        <Field label="Έως (και αυτή η μέρα)"><input type="date" name="endsAt" defaultValue={formatAthensDate(coupon?.endsAt)} className="field" /></Field>
       </div>
       <div className="md:col-span-3">
         <DiscountTargets
@@ -41,7 +41,7 @@ function CouponFields({ coupon, options }: { coupon?: Coupon; options: Options }
         />
       </div>
       <div className="space-y-3 md:col-span-3">
-        <Check name="excludeSaleItems" label="Να μην ισχύει σε προϊόντα που είναι ήδη σε προσφορά" defaultChecked={coupon?.excludeSaleItems ?? true} hint="Προϊόντα με αυτόματη προσφορά ή με διαγραμμένη «παλιά» τιμή δεν παίρνουν και την έκπτωση του κουπονιού." />
+        <Check name="excludeSaleItems" label="Να μην ισχύει σε προϊόντα που είναι ήδη σε προσφορά" defaultChecked={coupon?.excludeSaleItems ?? true} hint="Προϊόντα με αυτόματη προσφορά ή με διαγραμμένη «παλιά» τιμή δεν παίρνουν και την έκπτωση του κουπονιού. Στο «Δωρεάν μεταφορικά» δεν εφαρμόζεται." />
         <Check name="isActive" label="Ενεργό" defaultChecked={coupon?.isActive ?? true} />
       </div>
     </div>
@@ -65,7 +65,7 @@ export default async function AdminCouponsPage() {
                 <span className="tabular font-display text-lg font-bold text-ink-950">{c.code}</span>
                 <span className="text-sm font-semibold text-ink-700">{describe(c)}</span>
                 <span className="text-sm text-ink-500">{options.scope(c, 'Όλη η παραγγελία')}</span>
-                {c.minSubtotalCents > 0 && <span className="text-sm text-ink-500">άνω των {formatPrice(c.minSubtotalCents)}</span>}
+                {c.minSubtotalCents > 0 && <span className="text-sm text-ink-500">από {formatPrice(c.minSubtotalCents)} και πάνω</span>}
                 <span className="flex-1" />
                 <span className="tabular text-sm text-ink-500">{c.usedCount}{c.maxUses !== null ? ` / ${c.maxUses}` : ''} χρήσεις</span>
                 <span className={cn('rounded-full px-2.5 py-1 text-xs font-semibold', c.isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-ink-100 text-ink-600')}>{c.isActive ? 'Ενεργό' : 'Ανενεργό'}</span>

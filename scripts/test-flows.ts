@@ -237,7 +237,8 @@ async function main() {
     // A refused upload must be visible AND must not leave the field holding an error or a blocked validation.
     await page.route('**/api/admin/upload*', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'busy' }) }));
     await csvInput.setInputFiles({ name: 'replacement.csv', ...asCsv('sku;price\nBROKEN-E2E;1,00\n') });
-    await page.getByRole('alert').waitFor({ timeout: 20_000 });
+    // Next's route announcer is a second role=alert on every page, so the message itself is addressed by tag
+    await page.locator('p[role="alert"]').waitFor({ timeout: 20_000 });
     await page.unroute('**/api/admin/upload*');
     check('a refused upload is reported and stages nothing new', (await stagedCsv.count()) === 1 && !(await csvInput.evaluate((el: HTMLInputElement) => el.checkValidity())));
     await page.getByRole('button', { name: 'Καθαρισμός' }).click();
@@ -313,10 +314,14 @@ async function main() {
     check('the ticked brand is what the form saved', !!savedSale && savedSale.brandIds.length === 1 && savedSale.brandIds[0] === brand.id && savedSale.type === 'percent' && savedSale.value === 20, savedSale);
 
     await page.goto(`${base}/product/${target.slug}`);
-    const regular = page.locator('.line-through').first();
+    // scoped to the product's own price block, so a related-product card cannot satisfy these checks
+    const bigPrice = page.locator('p.text-4xl').first();
+    await bigPrice.waitFor({ timeout: 20_000 });
+    const priceBlock = bigPrice.locator('xpath=..');
+    const regular = priceBlock.locator('.line-through').first();
     await regular.waitFor({ timeout: 20_000 });
     check('the shop strikes through the regular price', ((await regular.textContent()) ?? '').includes(amount(size.priceCents)));
-    check('…and shows the sale price', ((await page.locator('main').textContent()) ?? '').includes(amount(Math.round(size.priceCents * 0.8))));
+    check('…and shows the sale price', ((await bigPrice.textContent()) ?? '').includes(amount(Math.round(size.priceCents * 0.8))));
 
     await page.goto(`${base}/admin/coupons`);
     const newCoupon = page.locator('section', { has: page.getByRole('heading', { name: 'Νέο κουπόνι' }) });
@@ -334,6 +339,33 @@ async function main() {
 
     await db.delete(sales);
     await db.delete(coupons).where(eq(coupons.code, 'E2EPICK'));
+
+    console.log('Admin sidebar at a short window');
+    const previousViewport = page.viewportSize() ?? { width: 1280, height: 720 };
+    await page.setViewportSize({ width: 1280, height: 500 });
+    await page.goto(`${base}/admin`);
+    const menu = page.locator('aside nav[aria-label="Διαχείριση"]');
+    const lastLink = menu.getByRole('link').last();
+    const firstLink = menu.getByRole('link', { name: 'Επισκόπηση', exact: true });
+    const signOutButton = page.getByRole('button', { name: 'Αποσύνδεση' });
+    const scrollMenu = (position: 'top' | 'bottom') => menu.evaluate((el, where) => { el.scrollTop = where === 'top' ? 0 : el.scrollHeight; }, position);
+    const inWindow = (box: { x: number; y: number; width: number; height: number } | null) => !!box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 1280 && box.y + box.height <= 500;
+
+    await scrollMenu('bottom');
+    await lastLink.scrollIntoViewIfNeeded();
+    const lastBox = await lastLink.boundingBox();
+    check('the last menu link («Ρυθμίσεις») can be scrolled fully into view', ((await lastLink.textContent()) ?? '').includes('Ρυθμίσεις') && inWindow(lastBox), { text: await lastLink.textContent(), lastBox });
+    const signOutAtBottom = await signOutButton.boundingBox();
+    check('«Αποσύνδεση» stays visible inside the window while the menu is scrolled to the bottom', inWindow(signOutAtBottom), signOutAtBottom);
+
+    await scrollMenu('top');
+    await firstLink.scrollIntoViewIfNeeded();
+    const firstBox = await firstLink.boundingBox();
+    check('the first item («Επισκόπηση») can be scrolled back into view', inWindow(firstBox), firstBox);
+    const signOutAtTop = await signOutButton.boundingBox();
+    check('«Αποσύνδεση» stays visible without scrolling the menu', inWindow(signOutAtTop), signOutAtTop);
+
+    await page.setViewportSize(previousViewport);
 
     console.log('Sign out');
     await page.goto(`${base}/admin`);

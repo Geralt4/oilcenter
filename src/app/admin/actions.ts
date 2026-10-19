@@ -11,12 +11,13 @@ import { hashPassword, randomToken, verifyPassword } from '@/lib/auth/password';
 import { newTotpSecret, totpStep } from '@/lib/auth/totp';
 import { createSession, createSudoSession, destroySession, destroySudoSession, getAdmin, hasSudoSession, requireAdmin, revokeAllSessions } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, sales, variants, type BaseType, type OrderStatus } from '@/lib/db/schema';
+import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, sales, unmatchedPayments, variants, type BaseType, type OrderStatus, type PaymentStatus } from '@/lib/db/schema';
 import { orderStatusMail, sendMail } from '@/lib/email';
+import { forgetTarget } from '@/lib/discount-cleanup';
 import { cleanIds, hasTargets, type Targets } from '@/lib/discounts';
 import { buildHazard } from '@/lib/ghs';
 import { isValidGtin, normalizeGtin } from '@/lib/gtin';
-import { addOrderEvent, cancelOrder, getOrderByNumber, ORDER_STATUS_LABELS } from '@/lib/orders';
+import { addOrderEvent, cancelOrder, flagForReview, getOrderByNumber, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/orders';
 import { describePriceImport, MAX_PRICE_CENTS, parseCsv, planPriceImport } from '@/lib/price-csv';
 import { clientIp, loginBudgets, rateLimit } from '@/lib/rate-limit';
 import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours, type ShopSettings } from '@/lib/settings';
@@ -249,6 +250,7 @@ export async function changeAdminPassword(_prev: AdminFormState, fd: FormData): 
 
 // ─── Orders ──────────────────────────────────────────────────────────────────
 const STATUSES = Object.keys(ORDER_STATUS_LABELS) as OrderStatus[];
+const PAYMENT_STATUSES = Object.keys(PAYMENT_STATUS_LABELS) as PaymentStatus[];
 
 export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   const admin = await requireAdmin();
@@ -256,25 +258,69 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
   const [order] = await db.select().from(orders).where(eq(orders.id, id));
   if (!order) return { ok: false, message: 'Η παραγγελία δεν βρέθηκε.' };
 
-  const status = str(fd, 'status') as OrderStatus;
-  if (!STATUSES.includes(status)) return { ok: false, message: 'Μη έγκυρη κατάσταση.' };
-  const paid = bool(fd, 'paid');
+  const askedStatus = str(fd, 'status') as OrderStatus;
+  if (!STATUSES.includes(askedStatus)) return { ok: false, message: 'Μη έγκυρη κατάσταση.' };
+  // The form says what the order looked like when the page was opened. Only what the owner actually CHANGED from that is
+  // applied: a stale tab that merely saves a tracking number must not undo a payment or a status that moved on meanwhile.
+  // Without those fields (older callers) the form is compared with the row as it is now, as before.
+  const loadedStatus = str(fd, 'loadedStatus') as OrderStatus;
+  const loadedPayment = str(fd, 'loadedPayment') as PaymentStatus;
+  const knowsStatus = STATUSES.includes(loadedStatus);
+  const knowsPayment = PAYMENT_STATUSES.includes(loadedPayment);
+  const staleMessage = 'Η παραγγελία άλλαξε στο μεταξύ (από άλλη καρτέλα ή από μια πληρωμή). Ανανεώστε τη σελίδα και δοκιμάστε ξανά.';
+  const statusEdited = knowsStatus ? askedStatus !== loadedStatus : askedStatus !== order.status;
+  if (statusEdited && knowsStatus && order.status !== loadedStatus) return { ok: false, message: staleMessage };
+  const status = statusEdited ? askedStatus : order.status;
   const notify = bool(fd, 'notify');
   const trackingCarrier = str(fd, 'trackingCarrier') || null;
   const trackingNumber = str(fd, 'trackingNumber') || null;
   const actor = admin.name || admin.email;
 
+  // The payment status is checked BEFORE anything is saved, so a refused change leaves the order exactly as it was.
+  const asked = str(fd, 'paymentStatus') as PaymentStatus;
+  const wanted: PaymentStatus = PAYMENT_STATUSES.includes(asked) ? asked : order.paymentStatus;
+  const paymentEdited = knowsPayment ? wanted !== loadedPayment : wanted !== order.paymentStatus;
+  if (paymentEdited && knowsPayment && order.paymentStatus !== loadedPayment) return { ok: false, message: staleMessage };
+  const payment: PaymentStatus = paymentEdited ? wanted : order.paymentStatus;
+  if (payment !== order.paymentStatus) {
+    if (order.paymentStatus === 'refunded') return { ok: false, message: 'Η πληρωμή έχει επιστραφεί: δεν αλλάζει πια.' };
+    if (payment === 'refunded' && order.paymentStatus !== 'paid') return { ok: false, message: 'Μόνο μια παραγγελία που έχει «Εξοφληθεί» μπορεί να σημειωθεί «Επιστροφή χρημάτων».' };
+    if (order.paymentStatus === 'paid' && payment === 'failed') return { ok: false, message: 'Μια παραγγελία που έχει «Εξοφληθεί» δεν γίνεται «Απέτυχε». Αν επιστρέψατε τα χρήματα, επιλέξτε «Επιστροφή χρημάτων».' };
+    if (order.paymentStatus === 'paid' && payment === 'pending' && order.paymentMethod === 'card' && order.paymentTransactionId) {
+      return { ok: false, message: `Η πληρωμή έγινε με κάρτα (αναφορά ${order.paymentTransactionId}) και δεν αναιρείται από εδώ. Αν επιστρέψατε ΟΛΟΚΛΗΡΗ την πληρωμή στον πάροχο πληρωμών, επιλέξτε «Επιστροφή χρημάτων». Αν επιστρέψατε μόνο μια δεύτερη πληρωμή, πατήστε «Το χειρίστηκα» στο κόκκινο πλαίσιο της παραγγελίας.` };
+    }
+  }
+
   if (status === 'cancelled' && order.status !== 'cancelled') {
     await cancelOrder(id, actor); // restocks
+    // Cancelling an order that ends up paid leaves money with the shop: put it on the owner's list until it is refunded. Where
+    // the payment ends up: what this form asks for when it changes it, otherwise what the row holds NOW (read again here, so a
+    // payment that landed after the order was loaded still counts). Someone who un-pays a hand-marked order and cancels it
+    // together has not taken any money, so no refund alarm. The millisecond between the two reads cannot be driven from outside.
+    const [now] = await db.select({ paymentStatus: orders.paymentStatus }).from(orders).where(eq(orders.id, id));
+    const finalPayment = payment !== order.paymentStatus ? payment : (now?.paymentStatus ?? order.paymentStatus);
+    if (finalPayment === 'paid') {
+      await flagForReview(id);
+      await addOrderEvent(id, 'payment', 'ΠΡΟΣΟΧΗ: ακυρώθηκε παραγγελία που είχε εξοφληθεί. Επιστρέψτε τα χρήματα στον πελάτη και σημειώστε «Επιστροφή χρημάτων».', actor);
+    }
   } else if (status !== order.status) {
     if (order.status === 'cancelled') return { ok: false, message: 'Μια ακυρωμένη παραγγελία δεν επανέρχεται (το απόθεμα έχει ήδη αποδεσμευτεί). Δημιουργήστε νέα.' };
     await db.update(orders).set({ status }).where(eq(orders.id, id));
     await addOrderEvent(id, 'status', `Κατάσταση: ${ORDER_STATUS_LABELS[order.status]} → ${ORDER_STATUS_LABELS[status]}.`, actor);
   }
 
-  if (paid !== (order.paymentStatus === 'paid')) {
-    await db.update(orders).set({ paymentStatus: paid ? 'paid' : 'pending', paidAt: paid ? new Date() : null }).where(eq(orders.id, id));
-    await addOrderEvent(id, 'payment', paid ? 'Σημειώθηκε ως εξοφλημένη.' : 'Η ένδειξη εξόφλησης αφαιρέθηκε.', actor);
+  if (payment !== order.paymentStatus) {
+    await db
+      .update(orders)
+      .set({ paymentStatus: payment, paidAt: payment === 'paid' ? new Date() : payment === 'refunded' ? order.paidAt : null, ...(payment === 'refunded' ? { paymentFlag: null } : {}) })
+      .where(eq(orders.id, id));
+    const message = {
+      paid: 'Σημειώθηκε ως εξοφλημένη.',
+      pending: 'Η ένδειξη εξόφλησης αφαιρέθηκε.',
+      failed: 'Σημειώθηκε ως αποτυχημένη πληρωμή.',
+      refunded: 'Σημειώθηκε ως επιστραφείσα (χειροκίνητη επιστροφή από τον πάροχο πληρωμών).',
+    }[payment];
+    await addOrderEvent(id, 'payment', message, actor);
   }
 
   await db.update(orders).set({ trackingCarrier, trackingNumber, adminNotes: str(fd, 'adminNotes') || null }).where(eq(orders.id, id));
@@ -289,6 +335,24 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
   }
   revalidatePath(`/admin/orders/${id}`);
   return { ok: true, message: 'Η παραγγελία ενημερώθηκε.' };
+}
+
+/** «Το χειρίστηκα»: the owner has dealt with a payment problem on this order (refunded, phoned the customer, …). */
+export async function resolvePaymentReview(fd: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const id = int(fd, 'id');
+  const cleared = await db.update(orders).set({ paymentFlag: null }).where(and(eq(orders.id, id), eq(orders.paymentFlag, 'review'))).returning({ id: orders.id });
+  if (cleared.length > 0) await addOrderEvent(id, 'payment', 'Έλεγχος πληρωμής: ολοκληρώθηκε.', admin.name || admin.email);
+  revalidatePath('/admin');
+  revalidatePath(`/admin/orders/${id}`);
+}
+
+/** A paid payment that matched no order has been dealt with (refunded in the gateway, order created by hand, …). */
+export async function resolveUnmatchedPayment(fd: FormData): Promise<void> {
+  await requireAdmin();
+  const note = str(fd, 'note').slice(0, 300) || null;
+  await db.update(unmatchedPayments).set({ resolvedAt: new Date(), note }).where(and(eq(unmatchedPayments.id, int(fd, 'id')), isNull(unmatchedPayments.resolvedAt)));
+  revalidatePath('/admin');
 }
 
 // ─── Products ────────────────────────────────────────────────────────────────
@@ -538,6 +602,7 @@ export async function deleteProduct(fd: FormData): Promise<void> {
     await tx.delete(productImages).where(eq(productImages.productId, id));
     await tx.delete(products).where(eq(products.id, id));
   });
+  await forgetTarget('product', id);
   await Promise.all([...images.map((i) => i.url), ...(row?.hazard?.sdsUrl ? [row.hazard.sdsUrl] : [])].map(removeUpload));
   redirect('/admin/products?deleted=1');
 }
@@ -716,11 +781,13 @@ export async function deleteTaxon(fd: FormData): Promise<void> {
   if (str(fd, 'kind') === 'brand') {
     await db.update(products).set({ brandId: null }).where(eq(products.brandId, id));
     await db.delete(brands).where(eq(brands.id, id));
+    await forgetTarget('brand', id);
     revalidatePath('/admin/brands');
   } else {
     await db.update(products).set({ categoryId: null }).where(eq(products.categoryId, id));
     await db.update(categories).set({ parentId: null }).where(eq(categories.parentId, id));
     await db.delete(categories).where(eq(categories.id, id));
+    await forgetTarget('category', id);
     revalidatePath('/admin/categories');
   }
 }
@@ -736,6 +803,16 @@ async function readTargets(fd: FormData): Promise<Targets> {
   return { productIds: await pick('productIds', products), brandIds: await pick('brandIds', brands), categoryIds: await pick('categoryIds', categories) };
 }
 
+/** A typed percent, refused (not rounded or clamped) when it is not a whole number in range: «12,5» must not quietly become 13. */
+function readPercent(fd: FormData, max: number): number | string {
+  const raw = str(fd, 'value');
+  if (!/^\d+$/.test(raw)) return raw ? 'Το ποσοστό πρέπει να είναι ακέραιος αριθμός.' : 'Συμπληρώστε αξία έκπτωσης.';
+  const n = Number(raw);
+  if (n < 1) return 'Συμπληρώστε αξία έκπτωσης.';
+  if (n > max) return `Μέγιστο ${max}%.`;
+  return n;
+}
+
 /** «από» / «έως» as Athens calendar days; the last day counts all the way to midnight. */
 function readDateRange(fd: FormData): { ok: true; startsAt: Date | null; endsAt: Date | null } | { ok: false; message: string } {
   const startsAt = str(fd, 'startsAt') ? parseAthensDate(str(fd, 'startsAt'), 'start') : null;
@@ -748,16 +825,32 @@ function readDateRange(fd: FormData): { ok: true; startsAt: Date | null; endsAt:
 export async function saveCoupon(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   await requireAdmin();
   const id = int(fd, 'id') || null;
-  const code = str(fd, 'code').toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+  const code = str(fd, 'code').toUpperCase().replace(/\s+/g, '');
+  // refuse, do not clean: stripping «ΦΘΙΝΟΠΩΡΟ2026» down to «2026» saved a different code than the owner typed
+  if (/[^A-Z0-9_-]/.test(code)) return { ok: false, message: 'Ο κωδικός μπορεί να έχει μόνο λατινικά γράμματα, αριθμούς, - και _ (όχι ελληνικά ή σύμβολα).' };
   const type = (['percent', 'fixed', 'free_shipping'] as const).find((t) => t === str(fd, 'type'));
   if (code.length < 3 || !type) return { ok: false, message: 'Συμπληρώστε κωδικό (τουλάχιστον 3 χαρακτήρες) και τύπο.' };
-  const value = type === 'percent' ? Math.min(100, Math.max(1, int(fd, 'value'))) : type === 'fixed' ? (parsePriceToCents(str(fd, 'value')) ?? 0) : 0;
-  if (type !== 'free_shipping' && value <= 0) return { ok: false, message: 'Συμπληρώστε αξία έκπτωσης.' };
+  let value = 0;
+  if (type === 'percent') {
+    const percent = readPercent(fd, 100);
+    if (typeof percent === 'string') return { ok: false, message: percent };
+    value = percent;
+  } else if (type === 'fixed') {
+    value = parsePriceToCents(str(fd, 'value')) ?? 0;
+    if (value <= 0) return { ok: false, message: 'Συμπληρώστε αξία έκπτωσης.' };
+  }
+  // filled-in numbers are read strictly: «abc» as «Μέγιστες χρήσεις» used to save 0 (every customer told «εξαντλήθηκε»)
+  // and an unreadable minimum («1.250») used to save no minimum at all
+  const rawMax = str(fd, 'maxUses');
+  if (rawMax && !/^[1-9]\d{0,8}$/.test(rawMax)) return { ok: false, message: 'Οι μέγιστες χρήσεις πρέπει να είναι θετικός ακέραιος αριθμός (ή αφήστε το κενό για απεριόριστες).' };
+  const rawMin = str(fd, 'minSubtotal');
+  const minSubtotalCents = rawMin ? parsePriceToCents(rawMin) : 0;
+  if (minSubtotalCents === null) return { ok: false, message: 'Η ελάχιστη αγορά δεν είναι έγκυρο ποσό (π.χ. 30 ή 30,50).' };
   const range = readDateRange(fd);
   if (!range.ok) return { ok: false, message: range.message };
   const targets = await readTargets(fd);
   const values = {
-    code, type, value, minSubtotalCents: parsePriceToCents(str(fd, 'minSubtotal')) ?? 0, maxUses: str(fd, 'maxUses') ? int(fd, 'maxUses') : null,
+    code, type, value, minSubtotalCents, maxUses: rawMax ? Number(rawMax) : null,
     startsAt: range.startsAt, endsAt: range.endsAt, isActive: bool(fd, 'isActive'),
     // free shipping takes nothing off a price, so "skip sale items" would only make it refuse a cart of sale items
     excludeSaleItems: type !== 'free_shipping' && bool(fd, 'excludeSaleItems'), ...targets,
@@ -784,9 +877,15 @@ export async function saveSale(_prev: AdminFormState, fd: FormData): Promise<Adm
   const name = str(fd, 'name').slice(0, 120);
   const type = (['percent', 'fixed'] as const).find((t) => t === str(fd, 'type'));
   if (name.length < 2 || !type) return { ok: false, message: 'Συμπληρώστε όνομα και τύπο έκπτωσης.' };
-  const value = type === 'percent' ? int(fd, 'value') : (parsePriceToCents(str(fd, 'value')) ?? 0);
-  if (value <= 0) return { ok: false, message: 'Συμπληρώστε αξία έκπτωσης.' };
-  if (type === 'percent' && value > 90) return { ok: false, message: 'Μέγιστο 90%.' };
+  let value: number;
+  if (type === 'percent') {
+    const percent = readPercent(fd, 90);
+    if (typeof percent === 'string') return { ok: false, message: percent };
+    value = percent;
+  } else {
+    value = parsePriceToCents(str(fd, 'value')) ?? 0;
+    if (value <= 0) return { ok: false, message: 'Συμπληρώστε αξία έκπτωσης.' };
+  }
   const targets = await readTargets(fd);
   if (!hasTargets(targets)) return { ok: false, message: 'Επιλέξτε τουλάχιστον ένα προϊόν, μάρκα ή κατηγορία.' };
   const range = readDateRange(fd);

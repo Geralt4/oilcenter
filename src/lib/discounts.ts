@@ -46,3 +46,12 @@ export function cleanIds(input: unknown): number[] {
   if (!Array.isArray(input)) return [];
   return [...new Set(input.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
 }
+
+/** The id list of a JSON column read as raw text; null when it is not readable (so one bad row can be skipped, not crash a page). */
+export function parseIdList(raw: string | null | undefined): number[] | null {
+  try {
+    return cleanIds(JSON.parse(raw ?? '[]'));
+  } catch {
+    return null;
+  }
+}

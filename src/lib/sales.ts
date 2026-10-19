@@ -1,7 +1,8 @@
 import { cache } from 'react';
+import { sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { categories, sales } from '@/lib/db/schema';
-import { bestSale, cleanIds, type SaleRule } from '@/lib/discounts';
+import { categories } from '@/lib/db/schema';
+import { bestSale, parseIdList, type SaleRule } from '@/lib/discounts';
 
 /*
  * Automatic sales. Every place that turns a stored variant price into a shop price goes through withSale(), so the
@@ -28,11 +29,41 @@ export async function loadCategoryPaths(): Promise<Map<number, number[]>> {
   return paths;
 }
 
+type SaleRow = {
+  id: number;
+  type: 'percent' | 'fixed';
+  value: number;
+  product_ids: string | null;
+  brand_ids: string | null;
+  category_ids: string | null;
+  starts_at: number | null;
+  ends_at: number | null;
+  is_active: number;
+};
+
+/** One unreadable id list must not take the shop down: that sale is skipped (and named in the log), the others still apply. */
+function idsOrNull(raw: string | null, saleId: number): number[] | null {
+  const ids = parseIdList(raw);
+  if (ids === null) console.error(`[sales] sale ${saleId} has an unreadable target list and is ignored`);
+  return ids;
+}
+
 export const getSaleContext = cache(async (): Promise<SaleContext> => {
-  const [rows, paths] = await Promise.all([db.select().from(sales), loadCategoryPaths()]);
-  const live = rows
-    .filter((s) => saleActiveAt(s))
-    .map((s) => ({ id: s.id, type: s.type, value: s.value, productIds: cleanIds(s.productIds), brandIds: cleanIds(s.brandIds), categoryIds: cleanIds(s.categoryIds) }));
+  // Raw select, not db.select(): Drizzle parses the JSON columns while mapping, and a single bad row would throw for every page.
+  const [rows, paths] = await Promise.all([
+    db.all<SaleRow>(sql`SELECT id, type, value, product_ids, brand_ids, category_ids, starts_at, ends_at, is_active FROM sales`),
+    loadCategoryPaths(),
+  ]);
+  const live: SaleRule[] = [];
+  for (const r of rows) {
+    const when = { isActive: Boolean(r.is_active), startsAt: r.starts_at === null ? null : new Date(Number(r.starts_at)), endsAt: r.ends_at === null ? null : new Date(Number(r.ends_at)) };
+    if (!saleActiveAt(when)) continue;
+    const productIds = idsOrNull(r.product_ids, r.id);
+    const brandIds = idsOrNull(r.brand_ids, r.id);
+    const categoryIds = idsOrNull(r.category_ids, r.id);
+    if (productIds === null || brandIds === null || categoryIds === null) continue;
+    live.push({ id: r.id, type: r.type, value: Number(r.value), productIds, brandIds, categoryIds });
+  }
   return { sales: live, paths };
 });
 

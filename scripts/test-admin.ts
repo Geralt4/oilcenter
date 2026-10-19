@@ -217,6 +217,105 @@ async function main() {
   const broad = await searchAdminProducts('λαδι');
   check('a broad query never returns more than 50', broad.length <= 50, broad.length);
 
+  console.log('Payment status rules (updateOrder)');
+  const { orders, orderEvents, unmatchedPayments } = await import('../src/lib/db/schema');
+  const { updateOrder, resolvePaymentReview, resolveUnmatchedPayment } = await import('../src/app/admin/actions');
+  let madeOrders = 0;
+  const createdOrderIds: number[] = [];
+  const makeOrder = async (over: Partial<typeof orders.$inferInsert> = {}) => {
+    madeOrders++;
+    const [row] = await db
+      .insert(orders)
+      .values({
+        number: `OC-ADMIN-T${madeOrders}`,
+        accessToken: `at-admin-t${madeOrders}`,
+        paymentMethod: 'card',
+        shippingMethod: 'courier',
+        email: 'buyer@example.com',
+        phone: '6900000000',
+        firstName: 'Τεστ',
+        lastName: 'Αγοραστής',
+        subtotalCents: 1999,
+        totalCents: 1999,
+        ...over,
+      })
+      .returning();
+    createdOrderIds.push(row.id);
+    return row;
+  };
+  const orderNow = async (id: number) => (await db.select().from(orders).where(eq(orders.id, id)))[0];
+  const eventsNow = async (id: number) => (await db.select().from(orderEvents).where(eq(orderEvents.orderId, id))).map((e) => e.message);
+  // the form the admin page sends: id and status (kept as it is unless the test changes it) and paymentStatus
+  const statusForm = (order: { id: number; status: string }, paymentStatus: string) => form({ id: String(order.id), status: order.status, paymentStatus });
+
+  const cardPaid = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-1', paymentProvider: 'viva' });
+  const cardPaidBefore = await orderNow(cardPaid.id);
+  const r1 = await updateOrder(null, statusForm(cardPaid, 'pending'));
+  check('a card payment with a Viva reference cannot be set back to pending', r1?.ok === false && (r1?.message ?? '').includes('TX-ADM-1'), r1);
+  const cardPaidAfterPending = await orderNow(cardPaid.id);
+  check('…and the order is unchanged', cardPaidAfterPending.paymentStatus === 'paid' && cardPaidAfterPending.paymentTransactionId === 'TX-ADM-1' && cardPaidAfterPending.paidAt?.getTime() === cardPaidBefore.paidAt?.getTime(), cardPaidAfterPending);
+
+  await db.update(orders).set({ paymentFlag: 'review' }).where(eq(orders.id, cardPaid.id));
+  const r2 = await updateOrder(null, statusForm(cardPaid, 'refunded'));
+  check('paid → refunded is accepted', r2?.ok === true, r2);
+  const cardRefunded = await orderNow(cardPaid.id);
+  check('…the payment is refunded and the review flag is cleared', cardRefunded.paymentStatus === 'refunded' && cardRefunded.paymentFlag === null, cardRefunded);
+  check('…with one «επιστραφείσα» event', (await eventsNow(cardPaid.id)).filter((m) => m.includes('επιστραφείσα')).length === 1, await eventsNow(cardPaid.id));
+  const r3 = await updateOrder(null, statusForm(cardRefunded, 'paid'));
+  const r4 = await updateOrder(null, statusForm(cardRefunded, 'pending'));
+  check('after refunded, any further change is refused', r3?.ok === false && r4?.ok === false, [r3, r4]);
+  check('…and the refunded order stays refunded', (await orderNow(cardPaid.id)).paymentStatus === 'refunded');
+
+  const pendingCard = await makeOrder({ status: 'pending' });
+  const r5 = await updateOrder(null, statusForm(pendingCard, 'refunded'));
+  check('refunded from pending is refused', r5?.ok === false && (await orderNow(pendingCard.id)).paymentStatus === 'pending', r5);
+
+  const paidFail = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-2', paymentProvider: 'viva' });
+  const r6 = await updateOrder(null, statusForm(paidFail, 'failed'));
+  check('paid → failed is refused', r6?.ok === false && (await orderNow(paidFail.id)).paymentStatus === 'paid', r6);
+
+  const cod = await makeOrder({ paymentMethod: 'cod', status: 'confirmed', paymentStatus: 'paid', paidAt: new Date() });
+  const r7 = await updateOrder(null, statusForm(cod, 'pending'));
+  check('a cash-on-delivery payment can be set back to pending', r7?.ok === true && (await orderNow(cod.id)).paymentStatus === 'pending', r7);
+
+  const pendingBank = await makeOrder({ paymentMethod: 'bank_transfer', status: 'pending' });
+  const r8 = await updateOrder(null, statusForm(pendingBank, 'paid'));
+  const pendingBankAfter = await orderNow(pendingBank.id);
+  check('pending → paid is accepted, with paidAt set', r8?.ok === true && pendingBankAfter.paymentStatus === 'paid' && pendingBankAfter.paidAt !== null, [r8, pendingBankAfter.paymentStatus, pendingBankAfter.paidAt]);
+  check('…and the timeline says so', (await eventsNow(pendingBank.id)).some((m) => m.includes('Σημειώθηκε ως εξοφλημένη.')));
+
+  const cancelPaid = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-3', paymentProvider: 'viva' });
+  const r9 = await updateOrder(null, form({ id: String(cancelPaid.id), status: 'cancelled', paymentStatus: 'paid' }));
+  const cancelPaidAfter = await orderNow(cancelPaid.id);
+  check('cancelling a paid order is accepted and flagged for review', r9?.ok === true && cancelPaidAfter.status === 'cancelled' && cancelPaidAfter.paymentFlag === 'review', [r9, cancelPaidAfter.status, cancelPaidAfter.paymentFlag]);
+  check('…with a «ΠΡΟΣΟΧΗ» event', (await eventsNow(cancelPaid.id)).some((m) => m.includes('ΠΡΟΣΟΧΗ')));
+
+  const cancelRefund = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-4', paymentProvider: 'viva' });
+  const r10 = await updateOrder(null, form({ id: String(cancelRefund.id), status: 'cancelled', paymentStatus: 'refunded' }));
+  const cancelRefundAfter = await orderNow(cancelRefund.id);
+  check('cancelling together with refunded is accepted', r10?.ok === true && cancelRefundAfter.status === 'cancelled' && cancelRefundAfter.paymentStatus === 'refunded', [r10, cancelRefundAfter.status, cancelRefundAfter.paymentStatus]);
+  check('…and leaves no review flag', cancelRefundAfter.paymentFlag === null, cancelRefundAfter.paymentFlag);
+
+  console.log('Payment review and unmatched payments (admin actions)');
+  const flagged = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-5', paymentProvider: 'viva', paymentFlag: 'review' });
+  const eventsFlaggedBefore = (await eventsNow(flagged.id)).length;
+  await resolvePaymentReview(form({ id: String(flagged.id) }));
+  const flaggedAfter = await orderNow(flagged.id);
+  check('resolvePaymentReview clears the flag', flaggedAfter.paymentFlag === null, flaggedAfter.paymentFlag);
+  const eventsFlaggedAfter = await eventsNow(flagged.id);
+  check('…and adds exactly one «ολοκληρώθηκε» event', eventsFlaggedAfter.length === eventsFlaggedBefore + 1 && eventsFlaggedAfter.filter((m) => m.includes('Έλεγχος πληρωμής: ολοκληρώθηκε.')).length === 1, eventsFlaggedAfter);
+  await resolvePaymentReview(form({ id: String(flagged.id) }));
+  check('calling it again adds nothing', (await eventsNow(flagged.id)).length === eventsFlaggedAfter.length, await eventsNow(flagged.id));
+
+  const [um] = await db.insert(unmatchedPayments).values({ provider: 'viva', orderCode: '9515982136486001', transactionId: 'TX-ADM-UM-1', amountCents: 1999, currency: 'EUR' }).returning();
+  const umRow = async () => (await db.select().from(unmatchedPayments).where(eq(unmatchedPayments.id, um.id)))[0];
+  await resolveUnmatchedPayment(form({ id: String(um.id), note: 'επιστράφηκε' }));
+  const um1 = await umRow();
+  check('resolveUnmatchedPayment sets resolvedAt and the note', um1.resolvedAt !== null && um1.note === 'επιστράφηκε', um1);
+  await resolveUnmatchedPayment(form({ id: String(um.id), note: 'άλλη σημείωση' }));
+  const um2 = await umRow();
+  check('a second call does not overwrite the note or resolvedAt', um2.note === 'επιστράφηκε' && um2.resolvedAt?.getTime() === um1.resolvedAt?.getTime(), um2);
+
   console.log('Sales and coupons refuse without an administrator');
   cookieJar.clear();
   const refusedWithoutSession = async (run: () => Promise<unknown>) => {
@@ -230,6 +329,256 @@ async function main() {
   check('saveSale redirects to login without a session', await refusedWithoutSession(() => saveSale(null, form({ name: 'Χωρίς σύνδεση', type: 'percent', value: '20', brandIds: brandId }))));
   check('deleteSale redirects to login without a session', await refusedWithoutSession(() => deleteSale(form({ id: '1' }))));
   check('searchAdminProducts redirects to login without a session', await refusedWithoutSession(() => searchAdminProducts('λαδι')));
+
+  console.log('Payment actions refuse without an administrator');
+  cookieJar.clear();
+  const flagForNoSession = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-6', paymentProvider: 'viva', paymentFlag: 'review' });
+  check('resolvePaymentReview redirects to login without a session', await refusedWithoutSession(() => resolvePaymentReview(form({ id: String(flagForNoSession.id) }))));
+  check('resolveUnmatchedPayment redirects to login without a session', await refusedWithoutSession(() => resolveUnmatchedPayment(form({ id: String(um.id), note: 'χωρίς σύνδεση' }))));
+  check('updateOrder redirects to login without a session', await refusedWithoutSession(() => updateOrder(null, statusForm(flagForNoSession, 'failed'))));
+  check('…and the refused calls changed nothing', (await orderNow(flagForNoSession.id)).paymentFlag === 'review' && (await umRow()).note === 'επιστράφηκε');
+
+  console.log('Fixes from the bug hunt');
+  // the section above emptied the cookie jar to test refusals, so this section signs in again
+  await createSession('admin', admin.id, admin.tokenVersion);
+  const { deleteProduct, deleteTaxon } = await import('../src/app/admin/actions');
+  const { categories } = await import('../src/lib/db/schema');
+  // every coupon and sale this section writes, by its unique code or name, so the cleanup can remove them
+  const fixCodes = ['FIXSOLO', 'FIXPAIR', 'FIXFREE', 'FIXCAT', 'FIXPROD', 'FIXP12', 'FIXP100', 'FIXREFUSE'];
+  const fixSaleNames = ['Δοκιμή μόνο Β2', 'Δοκιμή 90', 'Δοκιμή ποσοστού'];
+  // deleteProduct ends in redirect(), which throws NEXT_REDIRECT: that throw is the expected outcome here
+  const redirected = async (run: () => Promise<unknown>) => {
+    try {
+      await run();
+      return false;
+    } catch (err) {
+      return String((err as { digest?: string }).digest ?? '').startsWith('NEXT_REDIRECT');
+    }
+  };
+  const addCoupon = async (code: string, over: Partial<typeof coupons.$inferInsert> = {}) => {
+    const [row] = await db
+      .insert(coupons)
+      .values({ code, type: 'percent', value: 10, productIds: [], brandIds: [], categoryIds: [], isActive: true, ...over })
+      .returning();
+    return row;
+  };
+  const addSale = async (name: string, over: Partial<typeof sales.$inferInsert> = {}) => {
+    const [row] = await db
+      .insert(sales)
+      .values({ name, type: 'percent', value: 10, productIds: [], brandIds: [], categoryIds: [], isActive: true, ...over })
+      .returning();
+    return row;
+  };
+  const couponNow = async (id: number) => (await db.select().from(coupons).where(eq(coupons.id, id)))[0];
+  const saleNow = async (id: number) => (await db.select().from(sales).where(eq(sales.id, id)))[0];
+  const isEmptyTargets = (row: { productIds: number[]; brandIds: number[]; categoryIds: number[] }) => row.productIds.length === 0 && row.brandIds.length === 0 && row.categoryIds.length === 0;
+
+  const [b2] = await db.insert(brands).values({ slug: 'e2e-fix-b2', name: 'Τεστ Β2' }).returning();
+  const soloB = await addCoupon('FIXSOLO', { brandIds: [b2.id] });
+  const pairB = await addCoupon('FIXPAIR', { brandIds: [b2.id, anyBrand.id] });
+  const freeC = await addCoupon('FIXFREE');
+  const soloSale = await addSale('Δοκιμή μόνο Β2', { brandIds: [b2.id] });
+  await deleteTaxon(form({ id: String(b2.id), kind: 'brand' }));
+  const soloBAfter = await couponNow(soloB.id);
+  check('a coupon limited only to the deleted brand is switched off, not widened to the whole shop', soloBAfter.brandIds.length === 0 && soloBAfter.isActive === false, soloBAfter);
+  const pairBAfter = await couponNow(pairB.id);
+  check('a coupon limited to the deleted brand and another loses only the deleted one and stays on', JSON.stringify(pairBAfter.brandIds) === JSON.stringify([anyBrand.id]) && pairBAfter.isActive === true, pairBAfter);
+  const soloSaleAfter = await saleNow(soloSale.id);
+  check('a sale limited only to the deleted brand is switched off with empty lists', isEmptyTargets(soloSaleAfter) && soloSaleAfter.isActive === false, soloSaleAfter);
+  const freeAfter = await couponNow(freeC.id);
+  check('a coupon with no targets at all is untouched', freeAfter.isActive === true && isEmptyTargets(freeAfter), freeAfter);
+
+  const [cat] = await db.insert(categories).values({ slug: 'e2e-fix-cat', name: 'Τεστ κατηγορία' }).returning();
+  const catCoupon = await addCoupon('FIXCAT', { categoryIds: [cat.id] });
+  await deleteTaxon(form({ id: String(cat.id), kind: 'category' }));
+  const catAfter = await couponNow(catCoupon.id);
+  check('the same holds for a deleted category', catAfter.categoryIds.length === 0 && catAfter.isActive === false, catAfter);
+
+  const [fixProduct] = await db.insert(products).values({ slug: 'e2e-fix-product', name: 'Τεστ προϊόν διαγραφής' }).returning();
+  await db.insert(variants).values({ productId: fixProduct.id, sku: 'E2E-FIX-DEL', label: '1L', volumeMl: 1000, priceCents: 1000 });
+  const prodCoupon = await addCoupon('FIXPROD', { productIds: [fixProduct.id] });
+  const productRedirected = await redirected(() => deleteProduct(form({ id: String(fixProduct.id) })));
+  check('deleteProduct redirects back to the product list', productRedirected);
+  const prodAfter = await couponNow(prodCoupon.id);
+  check('the same holds for a deleted product', prodAfter.productIds.length === 0 && prodAfter.isActive === false, prodAfter);
+  const [gone] = await db.select().from(products).where(eq(products.id, fixProduct.id));
+  check('the deleted product row is gone', gone === undefined);
+
+  // The owner's deliberate choice: re-saving a switched-off coupon with no targets widens it to the whole shop and turns it on again.
+  const widened = await runCoupon(form({ id: String(soloB.id), code: 'FIXSOLO', type: 'percent', value: '10', isActive: 'on' }));
+  const widenedRow = await couponNow(soloB.id);
+  check('re-saving the switched-off coupon with no targets is allowed (the owner widens it on purpose)', widened.ok === true && isEmptyTargets(widenedRow) && widenedRow.isActive === true, { widened, row: widenedRow });
+
+  const couponPercentRefusals: Array<[string, string]> = [
+    ['12,5', 'Το ποσοστό πρέπει να είναι ακέραιος αριθμός.'],
+    ['12.5', 'Το ποσοστό πρέπει να είναι ακέραιος αριθμός.'],
+    ['abc', 'Το ποσοστό πρέπει να είναι ακέραιος αριθμός.'],
+    ['0', 'Συμπληρώστε αξία έκπτωσης.'],
+    ['1000', 'Μέγιστο 100%.'],
+    ['', 'Συμπληρώστε αξία έκπτωσης.'],
+  ];
+  for (const [value, message] of couponPercentRefusals) {
+    const refused = await runCoupon(form({ code: 'FIXREFUSE', type: 'percent', value }));
+    check(`a coupon with value "${value}" is refused`, refused.ok === false && refused.message === message, refused);
+  }
+  const salePercentRefusals: Array<[string, string]> = [
+    ['12,5', 'Το ποσοστό πρέπει να είναι ακέραιος αριθμός.'],
+    ['12.5', 'Το ποσοστό πρέπει να είναι ακέραιος αριθμός.'],
+    ['abc', 'Το ποσοστό πρέπει να είναι ακέραιος αριθμός.'],
+    ['0', 'Συμπληρώστε αξία έκπτωσης.'],
+    ['91', 'Μέγιστο 90%.'],
+    ['', 'Συμπληρώστε αξία έκπτωσης.'],
+  ];
+  for (const [value, message] of salePercentRefusals) {
+    const refused = await runSale(form({ name: 'Δοκιμή ποσοστού', type: 'percent', value, brandIds: brandId }));
+    check(`a sale with value "${value}" is refused`, refused.ok === false && refused.message === message, refused);
+  }
+  const refusedRows = (await db.select().from(coupons).where(eq(coupons.code, 'FIXREFUSE'))).length + (await db.select().from(sales).where(eq(sales.name, 'Δοκιμή ποσοστού'))).length;
+  check('the refused percentages wrote no row', refusedRows === 0, refusedRows);
+  const accepted12 = await runCoupon(form({ code: 'FIXP12', type: 'percent', value: '12' }));
+  const accepted100 = await runCoupon(form({ code: 'FIXP100', type: 'percent', value: '100' }));
+  const accepted90 = await runSale(form({ name: 'Δοκιμή 90', type: 'percent', value: '90', brandIds: brandId }));
+  check('valid 12 and 100 (coupon) and 90 (sale) are accepted', accepted12.ok === true && accepted100.ok === true && accepted90.ok === true, [accepted12, accepted100, accepted90]);
+
+  console.log('Cancelling a hand-marked paid order while un-paying it');
+  // The owner marked a card order paid by hand (no gateway reference), then un-pays and cancels it in one save: no money was
+  // taken, so there is no refund alarm. (A payment landing between the two reads inside updateOrder cannot be driven from
+  // outside; the case "cancel while it stays paid" is covered above and does flag.)
+  const handPaid = await makeOrder({ status: 'pending', paymentStatus: 'pending' });
+  await db.update(orders).set({ paymentStatus: 'paid', paidAt: new Date() }).where(eq(orders.id, handPaid.id));
+  const rHand = await updateOrder(null, form({ id: String(handPaid.id), status: 'cancelled', paymentStatus: 'pending' }));
+  const handAfter = await orderNow(handPaid.id);
+  check('the cancel together with un-paying a hand-marked order is accepted', rHand?.ok === true && handAfter.status === 'cancelled', [rHand, handAfter.status]);
+  check('…it ends unpaid, with no review flag', handAfter.paymentStatus === 'pending' && handAfter.paymentFlag === null, [handAfter.paymentStatus, handAfter.paymentFlag]);
+  check('…and no refund alarm in its history', !(await eventsNow(handPaid.id)).some((m) => m.includes('ΠΡΟΣΟΧΗ')));
+
+  console.log('Round 3 fixes');
+  {
+    // the sections above may have emptied the cookie jar: sign in again
+    await createSession('admin', admin.id, admin.tokenVersion);
+    const { sql } = await import('drizzle-orm');
+    const { pruneDeadTargets } = await import('../src/lib/discount-cleanup');
+    const { deleteTaxon } = await import('../src/app/admin/actions');
+    const r3Codes = ['R3BAD', 'R3GOOD', 'R3MAX5', 'R3MAXE', 'R3MIN1', 'R3MINE', 'R3PRUNE', 'R3FREE', 'SUMMER-10'];
+    const couponRow = async (id: number) => (await db.select().from(coupons).where(eq(coupons.id, id)))[0];
+    const saleRow = async (id: number) => (await db.select().from(sales).where(eq(sales.id, id)))[0];
+    const emptyTargets = (row: { productIds: number[]; brandIds: number[]; categoryIds: number[] }) => row.productIds.length === 0 && row.brandIds.length === 0 && row.categoryIds.length === 0;
+    const rowsWithCode = async (code: string) => (await db.select().from(coupons).where(eq(coupons.code, code))).length;
+
+    console.log('  Stale order forms');
+    // a) a stale tab that only saves a tracking number must not un-pay an order paid meanwhile
+    const staleCod = await makeOrder({ paymentMethod: 'cod', status: 'pending', paymentStatus: 'pending' });
+    await db.update(orders).set({ paymentStatus: 'paid', paidAt: new Date() }).where(eq(orders.id, staleCod.id));
+    const rCod = await updateOrder(null, form({ id: String(staleCod.id), status: 'pending', paymentStatus: 'pending', loadedStatus: 'pending', loadedPayment: 'pending', trackingNumber: 'T1' }));
+    const staleCodAfter = await orderNow(staleCod.id);
+    check('a stale form that only adds a tracking number is accepted', rCod?.ok === true, rCod);
+    check('…the order stays paid (nothing is un-paid)', staleCodAfter.paymentStatus === 'paid' && staleCodAfter.paidAt !== null, [staleCodAfter.paymentStatus, staleCodAfter.paidAt]);
+    check('…and the tracking number is saved', staleCodAfter.trackingNumber === 'T1', staleCodAfter.trackingNumber);
+
+    // b) the owner picks «paid» on a card order that moved on (confirmed + paid by the gateway) since the page was opened
+    const staleCard = await makeOrder({ status: 'pending', paymentStatus: 'pending' });
+    await db.update(orders).set({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-1', paymentProvider: 'viva' }).where(eq(orders.id, staleCard.id));
+    const rStaleCard = await updateOrder(null, form({ id: String(staleCard.id), status: 'pending', paymentStatus: 'paid', loadedStatus: 'pending', loadedPayment: 'pending' }));
+    check('a payment edit from a form that is out of date is refused', rStaleCard?.ok === false && (rStaleCard?.message ?? '').includes('άλλαξε στο μεταξύ'), rStaleCard);
+    check('…and the order stays confirmed', (await orderNow(staleCard.id)).status === 'confirmed', (await orderNow(staleCard.id)).status);
+
+    // c) the owner changes the status of a row that moved on since the page was opened
+    const staleStatus = await makeOrder({ status: 'pending', paymentStatus: 'pending' });
+    await db.update(orders).set({ status: 'processing' }).where(eq(orders.id, staleStatus.id));
+    const rStaleStatus = await updateOrder(null, form({ id: String(staleStatus.id), status: 'shipped', paymentStatus: 'pending', loadedStatus: 'pending', loadedPayment: 'pending' }));
+    check('a status change from a form that is out of date is refused', rStaleStatus?.ok === false && (rStaleStatus?.message ?? '').includes('άλλαξε στο μεταξύ'), rStaleStatus);
+    check('…and the row keeps its newer status', (await orderNow(staleStatus.id)).status === 'processing', (await orderNow(staleStatus.id)).status);
+
+    // d) an old caller without the loaded fields: the form is compared with the row as it is now
+    const plainOld = await makeOrder({ status: 'pending', paymentStatus: 'pending' });
+    const rPlainOld = await updateOrder(null, form({ id: String(plainOld.id), status: 'processing', paymentStatus: 'pending' }));
+    check('without the loaded fields an ordinary status change is still applied', rPlainOld?.ok === true && (await orderNow(plainOld.id)).status === 'processing', rPlainOld);
+
+    console.log('  Coupon code, maximum uses and minimum');
+    const greekCode = await runCoupon(form({ code: 'ΦΘΙΝΟΠΩΡΟ2026', type: 'percent', value: '10' }));
+    check('a code with Greek letters is refused', greekCode.ok === false && (greekCode.message ?? '').includes('λατινικά'), greekCode);
+    check('…and no row is written for it', (await rowsWithCode('ΦΘΙΝΟΠΩΡΟ2026')) === 0);
+    const lowerCode = await runCoupon(form({ code: 'summer-10', type: 'percent', value: '10' }));
+    const [summer] = await db.select().from(coupons).where(eq(coupons.code, 'SUMMER-10'));
+    check("'summer-10' is accepted and stored as 'SUMMER-10'", lowerCode.ok === true && summer !== undefined, [lowerCode, summer?.code]);
+    for (const maxUses of ['abc', '0', '-3', '1.5']) {
+      const refused = await runCoupon(form({ code: 'R3MAX', type: 'percent', value: '10', maxUses }));
+      check(`maxUses "${maxUses}" is refused`, refused.ok === false && (refused.message ?? '').includes('μέγιστες χρήσεις'), refused);
+    }
+    check('…and no row is written for those', (await rowsWithCode('R3MAX')) === 0);
+    const maxFive = await runCoupon(form({ code: 'R3MAX5', type: 'percent', value: '10', maxUses: '5' }));
+    const [m5] = await db.select().from(coupons).where(eq(coupons.code, 'R3MAX5'));
+    check("maxUses '5' is stored as 5", maxFive.ok === true && m5?.maxUses === 5, m5);
+    const maxEmpty = await runCoupon(form({ code: 'R3MAXE', type: 'percent', value: '10', maxUses: '' }));
+    const [mE] = await db.select().from(coupons).where(eq(coupons.code, 'R3MAXE'));
+    check("maxUses '' is stored as null (unlimited)", maxEmpty.ok === true && mE?.maxUses === null, mE);
+    const minRefused = await runCoupon(form({ code: 'R3MIN', type: 'percent', value: '10', minSubtotal: '1.250' }));
+    check("minSubtotal '1.250' is refused", minRefused.ok === false && (minRefused.message ?? '').includes('ελάχιστη αγορά'), minRefused);
+    check('…and no row is written for it', (await rowsWithCode('R3MIN')) === 0);
+    const minFifty = await runCoupon(form({ code: 'R3MIN1', type: 'percent', value: '10', minSubtotal: '30,50' }));
+    const [min1] = await db.select().from(coupons).where(eq(coupons.code, 'R3MIN1'));
+    check("minSubtotal '30,50' is stored as 3050 cents", minFifty.ok === true && min1?.minSubtotalCents === 3050, min1);
+    const minEmpty = await runCoupon(form({ code: 'R3MINE', type: 'percent', value: '10', minSubtotal: '' }));
+    const [minE] = await db.select().from(coupons).where(eq(coupons.code, 'R3MINE'));
+    check("minSubtotal '' is stored as 0", minEmpty.ok === true && minE?.minSubtotalCents === 0, minE);
+
+    console.log('  Deleting a brand with an unreadable coupon');
+    const [b3] = await db.insert(brands).values({ slug: 'e2e-r3-b3', name: 'Τεστ Β3' }).returning();
+    const [goodR3] = await db.insert(coupons).values({ code: 'R3GOOD', type: 'percent', value: 10, productIds: [], brandIds: [b3.id], categoryIds: [], isActive: true }).returning();
+    const [badR3] = await db.insert(coupons).values({ code: 'R3BAD', type: 'percent', value: 10, productIds: [], brandIds: [b3.id], categoryIds: [], isActive: true }).returning();
+    await db.run(sql`UPDATE coupons SET brand_ids = 'not json' WHERE id = ${badR3.id}`);
+    let deleteThrew = false;
+    try {
+      await deleteTaxon(form({ id: String(b3.id), kind: 'brand' }));
+    } catch {
+      deleteThrew = true;
+    }
+    check('deleting the brand completes without throwing', !deleteThrew);
+    const goodR3After = await couponRow(goodR3.id);
+    check('…the valid coupon is switched off with empty brand targets', goodR3After.isActive === false && goodR3After.brandIds.length === 0, goodR3After);
+    const rawBad = await db.all<{ brand_ids: string | null }>(sql`SELECT brand_ids FROM coupons WHERE id = ${badR3.id}`);
+    check('…the unreadable coupon is left as it was', rawBad[0]?.brand_ids === 'not json', rawBad);
+
+    console.log('  Pruning dead targets');
+    const [pruneCoupon] = await db.insert(coupons).values({ code: 'R3PRUNE', type: 'percent', value: 10, productIds: [], brandIds: [anyBrand.id, 999991], categoryIds: [], isActive: true }).returning();
+    const [pruneSale] = await db.insert(sales).values({ name: 'Δοκιμή κλάδεμα', type: 'percent', value: 10, productIds: [999992], brandIds: [], categoryIds: [], isActive: true }).returning();
+    const [freeR3] = await db.insert(coupons).values({ code: 'R3FREE', type: 'percent', value: 10, productIds: [], brandIds: [], categoryIds: [], isActive: true }).returning();
+    const firstPrune = await pruneDeadTargets();
+    check('the first run cleans at least the two dead rows and switches one off', firstPrune.cleaned >= 2 && firstPrune.switchedOff >= 1, firstPrune);
+    const prunedCoupon = await couponRow(pruneCoupon.id);
+    check('the coupon keeps its live brand and stays on', JSON.stringify(prunedCoupon.brandIds) === JSON.stringify([anyBrand.id]) && prunedCoupon.isActive === true, prunedCoupon);
+    const prunedSale = await saleRow(pruneSale.id);
+    check('the sale with only dead targets is emptied and switched off', emptyTargets(prunedSale) && prunedSale.isActive === false, prunedSale);
+    const freeAfterPrune = await couponRow(freeR3.id);
+    check('a coupon with no targets stays active and untouched', freeAfterPrune.isActive === true && emptyTargets(freeAfterPrune), freeAfterPrune);
+    const secondPrune = await pruneDeadTargets();
+    check('running it again changes nothing (cleaned 0, switchedOff 0)', secondPrune.cleaned === 0 && secondPrune.switchedOff === 0, secondPrune);
+
+    console.log('  Refund keeps the payment date');
+    const pastPaid = new Date('2026-01-10T09:00:00Z');
+    const refundOrder = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: pastPaid, paymentTransactionId: 'TX-R3-REF', paymentProvider: 'viva', paymentFlag: 'review' });
+    const rRefund = await updateOrder(null, form({ id: String(refundOrder.id), status: 'confirmed', paymentStatus: 'refunded', loadedStatus: 'confirmed', loadedPayment: 'paid' }));
+    const refundAfter = await orderNow(refundOrder.id);
+    check('paid → refunded is accepted', rRefund?.ok === true, rRefund);
+    check('…paidAt keeps its original timestamp', refundAfter.paidAt?.getTime() === pastPaid.getTime(), refundAfter.paidAt);
+    check('…and the review flag is cleared', refundAfter.paymentFlag === null, refundAfter.paymentFlag);
+
+    const rRefusedFailed = await updateOrder(null, form({ id: String(refundOrder.id), status: 'confirmed', paymentStatus: 'failed', loadedStatus: 'confirmed', loadedPayment: 'refunded' }));
+    const rRefusedPaid = await updateOrder(null, form({ id: String(refundOrder.id), status: 'confirmed', paymentStatus: 'paid', loadedStatus: 'confirmed', loadedPayment: 'refunded' }));
+    check('a refunded order refuses any other payment status', rRefusedFailed?.ok === false && rRefusedPaid?.ok === false, [rRefusedFailed, rRefusedPaid]);
+    const refusedAfter = await orderNow(refundOrder.id);
+    check('…and the refused calls changed nothing in the database', refusedAfter.paymentStatus === 'refunded' && refusedAfter.paidAt?.getTime() === pastPaid.getTime() && refusedAfter.paymentTransactionId === 'TX-R3-REF' && refusedAfter.status === 'confirmed' && refusedAfter.paymentFlag === null, refusedAfter);
+
+    for (const code of r3Codes) await db.delete(coupons).where(eq(coupons.code, code));
+    await db.delete(sales).where(eq(sales.name, 'Δοκιμή κλάδεμα'));
+  }
+
+  console.log('Cleanup');
+  for (const code of fixCodes) await db.delete(coupons).where(eq(coupons.code, code));
+  for (const name of fixSaleNames) await db.delete(sales).where(eq(sales.name, name));
+  for (const id of createdOrderIds) await db.delete(orders).where(eq(orders.id, id));
+  await db.delete(unmatchedPayments).where(eq(unmatchedPayments.id, um.id));
+  check('the rows of this section are gone', (await db.select().from(orders).where(eq(orders.id, createdOrderIds[0]))).length === 0);
 }
 
 main()

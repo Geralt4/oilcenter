@@ -1,15 +1,13 @@
 'use server';
 
-import { eq } from 'drizzle-orm';
 import { commerceEnabled } from '@/lib/commerce-flag';
 import { getCustomer } from '@/lib/auth/session';
 import { canOrderNow } from '@/lib/catalogue-mode';
 import { resolveCartLines } from '@/lib/catalog';
-import { db } from '@/lib/db';
-import { orders } from '@/lib/db/schema';
 import { newOrderNotificationMail, orderConfirmationMail, sendMail } from '@/lib/email';
 import { addOrderEvent, CheckoutSchema, createOrder, findCoupon, getOrderByNumber } from '@/lib/orders';
 import { cardProvider, startCardPayment } from '@/lib/payments';
+import { recordPaymentAttempt } from '@/lib/payments/attempts';
 import type { AppliedCoupon } from '@/lib/pricing';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 import { getSettings } from '@/lib/settings.server';
@@ -54,7 +52,7 @@ export async function placeOrder(raw: unknown): Promise<PlaceOrderResult> {
   if (order.paymentMethod === 'card') {
     try {
       const payment = await startCardPayment(order);
-      await db.update(orders).set({ paymentProvider: payment.provider, paymentRef: payment.ref }).where(eq(orders.id, order.id));
+      await recordPaymentAttempt(order.id, payment);
       await addOrderEvent(order.id, 'payment', `Ο πελάτης μεταφέρθηκε στη σελίδα πληρωμής (${payment.provider}).`);
       return { ok: true, redirectUrl: payment.redirectUrl, external: true };
     } catch (err) {
@@ -79,10 +77,11 @@ export async function retryCardPayment(number: string, token: string): Promise<{
 
   const order = await getOrderByNumber(number);
   if (!order || order.accessToken !== token) return { ok: false, message: 'Η παραγγελία δεν βρέθηκε.' };
-  if (order.paymentMethod !== 'card' || order.paymentStatus === 'paid' || order.status === 'cancelled') return { ok: false, message: 'Η παραγγελία δεν αναμένει πληρωμή.' };
+  // only an open payment can be retried: a paid or REFUNDED order must not be charged again
+  if (order.paymentMethod !== 'card' || (order.paymentStatus !== 'pending' && order.paymentStatus !== 'failed') || order.status === 'cancelled') return { ok: false, message: 'Η παραγγελία δεν αναμένει πληρωμή.' };
   try {
     const payment = await startCardPayment(order);
-    await db.update(orders).set({ paymentProvider: payment.provider, paymentRef: payment.ref }).where(eq(orders.id, order.id));
+    await recordPaymentAttempt(order.id, payment);
     return { ok: true, redirectUrl: payment.redirectUrl };
   } catch (err) {
     console.error('[checkout] retry card payment failed', err);
