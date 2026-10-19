@@ -7,6 +7,7 @@ const PROBLEMS: Partial<Record<PaymentOutcome, string>> = {
   amount_mismatch: 'Το ποσό που εισπράχθηκε δεν ταιριάζει με το σύνολο της παραγγελίας. Η παραγγελία δεν σημειώθηκε ως πληρωμένη.',
   currency_mismatch: 'Η πληρωμή έγινε σε νόμισμα διαφορετικό από το ευρώ. Η παραγγελία δεν σημειώθηκε ως πληρωμένη.',
   paid_after_manual: 'Ήρθε η πληρωμή του πάροχου για παραγγελία που είχατε σημειώσει εξοφλημένη χειροκίνητα. Πιθανότατα είναι τα ίδια χρήματα: αν είχατε εισπράξει και με άλλον τρόπο, επιστρέψτε το ένα από τα δύο.',
+  paid_after_refund: 'Ήρθε η πληρωμή του πάροχου για παραγγελία που είχατε σημειώσει εξοφλημένη χειροκίνητα και μετά επιστραφείσα. Ελέγξτε στον πάροχο πληρωμών αν αυτή η πληρωμή έχει ήδη επιστραφεί· αν όχι, επιστρέψτε την.',
   duplicate_payment: 'Η παραγγελία πληρώθηκε δύο φορές, με δύο διαφορετικές πληρωμές. Επιστρέψτε τα χρήματα της δεύτερης στον πάροχο πληρωμών και πατήστε «Το χειρίστηκα» (όχι «Επιστροφή χρημάτων», που αφορά ολόκληρη την παραγγελία).',
   late_cancelled: 'Εισπράχθηκε πληρωμή για παραγγελία που είχε ήδη ακυρωθεί. Επιστρέψτε τα χρήματα στον πάροχο πληρωμών (ή επικοινωνήστε με τον πελάτη) και σημειώστε «Επιστροφή χρημάτων».',
 };
@@ -22,9 +23,13 @@ export async function settleCardPayment(order: { id: number; number: string }, i
   const [full, settings] = await Promise.all([getOrderByNumber(order.number), getSettings()]);
   if (!full) return outcome;
 
-  if (outcome === 'paid') {
+  // The buyer paid online and sees the success page: they get the confirmation. This includes the payment that finally arrives for
+  // an order the owner had already marked paid by hand (marking it never mailed the customer); the owner is still told below.
+  if (outcome === 'paid' || outcome === 'paid_after_manual') {
     const sent = await sendMail(orderConfirmationMail(full, settings));
     await addOrderEvent(order.id, 'email', sent ? `Στάλθηκε e-mail επιβεβαίωσης στο ${full.email}.` : `ΑΠΟΤΥΧΙΑ αποστολής e-mail επιβεβαίωσης στο ${full.email}.`);
+  }
+  if (outcome === 'paid') {
     // the shop was told at checkout that this order awaited payment: now it is told that it was paid
     if (!(await sendMail(orderPaidNotificationMail(full, settings)))) await addOrderEvent(order.id, 'email', 'ΑΠΟΤΥΧΙΑ αποστολής e-mail ειδοποίησης προς το κατάστημα για την πληρωμή.');
     return outcome;

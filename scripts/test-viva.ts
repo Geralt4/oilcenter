@@ -761,17 +761,41 @@ async function main() {
   check("H: the order is flagged for review", rowH.paymentFlag === 'review', rowH.paymentFlag);
   check("H: an event says the payment was matched to a manually paid order", (await eventsOf(oH.id)).some((e) => e.message.includes('χειροκίνητα')));
   const ownerAlertsH = () => outboxLines().filter((l) => l.includes('subject: Χρειάζεται έλεγχος: πληρωμή OC-TEST-VIVA-H')).length;
+  const confirmationsH = () => outboxLines().filter((l) => l.includes('subject: Η παραγγελία σας') && l.includes('OC-TEST-VIVA-H')).length;
   check('H: exactly one owner alert mail', ownerAlertsH() === 1, ownerAlertsH());
-  check('H: no customer confirmation mail is sent for it', outboxLines().filter((l) => l.includes('subject: Η παραγγελία σας') && l.includes('OC-TEST-VIVA-H')).length === 0);
+  check('H: the buyer gets exactly one confirmation mail', confirmationsH() === 1, confirmationsH());
   const eventsH = (await eventsOf(oH.id)).length;
   const linesH = outboxLines().length;
   const replayH = await hook(1796, TX_H, RH);
   const rowHReplay = await orderRow(oH.id);
   check('H: the replayed webhook answers 200 and adds no event and no mail', replayH.status === 200 && (await eventsOf(oH.id)).length === eventsH && outboxLines().length === linesH && rowHReplay.paymentTransactionId === TX_H, { status: replayH.status, eventsH, after: (await eventsOf(oH.id)).length, linesH, linesAfter: outboxLines().length });
+  check('H: after the replay there is still exactly one owner alert and one confirmation', ownerAlertsH() === 1 && confirmationsH() === 1, { owner: ownerAlertsH(), buyer: confirmationsH() });
   const retH = await ret(`t=${TX_H}&s=${RH}`);
   const locH = retH.headers.get('location') ?? '';
   check('H: the return route for the same transaction goes to the SUCCESS page', locH === `${siteUrl()}/order/OC-TEST-VIVA-H?t=at-OC-TEST-VIVA-H&payment=success`, locH);
   check('H: ... and adds no event', (await eventsOf(oH.id)).length === eventsH, (await eventsOf(oH.id)).length - eventsH);
+  delete process.env.ORDERS_NOTIFY_EMAIL;
+
+  console.log('H2. Order marked paid by hand, then refunded by hand, then the gateway payment arrives');
+  fromIp('198.51.100.98');
+  process.env.ORDERS_NOTIFY_EMAIL = 'shop@example.com';
+  const RH2 = '9515982136488901';
+  const TX_H2 = '3fa85f64-5717-4562-b3fc-2c963f66a0e5';
+  const oH2 = await addOrder('OC-TEST-VIVA-H2', RH2, 1999);
+  await newAttempt(oH2.id, RH2);
+  await db.update(orders).set({ paymentStatus: 'refunded', paidAt: new Date(), status: 'confirmed' }).where(eq(orders.id, oH2.id));
+  canned.txBody = txJson({ amount: 19.99, orderCode: RH2, merchantTrns: 'OC-TEST-VIVA-H2' });
+  const resH2 = await hook(1796, TX_H2, RH2);
+  check('H2: the webhook answers 200', resH2.status === 200, resH2.status);
+  const rowH2 = await orderRow(oH2.id);
+  check("H2: the order stays 'refunded' and the transaction id is stored", rowH2.paymentStatus === 'refunded' && rowH2.paymentTransactionId === TX_H2, rowH2);
+  check('H2: the order is flagged for review', rowH2.paymentFlag === 'review', rowH2.paymentFlag);
+  const ownerAlertsH2 = outboxLines().filter((l) => l.includes('subject: Χρειάζεται έλεγχος: πληρωμή OC-TEST-VIVA-H2')).length;
+  const buyerMailsH2 = outboxLines().filter((l) => l.includes('subject: Η παραγγελία σας') && l.includes('OC-TEST-VIVA-H2')).length;
+  check('H2: exactly one owner alert and no buyer mail', ownerAlertsH2 === 1 && buyerMailsH2 === 0, { ownerAlertsH2, buyerMailsH2 });
+  const retH2 = await ret(`t=${TX_H2}&s=${RH2}`);
+  const locH2 = retH2.headers.get('location') ?? '';
+  check('H2: the return route for the same transaction redirects to /order-status?payment=review (not the success page)', locH2 === `${siteUrl()}/order-status?payment=review`, locH2);
   delete process.env.ORDERS_NOTIFY_EMAIL;
 
   console.log('I2. Return route states: pending, Viva unreachable, paid for no order');
@@ -798,6 +822,13 @@ async function main() {
   canned.txBody = txJson({ amount: 19.99, orderCode: RI4, merchantTrns: 'OC-NOPE-I4' });
   const locNoOrder = (await ret(`t=${TX_A}&s=${RI4}`)).headers.get('location') ?? '';
   check("I2: a paid transaction for an order code with no order redirects to ?payment=review", locNoOrder === `${siteUrl()}/order-status?payment=review`, locNoOrder);
+
+  console.log('I3. Return route with a malformed transaction id');
+  fromIp('198.51.100.99');
+  const callsBeforeI3 = calls.length;
+  const locGarbage = (await ret(`t=garbage&s=${RI4}`)).headers.get('location') ?? '';
+  check('I3: a malformed t redirects to the shop home', locGarbage === `${siteUrl()}/`, locGarbage);
+  check('I3: ... and makes no Viva call', calls.length === callsBeforeI3, calls.map((c) => c.url));
 
   console.log('J. Mails after a paid settlement');
   fromIp('198.51.100.97');

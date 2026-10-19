@@ -604,8 +604,19 @@ async function main() {
     const mr = await newCard();
     await recordPaymentAttempt(mr.id, { provider: 'viva', ref: 'R-MR-1' });
     await db.update(orders).set({ paymentStatus: 'refunded', paidAt: new Date() }).where(eq(orders.id, mr.id));
-    check('a refunded order with no stored reference and a gateway payment → duplicate_payment', (await recordPayment(mr.id, { provider: 'viva', ref: 'T-MR-1', amountCents: mr.totalCents, attemptRef: 'R-MR-1' })) === 'duplicate_payment');
-    check('…and its stored reference stays empty', (await row(mr.id)).paymentTransactionId === null, (await row(mr.id)).paymentTransactionId);
+    const mrInfo = { provider: 'viva', ref: 'T-MR-1', amountCents: mr.totalCents, attemptRef: 'R-MR-1' };
+    check('a refunded order with no stored reference and a gateway payment → paid_after_refund', (await recordPayment(mr.id, mrInfo)) === 'paid_after_refund');
+    const mrRow = await row(mr.id);
+    check('…the gateway reference and provider are stored on the order', mrRow.paymentTransactionId === 'T-MR-1' && mrRow.paymentProvider === 'viva', [mrRow.paymentTransactionId, mrRow.paymentProvider]);
+    check("…the order stays 'refunded'", mrRow.paymentStatus === 'refunded', mrRow.paymentStatus);
+    check('…flagged for review', mrRow.paymentFlag === 'review', mrRow.paymentFlag);
+    check("…the attempt becomes 'paid'", (await attemptByRef('R-MR-1'))?.status === 'paid', await attemptByRef('R-MR-1'));
+    const refundEvents = (await eventsOf(mr.id)).filter((e) => e.message.includes('επιστραφείσα'));
+    check('…the timeline says it was refunded by hand, with ΠΡΟΣΟΧΗ and «Το χειρίστηκα» (one event)', refundEvents.length === 1 && refundEvents[0].message.includes('ΠΡΟΣΟΧΗ') && refundEvents[0].message.includes('«Το χειρίστηκα»'), refundEvents.map((e) => e.message));
+    check('…and that event does not call it a second payment', refundEvents.every((e) => !e.message.includes('δεύτερη')), refundEvents.map((e) => e.message));
+    const mrEventsBefore = (await eventsOf(mr.id)).length;
+    check('a repeat of the same payment → already_paid', (await recordPayment(mr.id, mrInfo)) === 'already_paid');
+    check('…and writes no new event', (await eventsOf(mr.id)).length === mrEventsBefore, [mrEventsBefore, (await eventsOf(mr.id)).length]);
 
     console.log('  Cancel only unpaid');
     const s0 = await stock();
@@ -720,8 +731,22 @@ async function main() {
     const rMa = await settleCardPayment({ id: ma.id, number: ma.number }, { provider: 'viva', ref: 'R3-MA-TX', amountCents: ma.totalCents, attemptRef: 'R3-MA-1' });
     check('settleCardPayment on an order marked paid by hand → paid_after_manual', rMa === 'paid_after_manual', rMa);
     const newMa = outboxFiles().filter((f) => !beforeMa.has(f));
-    check('…writes exactly one owner alert to the outbox', newMa.length === 1, newMa);
-    check('…and no confirmation goes to the buyer', !newMa.some((f) => f.includes(base.email) || subjectOf(f).startsWith('Η παραγγελία σας')), newMa.map(subjectOf));
+    const maSubjects = newMa.map(subjectOf);
+    check('…writes exactly two new files: one owner alert and one buyer confirmation', newMa.length === 2, maSubjects);
+    check('…the owner alert subject starts «Χρειάζεται έλεγχος: πληρωμή»', maSubjects.filter((s) => s.startsWith('Χρειάζεται έλεγχος: πληρωμή')).length === 1, maSubjects);
+    check('…the buyer confirmation subject starts «Η παραγγελία σας»', maSubjects.filter((s) => s.startsWith('Η παραγγελία σας')).length === 1, maSubjects);
+
+    console.log('  Refund alert');
+    const mrA = await newCardOrder();
+    await recordPaymentAttempt(mrA.id, { provider: 'viva', ref: 'R3-MRA-1' });
+    await db.update(orders).set({ paymentStatus: 'refunded', paidAt: new Date() }).where(eq(orders.id, mrA.id));
+    const beforeMrA = new Set(outboxFiles());
+    const rMrA = await settleCardPayment({ id: mrA.id, number: mrA.number }, { provider: 'viva', ref: 'R3-MRA-TX', amountCents: mrA.totalCents, attemptRef: 'R3-MRA-1' });
+    check('settleCardPayment on an order refunded by hand → paid_after_refund', rMrA === 'paid_after_refund', rMrA);
+    const newMrA = outboxFiles().filter((f) => !beforeMrA.has(f));
+    const mrASubjects = newMrA.map(subjectOf);
+    check('…writes exactly one new file: the owner alert', newMrA.length === 1 && !!mrASubjects[0]?.startsWith('Χρειάζεται έλεγχος: πληρωμή'), mrASubjects);
+    check('…and no confirmation goes to the buyer', !mrASubjects.some((s) => s.startsWith('Η παραγγελία σας')), mrASubjects);
 
     console.log('  Abandoned orders that must stay');
     const cod = await createOrder({ ...base, paymentMethod: 'cod', lines: [{ variantId: variant.id, quantity: 1 }] }, settings, opts);

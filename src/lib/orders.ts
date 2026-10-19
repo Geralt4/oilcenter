@@ -246,6 +246,8 @@ export type PaymentOutcome =
   | 'late_cancelled'
   /** the gateway's payment for an order the owner had already marked paid by hand (typically the webhook finally arriving) */
   | 'paid_after_manual'
+  /** the same, but the owner had meanwhile refunded the order by hand: the owner has to check whether THIS payment was refunded */
+  | 'paid_after_refund'
   /** a second, different payment for an order that is already paid (two open checkouts both paid) */
   | 'duplicate_payment'
   /** a problem the owner was already told about for this checkout (the browser return and the webhook both report it) */
@@ -285,7 +287,7 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
       // (attemptRef) can say; a payment replayed after a refund changes nothing.
       const second = Boolean(info.attemptRef) && info.ref !== order.paymentTransactionId;
       if (!second) return 'already_paid';
-      if (order.paymentStatus === 'paid' && order.paymentTransactionId === null) {
+      if (order.paymentTransactionId === null) {
         // The owner marked this order paid by hand (the usual reason: the webhook failed and the money showed up in the
         // gateway). The payment that now arrives is most likely that very money, so it is attached to the order, not
         // called a second charge. It is still put on the owner's list, with neutral wording, because a buyer who ALSO paid
@@ -298,14 +300,17 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
         if (attached.length === 0) return 'already_paid';
         await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'failed', 'mismatch'], tx);
         await flagForReview(orderId, tx);
+        const refunded = order.paymentStatus === 'refunded';
         await addOrderEvent(
           orderId,
           'payment',
-          `Η πληρωμή ${info.provider} (αναφορά ${info.ref}, ${formatPrice(info.amountCents)}) αντιστοιχίστηκε σε παραγγελία που είχε σημειωθεί εξοφλημένη χειροκίνητα. Αν είχατε εισπράξει και με άλλον τρόπο (μετρητά, τηλέφωνο), επιστρέψτε το ένα από τα δύο· αλλιώς δεν χρειάζεται ενέργεια. Πατήστε «Το χειρίστηκα» όταν το ελέγξετε.`,
+          refunded
+            ? `ΠΡΟΣΟΧΗ: ήρθε η πληρωμή ${info.provider} (αναφορά ${info.ref}, ${formatPrice(info.amountCents)}) για παραγγελία που είχε σημειωθεί χειροκίνητα ως εξοφλημένη και μετά ως επιστραφείσα. Ελέγξτε στον πάροχο πληρωμών αν αυτή η πληρωμή έχει ήδη επιστραφεί· αν όχι, επιστρέψτε την. Μετά πατήστε «Το χειρίστηκα».`
+            : `Η πληρωμή ${info.provider} (αναφορά ${info.ref}, ${formatPrice(info.amountCents)}) αντιστοιχίστηκε σε παραγγελία που είχε σημειωθεί εξοφλημένη χειροκίνητα. Αν είχατε εισπράξει και με άλλον τρόπο (μετρητά, τηλέφωνο), επιστρέψτε το ένα από τα δύο· αλλιώς δεν χρειάζεται ενέργεια. Πατήστε «Το χειρίστηκα» όταν το ελέγξετε.`,
           'system',
           tx,
         );
-        return 'paid_after_manual';
+        return refunded ? 'paid_after_refund' : 'paid_after_manual';
       }
       if (!(await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'failed'], tx))) return 'already_flagged';
       await flagForReview(orderId, tx);

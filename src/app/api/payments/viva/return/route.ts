@@ -26,6 +26,8 @@ export async function GET(request: Request) {
   //   review  = money arrived but needs the owner (wrong amount, cancelled order, no matching order)
   const back = (state: 'failed' | 'pending' | 'review') => NextResponse.redirect(`${siteUrl()}/order-status?payment=${state}`);
   if (!/^\d{10,20}$/.test(orderCode)) return home;
+  // a transaction id is a UUID: anything else is garbage, not a payment in trouble (and would only cost a call to Viva)
+  if (transactionId && !/^[0-9a-f-]{36}$/i.test(transactionId)) return home;
 
   // A miss here re-reads the transaction from Viva, so throttle by IP to avoid hammering their API.
   if (!(await rateLimit(`viva-return:${await clientIp()}`, 20, 10 * 60 * 1000)).ok) return NextResponse.redirect(`${siteUrl()}/order-status`);
@@ -41,9 +43,9 @@ export async function GET(request: Request) {
         return back('review');
       }
       const outcome = await settleCardPayment(order, { provider: 'viva', ref: transactionId, amountCents: tx.amountCents, currency: tx.currency, attemptRef: orderCode });
-      // A payment that does not add up, or that belongs to a cancelled order, is the owner's to sort out: no "success" page and
+      // A payment that does not add up, or that belongs to a cancelled or refunded order, is the owner's to sort out: no "success" page and
       // no secret link, whichever of the browser return and the webhook got there first (hence the order's own status too).
-      if (order.status === 'cancelled' || (outcome !== 'paid' && outcome !== 'already_paid' && outcome !== 'paid_after_manual')) return back('review');
+      if (order.status === 'cancelled' || order.paymentStatus === 'refunded' || (outcome !== 'paid' && outcome !== 'already_paid' && outcome !== 'paid_after_manual')) return back('review');
       return NextResponse.redirect(`${siteUrl()}/order/${order.number}?t=${order.accessToken}&payment=success`);
     }
     // Viva sends the buyer to the Success URL for a payment that is still pending as well (status A): not a failure
