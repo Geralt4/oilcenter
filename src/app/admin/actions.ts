@@ -258,8 +258,19 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
   const [order] = await db.select().from(orders).where(eq(orders.id, id));
   if (!order) return { ok: false, message: 'Η παραγγελία δεν βρέθηκε.' };
 
-  const status = str(fd, 'status') as OrderStatus;
-  if (!STATUSES.includes(status)) return { ok: false, message: 'Μη έγκυρη κατάσταση.' };
+  const askedStatus = str(fd, 'status') as OrderStatus;
+  if (!STATUSES.includes(askedStatus)) return { ok: false, message: 'Μη έγκυρη κατάσταση.' };
+  // The form says what the order looked like when the page was opened. Only what the owner actually CHANGED from that is
+  // applied: a stale tab that merely saves a tracking number must not undo a payment or a status that moved on meanwhile.
+  // Without those fields (older callers) the form is compared with the row as it is now, as before.
+  const loadedStatus = str(fd, 'loadedStatus') as OrderStatus;
+  const loadedPayment = str(fd, 'loadedPayment') as PaymentStatus;
+  const knowsStatus = STATUSES.includes(loadedStatus);
+  const knowsPayment = PAYMENT_STATUSES.includes(loadedPayment);
+  const staleMessage = 'Η παραγγελία άλλαξε στο μεταξύ (από άλλη καρτέλα ή από μια πληρωμή). Ανανεώστε τη σελίδα και δοκιμάστε ξανά.';
+  const statusEdited = knowsStatus ? askedStatus !== loadedStatus : askedStatus !== order.status;
+  if (statusEdited && knowsStatus && order.status !== loadedStatus) return { ok: false, message: staleMessage };
+  const status = statusEdited ? askedStatus : order.status;
   const notify = bool(fd, 'notify');
   const trackingCarrier = str(fd, 'trackingCarrier') || null;
   const trackingNumber = str(fd, 'trackingNumber') || null;
@@ -267,13 +278,16 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
 
   // The payment status is checked BEFORE anything is saved, so a refused change leaves the order exactly as it was.
   const asked = str(fd, 'paymentStatus') as PaymentStatus;
-  const payment: PaymentStatus = PAYMENT_STATUSES.includes(asked) ? asked : order.paymentStatus;
+  const wanted: PaymentStatus = PAYMENT_STATUSES.includes(asked) ? asked : order.paymentStatus;
+  const paymentEdited = knowsPayment ? wanted !== loadedPayment : wanted !== order.paymentStatus;
+  if (paymentEdited && knowsPayment && order.paymentStatus !== loadedPayment) return { ok: false, message: staleMessage };
+  const payment: PaymentStatus = paymentEdited ? wanted : order.paymentStatus;
   if (payment !== order.paymentStatus) {
     if (order.paymentStatus === 'refunded') return { ok: false, message: 'Η πληρωμή έχει επιστραφεί: δεν αλλάζει πια.' };
-    if (payment === 'refunded' && order.paymentStatus !== 'paid') return { ok: false, message: 'Μόνο μια εξοφλημένη παραγγελία μπορεί να σημειωθεί ως επιστραφείσα.' };
-    if (order.paymentStatus === 'paid' && payment === 'failed') return { ok: false, message: 'Μια εξοφλημένη παραγγελία δεν γίνεται «αποτυχημένη». Αν επιστρέψατε τα χρήματα, επιλέξτε «Επιστροφή χρημάτων».' };
+    if (payment === 'refunded' && order.paymentStatus !== 'paid') return { ok: false, message: 'Μόνο μια παραγγελία που έχει «Εξοφληθεί» μπορεί να σημειωθεί «Επιστροφή χρημάτων».' };
+    if (order.paymentStatus === 'paid' && payment === 'failed') return { ok: false, message: 'Μια παραγγελία που έχει «Εξοφληθεί» δεν γίνεται «Απέτυχε». Αν επιστρέψατε τα χρήματα, επιλέξτε «Επιστροφή χρημάτων».' };
     if (order.paymentStatus === 'paid' && payment === 'pending' && order.paymentMethod === 'card' && order.paymentTransactionId) {
-      return { ok: false, message: `Η πληρωμή έγινε με κάρτα (αναφορά ${order.paymentTransactionId}) και δεν αναιρείται από εδώ. Αν επιστρέψατε τα χρήματα από τον πάροχο πληρωμών, επιλέξτε «Επιστροφή χρημάτων».` };
+      return { ok: false, message: `Η πληρωμή έγινε με κάρτα (αναφορά ${order.paymentTransactionId}) και δεν αναιρείται από εδώ. Αν επιστρέψατε ΟΛΟΚΛΗΡΗ την πληρωμή στον πάροχο πληρωμών, επιλέξτε «Επιστροφή χρημάτων». Αν επιστρέψατε μόνο μια δεύτερη πληρωμή, πατήστε «Το χειρίστηκα» στο κόκκινο πλαίσιο της παραγγελίας.` };
     }
   }
 
@@ -811,7 +825,9 @@ function readDateRange(fd: FormData): { ok: true; startsAt: Date | null; endsAt:
 export async function saveCoupon(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   await requireAdmin();
   const id = int(fd, 'id') || null;
-  const code = str(fd, 'code').toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+  const code = str(fd, 'code').toUpperCase().replace(/\s+/g, '');
+  // refuse, do not clean: stripping «ΦΘΙΝΟΠΩΡΟ2026» down to «2026» saved a different code than the owner typed
+  if (/[^A-Z0-9_-]/.test(code)) return { ok: false, message: 'Ο κωδικός μπορεί να έχει μόνο λατινικά γράμματα, αριθμούς, - και _ (όχι ελληνικά ή σύμβολα).' };
   const type = (['percent', 'fixed', 'free_shipping'] as const).find((t) => t === str(fd, 'type'));
   if (code.length < 3 || !type) return { ok: false, message: 'Συμπληρώστε κωδικό (τουλάχιστον 3 χαρακτήρες) και τύπο.' };
   let value = 0;
@@ -823,11 +839,18 @@ export async function saveCoupon(_prev: AdminFormState, fd: FormData): Promise<A
     value = parsePriceToCents(str(fd, 'value')) ?? 0;
     if (value <= 0) return { ok: false, message: 'Συμπληρώστε αξία έκπτωσης.' };
   }
+  // filled-in numbers are read strictly: «abc» as «Μέγιστες χρήσεις» used to save 0 (every customer told «εξαντλήθηκε»)
+  // and an unreadable minimum («1.250») used to save no minimum at all
+  const rawMax = str(fd, 'maxUses');
+  if (rawMax && !/^[1-9]\d{0,8}$/.test(rawMax)) return { ok: false, message: 'Οι μέγιστες χρήσεις πρέπει να είναι θετικός ακέραιος αριθμός (ή αφήστε το κενό για απεριόριστες).' };
+  const rawMin = str(fd, 'minSubtotal');
+  const minSubtotalCents = rawMin ? parsePriceToCents(rawMin) : 0;
+  if (minSubtotalCents === null) return { ok: false, message: 'Η ελάχιστη αγορά δεν είναι έγκυρο ποσό (π.χ. 30 ή 30,50).' };
   const range = readDateRange(fd);
   if (!range.ok) return { ok: false, message: range.message };
   const targets = await readTargets(fd);
   const values = {
-    code, type, value, minSubtotalCents: parsePriceToCents(str(fd, 'minSubtotal')) ?? 0, maxUses: str(fd, 'maxUses') ? int(fd, 'maxUses') : null,
+    code, type, value, minSubtotalCents, maxUses: rawMax ? Number(rawMax) : null,
     startsAt: range.startsAt, endsAt: range.endsAt, isActive: bool(fd, 'isActive'),
     // free shipping takes nothing off a price, so "skip sale items" would only make it refuse a cart of sale items
     excludeSaleItems: type !== 'free_shipping' && bool(fd, 'excludeSaleItems'), ...targets,

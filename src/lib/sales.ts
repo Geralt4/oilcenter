@@ -2,7 +2,7 @@ import { cache } from 'react';
 import { sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { categories } from '@/lib/db/schema';
-import { bestSale, cleanIds, type SaleRule } from '@/lib/discounts';
+import { bestSale, parseIdList, type SaleRule } from '@/lib/discounts';
 
 /*
  * Automatic sales. Every place that turns a stored variant price into a shop price goes through withSale(), so the
@@ -43,12 +43,9 @@ type SaleRow = {
 
 /** One unreadable id list must not take the shop down: that sale is skipped (and named in the log), the others still apply. */
 function idsOrNull(raw: string | null, saleId: number): number[] | null {
-  try {
-    return cleanIds(JSON.parse(raw ?? '[]'));
-  } catch {
-    console.error(`[sales] sale ${saleId} has an unreadable target list and is ignored`);
-    return null;
-  }
+  const ids = parseIdList(raw);
+  if (ids === null) console.error(`[sales] sale ${saleId} has an unreadable target list and is ignored`);
+  return ids;
 }
 
 export const getSaleContext = cache(async (): Promise<SaleContext> => {

@@ -97,10 +97,10 @@ export async function findCoupon(code: string | undefined | null, lines: Resolve
     const min = (row.minSubtotalCents / 100).toFixed(2).replace('.', ',');
     // a coupon that only skips sale items measures the minimum on what is NOT on sale: say that, not "the offer's products"
     const error = !variantIds
-      ? `Το κουπόνι ισχύει για αγορές άνω των ${min} €.`
+      ? `Το κουπόνι ισχύει για αγορές από ${min} € και πάνω.`
       : targeted
-        ? `Το κουπόνι ισχύει για αγορές άνω των ${min} € στα προϊόντα της προσφοράς.`
-        : `Το κουπόνι ισχύει για αγορές άνω των ${min} € σε προϊόντα που δεν είναι σε προσφορά.`;
+        ? `Το κουπόνι ισχύει για αγορές από ${min} € και πάνω στα προϊόντα στα οποία αναφέρεται το κουπόνι.`
+        : `Το κουπόνι ισχύει για αγορές από ${min} € και πάνω σε προϊόντα που δεν είναι σε προσφορά.`;
     return { coupon: null, error };
   }
   return { coupon: { code: row.code, type: row.type, value: row.value, minSubtotalCents: row.minSubtotalCents, variantIds }, error: null };
@@ -244,6 +244,8 @@ export type PaymentOutcome =
   | 'amount_mismatch'
   | 'currency_mismatch'
   | 'late_cancelled'
+  /** the gateway's payment for an order the owner had already marked paid by hand (typically the webhook finally arriving) */
+  | 'paid_after_manual'
   /** a second, different payment for an order that is already paid (two open checkouts both paid) */
   | 'duplicate_payment'
   /** a problem the owner was already told about for this checkout (the browser return and the webhook both report it) */
@@ -283,12 +285,34 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
       // (attemptRef) can say; a payment replayed after a refund changes nothing.
       const second = Boolean(info.attemptRef) && info.ref !== order.paymentTransactionId;
       if (!second) return 'already_paid';
+      if (order.paymentStatus === 'paid' && order.paymentTransactionId === null) {
+        // The owner marked this order paid by hand (the usual reason: the webhook failed and the money showed up in the
+        // gateway). The payment that now arrives is most likely that very money, so it is attached to the order, not
+        // called a second charge. It is still put on the owner's list, with neutral wording, because a buyer who ALSO paid
+        // another way (cash, phone) would have paid twice and nothing here can tell the two apart.
+        const attached = await tx
+          .update(orders)
+          .set({ paymentProvider: info.provider, paymentTransactionId: info.ref })
+          .where(and(eq(orders.id, orderId), isNull(orders.paymentTransactionId)))
+          .returning({ id: orders.id });
+        if (attached.length === 0) return 'already_paid';
+        await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'failed', 'mismatch'], tx);
+        await flagForReview(orderId, tx);
+        await addOrderEvent(
+          orderId,
+          'payment',
+          `Η πληρωμή ${info.provider} (αναφορά ${info.ref}, ${formatPrice(info.amountCents)}) αντιστοιχίστηκε σε παραγγελία που είχε σημειωθεί εξοφλημένη χειροκίνητα. Αν είχατε εισπράξει και με άλλον τρόπο (μετρητά, τηλέφωνο), επιστρέψτε το ένα από τα δύο· αλλιώς δεν χρειάζεται ενέργεια. Πατήστε «Το χειρίστηκα» όταν το ελέγξετε.`,
+          'system',
+          tx,
+        );
+        return 'paid_after_manual';
+      }
       if (!(await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'failed'], tx))) return 'already_flagged';
       await flagForReview(orderId, tx);
       await addOrderEvent(
         orderId,
         'payment',
-        `ΠΡΟΣΟΧΗ: δεύτερη πληρωμή για την ίδια παραγγελία (${info.provider}, αναφορά ${info.ref}, ${formatPrice(info.amountCents)}). Η παραγγελία είχε ήδη πληρωθεί${order.paymentTransactionId ? ` (αναφορά ${order.paymentTransactionId})` : ' (σημειωμένη χειροκίνητα)'}. Επιστρέψτε τα χρήματα της δεύτερης πληρωμής.`,
+        `ΠΡΟΣΟΧΗ: δεύτερη πληρωμή για την ίδια παραγγελία (${info.provider}, αναφορά ${info.ref}, ${formatPrice(info.amountCents)}). Η παραγγελία είχε ήδη πληρωθεί${order.paymentTransactionId ? ` (αναφορά ${order.paymentTransactionId})` : ' (σημειωμένη χειροκίνητα)'}. Επιστρέψτε τα χρήματα της δεύτερης πληρωμής στον πάροχο πληρωμών και πατήστε «Το χειρίστηκα» (όχι «Επιστροφή χρημάτων», που αφορά ολόκληρη την παραγγελία).`,
         'system',
         tx,
       );
@@ -334,7 +358,7 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
       await addOrderEvent(
         orderId,
         'payment',
-        `ΠΡΟΣΟΧΗ: η πληρωμή (${info.provider}, αναφορά ${info.ref}, ${formatPrice(info.amountCents)}) ήρθε αφού η παραγγελία είχε ακυρωθεί και το απόθεμα είχε επανέλθει. Επιστρέψτε τα χρήματα από τον πάροχο πληρωμών ή δημιουργήστε νέα παραγγελία.`,
+        `ΠΡΟΣΟΧΗ: η πληρωμή (${info.provider}, αναφορά ${info.ref}, ${formatPrice(info.amountCents)}) ήρθε αφού η παραγγελία είχε ακυρωθεί και το απόθεμα είχε επανέλθει. Επιστρέψτε τα χρήματα από τον πάροχο πληρωμών (ή επικοινωνήστε με τον πελάτη) και σημειώστε «Επιστροφή χρημάτων».`,
         'system',
         tx,
       );

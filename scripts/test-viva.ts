@@ -50,6 +50,8 @@ const unexpected: string[] = [];
 const canned = {
   tokenStatus: 200,
   orderStatus: 200,
+  /** statuses answered by the next order calls, before orderStatus applies (used for the 401 retry) */
+  orderQueue: [] as number[],
   orderBody: '{"orderCode":9515982136481235}',
   txStatus: 200,
   txBody: '{}',
@@ -72,7 +74,7 @@ function installFetchMock() {
       throw new Error(`test: unexpected network call ${method} ${url}`);
     }
     if (kind === 'token') return new Response(canned.tokenStatus === 200 ? '{"access_token":"tok-test","expires_in":3600}' : 'denied', { status: canned.tokenStatus });
-    if (kind === 'order') return new Response(canned.orderBody, { status: canned.orderStatus });
+    if (kind === 'order') return new Response(canned.orderBody, { status: canned.orderQueue.shift() ?? canned.orderStatus });
     if (kind === 'transaction') return new Response(canned.txBody, { status: canned.txStatus });
     return new Response(canned.keyStatus === 200 ? canned.keyBody : 'nope', { status: canned.keyStatus });
   }) as typeof fetch;
@@ -398,14 +400,14 @@ async function main() {
   canned.txBody = txJson({ amount: 9.99, orderCode: RM, merchantTrns: 'OC-TEST-VIVA-I2' });
   const rI2 = await ret(`t=${TX_A}&s=${RM}`);
   const locI2 = rI2.headers.get('location') ?? '';
-  check('I: amount mismatch redirects to /order-status', locI2 === `${siteUrl()}/order-status`, locI2);
+  check('I: amount mismatch redirects to /order-status?payment=review', locI2 === `${siteUrl()}/order-status?payment=review`, locI2);
   check('I: ... with no secret link in the Location header', !locI2.includes('at-OC-TEST-VIVA-I2'), locI2);
 
   fromIp('198.51.100.22');
   const txBeforeFailed = callsOf('transaction').length;
   const rFailed = await ret(`t=${TX_A}&s=${RM}&failed=1`);
   const locFailed = rFailed.headers.get('location') ?? '';
-  check('I: ?failed=1 redirects to /order-status', locFailed === `${siteUrl()}/order-status`, locFailed);
+  check('I: ?failed=1 redirects to /order-status?payment=failed', locFailed === `${siteUrl()}/order-status?payment=failed`, locFailed);
   check('I: ?failed=1 makes no Viva call', callsOf('transaction').length === txBeforeFailed);
 
   console.log('K. Double charge');
@@ -433,7 +435,7 @@ async function main() {
   check('K: the same webhook again adds no event', (await eventsOf(oK.id)).length === eventsK && (await dupK()) === 1, { eventsK, after: (await eventsOf(oK.id)).length });
   const retK1 = await ret(`t=${TX_K1}&s=${RK1}`);
   const locK1 = retK1.headers.get('location') ?? '';
-  check('K: the return route for the older checkout redirects to /order-status', locK1 === `${siteUrl()}/order-status`, locK1);
+  check('K: the return route for the older checkout redirects to /order-status?payment=review', locK1 === `${siteUrl()}/order-status?payment=review`, locK1);
   check('K: ... with no secret link in the Location header', !locK1.includes('at-OC-TEST-VIVA-K'), locK1);
 
   console.log('L. Same payment twice');
@@ -494,7 +496,7 @@ async function main() {
   fromIp('198.51.100.61');
   const uRet = await ret(`t=${TX_U}&s=${CODE_U}`);
   const locU = uRet.headers.get('location') ?? '';
-  check('N: the return route for the same transaction redirects to /order-status', locU === `${siteUrl()}/order-status`, locU);
+  check('N: the return route for the same transaction redirects to /order-status?payment=review', locU === `${siteUrl()}/order-status?payment=review`, locU);
   check('N: …still one row', (await unmatchedRows(CODE_U)).length === 1, (await unmatchedRows(CODE_U)).length);
   check('N: …and still no new mail', unmatchedMails().length === mailsAfterU1, unmatchedMails().length - mailsAfterU1);
 
@@ -536,8 +538,9 @@ async function main() {
     fromIp('198.51.100.71');
     const retQ1 = await ret(`t=${TX_Q1}&s=${RQ1}`);
     const locQ1 = retQ1.headers.get('location') ?? '';
-    check('Q: the return route after the webhook redirects to /order-status', locQ1 === `${siteUrl()}/order-status`, locQ1);
-    check('Q: ...with no t= and no payment=success', !locQ1.includes('t=') && !locQ1.includes('payment='), locQ1);
+    check('Q: the return route after the webhook redirects to /order-status?payment=review', locQ1 === `${siteUrl()}/order-status?payment=review`, locQ1);
+    const locQ1Url = new URL(locQ1);
+    check('Q: ...with no t= and no payment=success', !locQ1Url.searchParams.has('t') && locQ1Url.searchParams.get('payment') !== 'success', locQ1);
     const q1After = await orderRow(oQ1.id);
     check('Q: the second delivery adds no event and changes no status', (await eventsOf(oQ1.id)).length === q1Events && q1After.paymentStatus === 'paid' && q1After.status === 'cancelled', { q1Events, after: (await eventsOf(oQ1.id)).length });
 
@@ -599,6 +602,218 @@ async function main() {
   process.env.VIVA_ENV = savedEnvP.env ?? 'demo';
   if (savedEnvP.base === undefined) delete process.env.VIVA_TEST_BASE_URL;
   else process.env.VIVA_TEST_BASE_URL = savedEnvP.base;
+
+  // Helpers for the cases below: every outbox file's first line (`<!-- to: … | subject: … -->`).
+  const outboxLines = () => {
+    try {
+      return readdirSync(outboxDir).map((f) => readFileSync(path.join(outboxDir, f), 'utf8').split('\n', 1)[0] ?? '');
+    } catch {
+      return [] as string[];
+    }
+  };
+
+  console.log('A. Webhook bodies that are not an event object');
+  fromIp('198.51.100.90');
+  const CODE_A = '9515982136488001';
+  const callsBeforeA = calls.length;
+  const nullBody = await postJson('null');
+  const numberBody = await postJson('123');
+  const arrayBody = await postJson('[]');
+  check('A: JSON null, a number and an array each answer 400', nullBody.status === 400 && numberBody.status === 400 && arrayBody.status === 400, [nullBody.status, numberBody.status, arrayBody.status]);
+  const arrayId = await postJson(JSON.stringify({ EventTypeId: 1796, EventData: { TransactionId: [TX_ID], OrderCode: CODE_A } }));
+  const numberId = await postJson(JSON.stringify({ EventTypeId: 1796, EventData: { TransactionId: 123, OrderCode: CODE_A } }));
+  check('A: a TransactionId that is an array or a number answers 400', arrayId.status === 400 && numberId.status === 400, [arrayId.status, numberId.status]);
+  check('A: none of them makes a Viva call', calls.length === callsBeforeA, calls.map((c) => c.url));
+
+  console.log('B. A finished payment whose read-back is not paid');
+  fromIp('198.51.100.91');
+  const RB = '9515982136488101';
+  const TX_B = '3fa85f64-5717-4562-b3fc-2c963f66a0e1';
+  const oBB = await addOrder('OC-TEST-VIVA-B2', RB, 1999);
+  await newAttempt(oBB.id, RB);
+  const finishedEvent = JSON.stringify({ EventTypeId: 1796, EventData: { TransactionId: TX_B, OrderCode: RB, StatusId: 'F' } });
+  canned.txBody = txJson({ status: 'A', amount: 19.99, orderCode: RB, merchantTrns: 'OC-TEST-VIVA-B2' });
+  const resBB = await postJson(finishedEvent);
+  check("B: StatusId 'F' with a read-back that is not paid answers 500 (Viva retries)", resBB.status === 500, resBB.status);
+  check('B: ... and the order is not changed', (await orderRow(oBB.id)).paymentStatus !== 'paid', (await orderRow(oBB.id)).paymentStatus);
+  canned.txBody = txJson({ amount: 19.99, orderCode: RB, merchantTrns: 'OC-TEST-VIVA-B2' });
+  const resBB2 = await postJson(finishedEvent);
+  check('B: the same payload with a paid read-back settles the order', resBB2.status === 200 && (await orderRow(oBB.id)).paymentStatus === 'paid', resBB2.status);
+
+  console.log('C. Payments from another payment source of the same Viva account');
+  fromIp('198.51.100.92');
+  const RC = '9515982136488201';
+  const RC_NONE = '9515982136488203';
+  const TX_C = '3fa85f64-5717-4562-b3fc-2c963f66a0e2';
+  const oC = await addOrder('OC-TEST-VIVA-C2', RC, 1999);
+  await newAttempt(oC.id, RC);
+  const linesBeforeC = outboxLines().length;
+  canned.txBody = txJson({ amount: 19.99, orderCode: RC, merchantTrns: 'OC-TEST-VIVA-C2', extra: ',"sourceCode":"9999"' });
+  const resC9 = await hook(1796, TX_C, RC);
+  const resC9Body = (await resC9.json()) as { ignored?: boolean };
+  check('C: a payment from source 9999 answers 200 {ignored:true}', resC9.status === 200 && resC9Body.ignored === true, { status: resC9.status, body: resC9Body });
+  check('C: ... and the order stays unpaid', (await orderRow(oC.id)).paymentStatus !== 'paid', (await orderRow(oC.id)).paymentStatus);
+  canned.txBody = txJson({ amount: 19.99, orderCode: RC_NONE, merchantTrns: 'OC-NOPE-C2', extra: ',"sourceCode":"9999"' });
+  await hook(1796, TX_C, RC_NONE);
+  check('C: ... and a foreign payment for a code with no order leaves no unmatched_payments row', (await unmatchedRows(RC_NONE)).length === 0, (await unmatchedRows(RC_NONE)).length);
+  check('C: ... and sends no mail', outboxLines().length === linesBeforeC, outboxLines().length - linesBeforeC);
+  canned.txBody = txJson({ amount: 19.99, orderCode: RC, merchantTrns: 'OC-TEST-VIVA-C2', extra: ',"sourceCode":"1234"' });
+  const resC1234 = await hook(1796, TX_C, RC);
+  check("C: sourceCode '1234' is processed: the order is paid", resC1234.status === 200 && (await orderRow(oC.id)).paymentStatus === 'paid', resC1234.status);
+  const RC2 = '9515982136488204';
+  const oC2 = await addOrder('OC-TEST-VIVA-C3', RC2, 1999);
+  await newAttempt(oC2.id, RC2);
+  canned.txBody = txJson({ amount: 19.99, orderCode: RC2, merchantTrns: 'OC-TEST-VIVA-C3' });
+  await hook(1796, TX_C, RC2);
+  check('C: no sourceCode in the answer is processed as ours: the order is paid', (await orderRow(oC2.id)).paymentStatus === 'paid');
+
+  console.log('D. Webhook verification key shapes');
+  const savedKeyBody = canned.keyBody;
+  canned.keyBody = '{"key":"abc"}';
+  const keyLower = await webhook.GET();
+  check('D: {"key":"abc"} is answered as {"Key":"abc"}', keyLower.status === 200 && JSON.stringify(await keyLower.json()) === '{"Key":"abc"}');
+  canned.keyBody = '{"Key":"abc"}';
+  const keyUpper = await webhook.GET();
+  check('D: {"Key":"abc"} is answered as {"Key":"abc"}', keyUpper.status === 200 && JSON.stringify(await keyUpper.json()) === '{"Key":"abc"}');
+  canned.keyBody = '{}';
+  const keyEmpty = await webhook.GET();
+  check('D: a reply with no key answers 503', keyEmpty.status === 503, keyEmpty.status);
+  canned.keyBody = savedKeyBody;
+
+  console.log('E. Webhook IP allow-list: CIDR, plain IPv4, IPv6');
+  const savedIpsE = process.env.VIVA_WEBHOOK_IPS;
+  process.env.VIVA_WEBHOOK_IPS = '40.127.253.112/28,51.12.157.0/28';
+  check('E: 40.127.253.115 is inside 40.127.253.112/28', viva.vivaWebhookIpAllowed('40.127.253.115'));
+  check('E: 40.127.253.200 is outside it', !viva.vivaWebhookIpAllowed('40.127.253.200'));
+  check('E: 51.12.157.9 is inside 51.12.157.0/28', viva.vivaWebhookIpAllowed('51.12.157.9'));
+  check("E: '::ffff:51.12.157.9' is allowed", viva.vivaWebhookIpAllowed('::ffff:51.12.157.9'));
+  check('E: 8.8.8.8 is refused', !viva.vivaWebhookIpAllowed('8.8.8.8'));
+  process.env.VIVA_WEBHOOK_IPS = '10.1.1.1,2001:db8::1';
+  check('E: a plain IPv4 entry matches only that address', viva.vivaWebhookIpAllowed('10.1.1.1') && !viva.vivaWebhookIpAllowed('10.1.1.2'));
+  check('E: an IPv6 entry matches exactly', viva.vivaWebhookIpAllowed('2001:db8::1') && viva.vivaWebhookIpAllowed('2001:DB8::1') && !viva.vivaWebhookIpAllowed('2001:db8::2'));
+  delete process.env.VIVA_WEBHOOK_IPS;
+  check('E: unset = everyone', viva.vivaWebhookIpAllowed('8.8.8.8') && viva.vivaWebhookIpAllowed('2001:db8::2'));
+  const badEntries = viva.invalidWebhookIps('40.127.253.112/99,abc,1.2.3.4');
+  check("E: invalidWebhookIps('40.127.253.112/99,abc,1.2.3.4') returns the two bad entries", JSON.stringify(badEntries) === JSON.stringify(['40.127.253.112/99', 'abc']), badEntries);
+  process.env.VIVA_WEBHOOK_IPS = '40.127.253.112/99';
+  const badIpProblems = checkProductionConfig().filter((p) => p.includes('VIVA_WEBHOOK_IPS'));
+  check('E: the startup check names VIVA_WEBHOOK_IPS for a bad entry', badIpProblems.length === 1, badIpProblems);
+  process.env.VIVA_WEBHOOK_IPS = '40.127.253.112/28';
+  check('E: ... and not for a valid range', checkProductionConfig().filter((p) => p.includes('VIVA_WEBHOOK_IPS')).length === 0);
+  if (savedIpsE === undefined) delete process.env.VIVA_WEBHOOK_IPS;
+  else process.env.VIVA_WEBHOOK_IPS = savedIpsE;
+
+  console.log('F. A rejected token is refreshed once');
+  // a fresh module instance starts with no cached token; the call is made through it
+  const freshSpecifierF = '../src/lib/payments/viva.ts?fresh401';
+  const freshF: typeof viva = await import(freshSpecifierF);
+  const orderParamsF = { amountCents: 1234, orderNumber: 'OC-TEST-F1', email: 'b@example.com', fullName: 'A B', phone: '6900000000' };
+  calls.length = 0;
+  canned.orderQueue.push(401);
+  const fF1 = await freshF.vivaCreateOrder(orderParamsF).then((r) => r, (e: Error) => e.message);
+  check('F: a 401 once, then 200, succeeds', typeof fF1 === 'object' && fF1.orderCode === '9515982136481235', fF1);
+  check('F: exactly two token requests and two order requests', callsOf('token').length === 2 && callsOf('order').length === 2, calls.map((c) => `${c.method} ${c.url}`));
+  calls.length = 0;
+  canned.orderQueue.push(401, 401);
+  const f2 = await freshF.vivaCreateOrder(orderParamsF).then(() => 'resolved', (e: Error) => e.message);
+  check('F: a 401 twice makes the call throw', /Viva create order failed \(401\)/.test(f2), f2);
+  check('F: ... after two order requests and no third try (the token was still cached, so no new token request)', callsOf('order').length === 2 && callsOf('token').length === 1, calls.map((c) => `${c.method} ${c.url}`));
+  canned.orderQueue.length = 0;
+
+  console.log('G. Startup check: Viva environment');
+  const savedG = { env: process.env.VIVA_ENV, base: process.env.VIVA_TEST_BASE_URL, id: process.env.VIVA_CLIENT_ID };
+  const problemsWith = (name: string) => checkProductionConfig().filter((p) => p.includes(name));
+  process.env.VIVA_TEST_BASE_URL = TB;
+  for (const env of [undefined, 'Live', 'live']) {
+    if (env === undefined) delete process.env.VIVA_ENV;
+    else process.env.VIVA_ENV = env;
+    check(`G: VIVA_TEST_BASE_URL with VIVA_ENV ${env === undefined ? 'unset' : `'${env}'`} is a problem`, problemsWith('VIVA_TEST_BASE_URL').length === 1, problemsWith('VIVA_TEST_BASE_URL'));
+  }
+  process.env.VIVA_ENV = 'demo';
+  check('G: VIVA_TEST_BASE_URL with VIVA_ENV demo is no problem', problemsWith('VIVA_TEST_BASE_URL').length === 0, problemsWith('VIVA_TEST_BASE_URL'));
+  delete process.env.VIVA_TEST_BASE_URL;
+  process.env.VIVA_CLIENT_ID = 'test-client';
+  process.env.VIVA_ENV = 'Live';
+  check("G: VIVA_CLIENT_ID with VIVA_ENV 'Live' is a problem about VIVA_ENV", problemsWith('VIVA_ENV').length === 1, problemsWith('VIVA_ENV'));
+  for (const env of ['demo', 'live']) {
+    process.env.VIVA_ENV = env;
+    check(`G: VIVA_CLIENT_ID with VIVA_ENV '${env}' is no problem about VIVA_ENV`, problemsWith('VIVA_ENV').length === 0, problemsWith('VIVA_ENV'));
+  }
+  process.env.VIVA_ENV = savedG.env;
+  if (savedG.base === undefined) delete process.env.VIVA_TEST_BASE_URL;
+  else process.env.VIVA_TEST_BASE_URL = savedG.base;
+  if (savedG.id === undefined) delete process.env.VIVA_CLIENT_ID;
+  else process.env.VIVA_CLIENT_ID = savedG.id;
+
+  console.log('H. Order marked paid by hand, then the gateway payment arrives');
+  fromIp('198.51.100.93');
+  process.env.ORDERS_NOTIFY_EMAIL = 'shop@example.com';
+  const RH = '9515982136488301';
+  const TX_H = '3fa85f64-5717-4562-b3fc-2c963f66a0e3';
+  const oH = await addOrder('OC-TEST-VIVA-H', RH, 1999);
+  await newAttempt(oH.id, RH);
+  await db.update(orders).set({ paymentStatus: 'paid', paidAt: new Date(), status: 'confirmed' }).where(eq(orders.id, oH.id));
+  canned.txBody = txJson({ amount: 19.99, orderCode: RH, merchantTrns: 'OC-TEST-VIVA-H' });
+  const resH = await hook(1796, TX_H, RH);
+  check('H: the webhook answers 200', resH.status === 200, resH.status);
+  const rowH = await orderRow(oH.id);
+  check('H: the order keeps paid and the transaction id is stored', rowH.paymentStatus === 'paid' && rowH.paymentTransactionId === TX_H, rowH);
+  check("H: the order is flagged for review", rowH.paymentFlag === 'review', rowH.paymentFlag);
+  check("H: an event says the payment was matched to a manually paid order", (await eventsOf(oH.id)).some((e) => e.message.includes('χειροκίνητα')));
+  const ownerAlertsH = () => outboxLines().filter((l) => l.includes('subject: Χρειάζεται έλεγχος: πληρωμή OC-TEST-VIVA-H')).length;
+  check('H: exactly one owner alert mail', ownerAlertsH() === 1, ownerAlertsH());
+  check('H: no customer confirmation mail is sent for it', outboxLines().filter((l) => l.includes('subject: Η παραγγελία σας') && l.includes('OC-TEST-VIVA-H')).length === 0);
+  const eventsH = (await eventsOf(oH.id)).length;
+  const linesH = outboxLines().length;
+  const replayH = await hook(1796, TX_H, RH);
+  const rowHReplay = await orderRow(oH.id);
+  check('H: the replayed webhook answers 200 and adds no event and no mail', replayH.status === 200 && (await eventsOf(oH.id)).length === eventsH && outboxLines().length === linesH && rowHReplay.paymentTransactionId === TX_H, { status: replayH.status, eventsH, after: (await eventsOf(oH.id)).length, linesH, linesAfter: outboxLines().length });
+  const retH = await ret(`t=${TX_H}&s=${RH}`);
+  const locH = retH.headers.get('location') ?? '';
+  check('H: the return route for the same transaction goes to the SUCCESS page', locH === `${siteUrl()}/order/OC-TEST-VIVA-H?t=at-OC-TEST-VIVA-H&payment=success`, locH);
+  check('H: ... and adds no event', (await eventsOf(oH.id)).length === eventsH, (await eventsOf(oH.id)).length - eventsH);
+  delete process.env.ORDERS_NOTIFY_EMAIL;
+
+  console.log('I2. Return route states: pending, Viva unreachable, paid for no order');
+  fromIp('198.51.100.94');
+  const RI3 = '9515982136488401';
+  const oI3 = await addOrder('OC-TEST-VIVA-I3', RI3, 1999);
+  await newAttempt(oI3.id, RI3);
+  canned.txBody = txJson({ status: 'A', amount: 19.99, orderCode: RI3, merchantTrns: 'OC-TEST-VIVA-I3' });
+  const locPending = (await ret(`t=${TX_A}&s=${RI3}`)).headers.get('location') ?? '';
+  check("I2: a transaction in status 'A' redirects to ?payment=pending", locPending === `${siteUrl()}/order-status?payment=pending`, locPending);
+  check('I2: ... and the order stays unpaid', (await orderRow(oI3.id)).paymentStatus !== 'paid', (await orderRow(oI3.id)).paymentStatus);
+
+  fromIp('198.51.100.95');
+  // The transaction call is answered 401, which drops the cached token; the token request for the retry then fails (500).
+  canned.txStatus = 401;
+  canned.tokenStatus = 500;
+  const locDown = (await ret(`t=${TX_A}&s=${RI3}`)).headers.get('location') ?? '';
+  canned.txStatus = 200;
+  canned.tokenStatus = 200;
+  check("I2: Viva's token request failing (500) redirects to ?payment=pending", locDown === `${siteUrl()}/order-status?payment=pending`, locDown);
+
+  fromIp('198.51.100.96');
+  const RI4 = '9515982136488501';
+  canned.txBody = txJson({ amount: 19.99, orderCode: RI4, merchantTrns: 'OC-NOPE-I4' });
+  const locNoOrder = (await ret(`t=${TX_A}&s=${RI4}`)).headers.get('location') ?? '';
+  check("I2: a paid transaction for an order code with no order redirects to ?payment=review", locNoOrder === `${siteUrl()}/order-status?payment=review`, locNoOrder);
+
+  console.log('J. Mails after a paid settlement');
+  fromIp('198.51.100.97');
+  process.env.ORDERS_NOTIFY_EMAIL = 'shop@example.com';
+  const RJ = '9515982136488601';
+  const TX_J = '3fa85f64-5717-4562-b3fc-2c963f66a0e4';
+  const oJ = await addOrder('OC-TEST-VIVA-J', RJ, 1999);
+  await newAttempt(oJ.id, RJ);
+  canned.txBody = txJson({ amount: 19.99, orderCode: RJ, merchantTrns: 'OC-TEST-VIVA-J' });
+  await hook(1796, TX_J, RJ);
+  check('J: the order is paid', (await orderRow(oJ.id)).paymentStatus === 'paid');
+  const confirmationsJ = outboxLines().filter((l) => l.includes('subject: Η παραγγελία σας') && l.includes('OC-TEST-VIVA-J')).length;
+  const paidMailsJ = outboxLines().filter((l) => l.includes('subject: Πληρώθηκε με κάρτα: OC-TEST-VIVA-J')).length;
+  check('J: the customer gets exactly one confirmation', confirmationsJ === 1, confirmationsJ);
+  check("J: the owner gets exactly one 'Πληρώθηκε με κάρτα:' mail", paidMailsJ === 1, paidMailsJ);
+  delete process.env.ORDERS_NOTIFY_EMAIL;
 
   console.log('8. Closed gates');
   process.env.COMMERCE_ENABLED = 'false';

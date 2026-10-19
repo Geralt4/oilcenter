@@ -17,6 +17,8 @@ import { cn, formatDateTime, formatPrice, formatWeight, vatPortion } from '@/lib
 
 export const metadata = { title: 'Παραγγελία' };
 
+const ATTEMPT_LABELS = { created: 'ανοιχτή', paid: 'πληρώθηκε', failed: 'απέτυχε', mismatch: 'διαφορά στο ποσό' } as const;
+
 export default async function AdminOrderPage({ params }: { params: Promise<{ id: string }> }) {
   await requireAdmin();
   const id = Number((await params).id);
@@ -41,7 +43,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
       {order.paymentFlag === 'review' && (
         <div role="alert" className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 print:hidden">
           <p className="font-bold text-red-900">Χρειάζεται έλεγχο η πληρωμή αυτής της παραγγελίας</p>
-          <p className="mt-1 text-sm text-red-900">Δείτε τις γραμμές «ΠΡΟΣΟΧΗ» στο ιστορικό. Όταν το χειριστείτε (π.χ. επιστρέψατε τα χρήματα από τον πάροχο πληρωμών), πατήστε το κουμπί.</p>
+          <p className="mt-1 text-sm text-red-900">Δείτε τις γραμμές «ΠΡΟΣΟΧΗ» στο ιστορικό. Όταν το χειριστείτε (π.χ. επιστρέψατε τα χρήματα που περίσσευαν από τον πάροχο πληρωμών), πατήστε το κουμπί. Η επιλογή «Επιστροφή χρημάτων» στη διαχείριση αφορά ολόκληρη την παραγγελία.</p>
           <form action={resolvePaymentReview} className="mt-3">
             <input type="hidden" name="id" value={order.id} />
             <button type="submit" className="cursor-pointer rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800">Το χειρίστηκα</button>
@@ -93,7 +95,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
               {attempts.length > 0 && (
                 <div className="mt-1 text-sm text-ink-800">
                   <strong>Προσπάθειες πληρωμής:</strong>
-                  <ul className="tabular mt-0.5 text-xs text-ink-600">{attempts.map((a) => <li key={a.id}>{a.provider} · {a.ref} · {a.status}</li>)}</ul>
+                  <ul className="tabular mt-0.5 text-xs text-ink-600">{attempts.map((a) => <li key={a.id}>{a.provider} · {a.ref} · {ATTEMPT_LABELS[a.status]}</li>)}</ul>
                 </div>
               )}
               <p className="mt-1 text-sm text-ink-800"><strong>Παραστατικό:</strong> {order.docType === 'invoice' ? 'Τιμολόγιο' : 'Απόδειξη'}</p>
@@ -106,6 +108,9 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
           <Card title="Διαχείριση">
             <AdminForm action={updateOrder} submitLabel="Ενημέρωση παραγγελίας">
               <input type="hidden" name="id" value={order.id} />
+              {/* what this page showed: a save only applies what the owner changed from it (see updateOrder) */}
+              <input type="hidden" name="loadedStatus" value={order.status} />
+              <input type="hidden" name="loadedPayment" value={order.paymentStatus} />
               <div className="space-y-4">
                 <Field label="Κατάσταση">
                   <select name="status" defaultValue={order.status} className="field cursor-pointer">
@@ -113,7 +118,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                   </select>
                 </Field>
                 <Check name="notify" label="Ενημέρωση του πελάτη με e-mail" hint="Στέλνεται μόνο όταν αλλάζει η κατάσταση." defaultChecked />
-                <Field label="Πληρωμή" hint={order.paymentMethod === 'card' ? 'Οι πληρωμές με κάρτα σημειώνονται αυτόματα. Μετά από επιστροφή χρημάτων στον πάροχο πληρωμών, επιλέξτε «Επιστροφή χρημάτων».' : 'Σημειώστε «Εξοφλημένη» όταν εισπράξετε (αντικαταβολή, κατάθεση, στο κατάστημα).'}>
+                <Field label="Πληρωμή" hint={order.paymentMethod === 'card' ? 'Οι πληρωμές με κάρτα σημειώνονται αυτόματα. Αν επιστρέψατε ΟΛΟΚΛΗΡΗ την πληρωμή στον πάροχο πληρωμών, επιλέξτε «Επιστροφή χρημάτων». Αν επιστρέψατε μόνο μια δεύτερη πληρωμή, αφήστε το όπως είναι και πατήστε «Το χειρίστηκα» στο κόκκινο πλαίσιο.' : 'Επιλέξτε «Εξοφλήθηκε» όταν εισπράξετε (αντικαταβολή, κατάθεση, στο κατάστημα).'}>
                   <select name="paymentStatus" defaultValue={order.paymentStatus} className="field cursor-pointer">
                     {(Object.keys(PAYMENT_STATUS_LABELS) as PaymentStatus[]).map((p) => <option key={p} value={p}>{PAYMENT_STATUS_LABELS[p]}</option>)}
                   </select>

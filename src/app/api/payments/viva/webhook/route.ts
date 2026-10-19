@@ -28,9 +28,12 @@ export async function GET() {
 export async function POST(request: Request) {
   if (!commerceEnabled()) return NextResponse.json({ error: 'commerce_disabled' }, { status: 503 });
   const text = await request.text();
-  let payload: { EventTypeId?: number; EventData?: { TransactionId?: string } };
+  let payload: { EventTypeId?: number; EventData?: { TransactionId?: string; StatusId?: string } };
   try {
-    payload = JSON.parse(text);
+    const parsed: unknown = JSON.parse(text);
+    // "null", a number or an array parse fine but are not an event
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return NextResponse.json({ error: 'bad_json' }, { status: 400 });
+    payload = parsed;
   } catch {
     return NextResponse.json({ error: 'bad_json' }, { status: 400 });
   }
@@ -39,7 +42,7 @@ export async function POST(request: Request) {
   const eventType = payload.EventTypeId;
   if (eventType !== EVENT_PAYMENT_CREATED && eventType !== EVENT_PAYMENT_FAILED) return NextResponse.json({ ok: true, ignored: true });
 
-  const transactionId = payload.EventData?.TransactionId ?? '';
+  const transactionId = typeof payload.EventData?.TransactionId === 'string' ? payload.EventData.TransactionId : '';
   // OrderCode exceeds Number.MAX_SAFE_INTEGER: take it from the raw text, never from the parsed number.
   const orderCode = text.match(/"OrderCode"\s*:\s*"?(\d{10,20})"?/)?.[1] ?? '';
   if (!transactionId || !orderCode) return NextResponse.json({ error: 'missing_fields' }, { status: 400 });
@@ -50,6 +53,19 @@ export async function POST(request: Request) {
 
   try {
     const tx = await vivaRetrieveTransaction(transactionId);
+    // Money taken through another channel of the same Viva account (a payment link, a terminal) is reported here too: it
+    // is not ours. Only when Viva says which payment source it came through; an answer without one is treated as ours.
+    const mySource = process.env.VIVA_SOURCE_CODE;
+    if (tx.sourceCode && mySource && tx.sourceCode !== mySource) {
+      console.warn(`[viva] transaction ${transactionId} belongs to payment source ${tx.sourceCode}, not ours: ignored`);
+      return NextResponse.json({ ok: true, ignored: true });
+    }
+    // Viva says the payment finished but the read-back does not: Viva's own data lags for a moment. Answering 200 would end
+    // the retries and could lose the payment (a buyer who closed the tab is never settled), so ask for another delivery.
+    if (eventType === EVENT_PAYMENT_CREATED && !tx.paid && payload.EventData?.StatusId === 'F') {
+      console.warn(`[viva] webhook ${transactionId} reports a finished payment but the read-back says ${tx.statusId || 'nothing'}: asking Viva to retry`);
+      return NextResponse.json({ error: 'retry' }, { status: 500 });
+    }
     if (tx.orderCode !== orderCode) return NextResponse.json({ ok: true });
     const order = await findOrderByPayment('viva', orderCode, tx.merchantTrns);
     if (!order) {

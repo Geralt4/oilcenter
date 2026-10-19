@@ -113,7 +113,28 @@ the demo run below proves that the fake behaves like the real thing, so any diff
 2. The webhook needs a public URL: use a tunnel to the local server, and register that URL in the demo dashboard.
 3. Walk through: successful payment; payment declined; closing the tab and paying later; retry after a failure (this is
    gap 1); an abandoned order. Check each against the order page, the admin and the e-mails.
-4. Record what differs from the documentation in section 9 and fix `viva.ts` accordingly.
+4. Record what differs from the documentation in section 9 and fix `viva.ts` **and** `scripts/fake-viva.ts` accordingly.
+
+### What the demo run must settle
+
+Two independent reviews (19.10.2026) compared our code and the fake with Viva's published API. These are the points the
+documentation could not settle; each has the exact check. Everything not listed matched the documentation.
+
+| # | Question | Check in the demo account |
+| --- | --- | --- |
+| 1 | Does `customer.phone` accept what buyers type (`+30 69…`, `6912 345 678`, a landline)? A 400 would break checkout. | Create orders with those phones: each must return 200 and show on Viva's page. |
+| 2 | Is `&lang=el` on the checkout link used? | Open the link: is the page Greek? (`requestLang` is sent as well, so it is probably redundant.) |
+| 3 | The Success URL is also reached for a **pending** payment (docs). What `statusId` does it have, and does it later send a webhook 1796? | Pay with an asynchronous method (IRIS): log `t`, `s`, the Retrieve answer. We send the buyer to `/order-status?payment=pending`. |
+| 4 | Do `amount` / `currencyCode` stay in the shop's currency and exclude surcharges when the buyer's card or DCC differs? A mismatch would raise false alarms. | Pay with a non-EUR test card if one exists; confirm DCC and surcharging are off on both accounts. |
+| 5 | Casing of the webhook-key reply (`Key` vs `key`; Viva's pages disagree). | `curl` the key endpoint once with the demo merchant credentials. The code accepts both. |
+| 6 | Does the Retrieve answer carry `sourceCode`? Do payments from other channels of the account reach our webhook? | Make a payment through a payment link; watch the endpoint. We ignore a transaction with a different `sourceCode`, and treat a missing one as ours. |
+| 7 | Where is the Smart Checkout client id/secret, and does each environment need its own? | Dashboard. |
+| 8 | Does the payment-source form take full Success/Failure URLs, and how does Viva append `s`/`t` to a URL that already has `?failed=1`? | Create the source; decline a payment. Every variant ends on `/order-status` in our code. |
+| 9 | Minimum amount, 401 behaviour after a secret rotation, and webhook retries. | 30-cent minimum (docs); rotate the secret and watch one call: we drop the token and retry once. |
+
+Where the fake is more forgiving than reality (it accepts any request body and any phone, never returns 400/401, always
+answers the webhook key with a capital `Key`, has no pending status and always sends a 1798 on failure, sends 3 webhook
+fields where Viva sends about 90): those are the likeliest surprises, and the table above covers them.
 
 ## 7. Maintenance, in practice
 
@@ -160,8 +181,10 @@ online cards from domestic/EEA consumers 2.19 % + €0.24 per transaction; domes
 ## 10. Switching it on — and off again
 
 Order on the day the e-shop opens: (1) re-run all tests (`test:viva`, `test:orders`, `test:admin`, `test:card`); (2) demo run
-(section 6); (3) real account and its payment source and webhook; (4) set the live keys and `VIVA_ENV=live` on Railway;
-(5) remove `COMMERCE_ENABLED=false`; (6) turn ordering on in Admin → Ρυθμίσεις; (7) place and refund one real small order.
+(section 6); (3) real account and its payment source; (4) set the live keys and `VIVA_ENV=live` on Railway, and remove
+`COMMERCE_ENABLED=false`; (5) **then** register the webhook and press «Verify» (the verification request is answered with
+503 while commerce is off or the merchant keys are missing, so registering it earlier fails); (6) turn ordering on in
+Admin → Ρυθμίσεις; (7) place and refund one real small order.
 
 Two things to remember on that day:
 - **The domain.** Viva binds the payment source (and the Success/Failure/Webhook URLs) to the address the shop really
@@ -170,7 +193,11 @@ Two things to remember on that day:
 - **Railway variables.** Every variable set on Railway must also be in the `keep` list of `.railway/railway.ts`, or the next
   `railway config apply` deletes it (read `railway config plan` first). That includes the `VIVA_*` keys and, if used,
   `VIVA_WEBHOOK_IPS`. `VIVA_TEST_BASE_URL` is test-only: it must never be set on a server, and the startup check refuses to
-  boot with it when `VIVA_ENV=live`.
+  boot with it unless `VIVA_ENV` is exactly `demo`.
+- **The IP allow-list.** Viva publishes its webhook addresses as ranges (`/28`); `VIVA_WEBHOOK_IPS` accepts IPv4 addresses,
+  IPv4 ranges like `40.127.253.112/28` and IPv6 addresses, and the server refuses to boot on an entry it cannot read. Leave
+  it unset if in doubt: the webhook is safe without it (every event is re-read from Viva).
+- **`VIVA_ENV`** must be exactly `demo` or `live` once the Viva keys are set; the startup check refuses anything else.
 
 **Off again at any moment:** set `COMMERCE_ENABLED=false` (orders, accounts and payments refuse server-side), or unset the
 `VIVA_CLIENT_ID` key (card disappears from checkout and is refused). Orders already paid stay paid.

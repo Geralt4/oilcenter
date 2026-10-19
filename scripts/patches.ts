@@ -4,6 +4,7 @@ import { db } from '../src/lib/db';
 import { brands, productImages, products, settings, variants } from '../src/lib/db/schema';
 import { DEFAULT_SETTINGS, type ShopSettings } from '../src/lib/settings';
 import { saveSettingsGroup } from '../src/lib/settings.server';
+import { pruneDeadTargets } from '../src/lib/discount-cleanup';
 import { applyHazardLabels, applyManufacturerSpecs } from './manufacturer-data';
 
 /**
@@ -11,6 +12,11 @@ import { applyHazardLabels, applyManufacturerSpecs } from './manufacturer-data';
  * e-mail are gone; the new store Gmail follows), and the opening hours confirmed exactly as seeded. Whatever else the
  * settings form holds (address, links, tagline) is kept.
  */
+async function pruneDeadTargetsPatch(): Promise<string> {
+  const { cleaned, switchedOff } = await pruneDeadTargets();
+  return `${cleaned} coupon(s)/sale(s) had dead targets removed, ${switchedOff} switched off`;
+}
+
 async function applyShopDetails(): Promise<string> {
   const [row] = await db.select().from(settings).where(eq(settings.key, 'shop'));
   const stored = (row && typeof row.value === 'object' && row.value !== null && !Array.isArray(row.value) ? row.value : {}) as Partial<ShopSettings['shop']>;
@@ -166,6 +172,9 @@ const PATCHES: Array<{ id: string; run: () => Promise<string> }> = [
   { id: '2026-10-12-toyota-size-photos', run: linkToyotaSizePhotos },
   // The shop's Instagram profile; a link already entered in the admin is kept.
   { id: '2026-10-13-instagram-link', run: applyInstagramLink },
+  // Coupons and sales that kept ids of products/brands/categories deleted before the delete cleanup existed: strip them, and switch
+  // off any that end up limited to nothing (they would silently become whole-shop discounts the next time they are saved).
+  { id: '2026-10-19-discount-dead-targets', run: pruneDeadTargetsPatch },
 ];
 
 const KEY = 'dataPatches';

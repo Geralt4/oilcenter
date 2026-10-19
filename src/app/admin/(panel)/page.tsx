@@ -44,6 +44,12 @@ export default async function AdminDashboard() {
     db.select().from(orders).where(eq(orders.paymentFlag, 'review')).orderBy(asc(orders.updatedAt)).limit(20),
     db.select().from(unmatchedPayments).where(isNull(unmatchedPayments.resolvedAt)).orderBy(asc(unmatchedPayments.createdAt)).limit(20),
   ]);
+  // the card lists at most 20 of each: say how many are not shown
+  const [[flaggedTotal], [unmatchedTotal]] = await Promise.all([
+    db.select({ n: count() }).from(orders).where(eq(orders.paymentFlag, 'review')),
+    db.select({ n: count() }).from(unmatchedPayments).where(isNull(unmatchedPayments.resolvedAt)),
+  ]);
+  const hiddenProblems = flaggedTotal.n - flaggedOrders.length + (unmatchedTotal.n - unmatched.length);
   const problemEvents = flaggedOrders.length
     ? await db.select().from(orderEvents).where(and(inArray(orderEvents.orderId, flaggedOrders.map((o) => o.id)), eq(orderEvents.type, 'payment'), like(orderEvents.message, 'ΠΡΟΣΟΧΗ%'))).orderBy(desc(orderEvents.id))
     : [];
@@ -111,7 +117,7 @@ export default async function AdminDashboard() {
       <p className="mt-2 text-xs text-ink-500">Στα ποσά δεν περιλαμβάνονται δοκιμαστικές και ακυρωμένες παραγγελίες.</p>
 
       {(flaggedOrders.length > 0 || unmatched.length > 0) && (
-        <Card title="Πληρωμές που θέλουν έλεγχο" description="Εδώ φαίνεται κάθε πληρωμή που δεν συμφωνεί με την παραγγελία της. Όταν την χειριστείτε, πατήστε «Το χειρίστηκα»." className="mt-6 border-red-200">
+        <Card title="Πληρωμές που θέλουν έλεγχο" description="Εδώ φαίνεται κάθε πληρωμή που δεν συμφωνεί με την παραγγελία της. Όταν τη χειριστείτε, πατήστε «Το χειρίστηκα»." className="mt-6 border-red-200">
           <ul className="divide-y divide-line">
             {flaggedOrders.map((o) => (
               <li key={`o${o.id}`} className="flex flex-wrap items-center gap-3 py-3 text-sm">
@@ -134,6 +140,7 @@ export default async function AdminDashboard() {
               </li>
             ))}
           </ul>
+          {hiddenProblems > 0 && <p className="mt-3 text-sm text-ink-600">… και {hiddenProblems} ακόμη. Οι παραγγελίες βρίσκονται στις Παραγγελίες → «Χρειάζονται έλεγχο».</p>}
         </Card>
       )}
 

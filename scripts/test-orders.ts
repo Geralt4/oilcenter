@@ -4,7 +4,7 @@
  * Covers the things that cost real money when they go wrong: overselling, double cancel,
  * payment amount mismatch, duplicate gateway callbacks, coupon maths and shipping tiers.
  */
-import { readdirSync, rmSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { cloneDatabase } from './test-db';
 
@@ -243,7 +243,7 @@ async function main() {
   const minCents = lineOf(minLines, P1.id) + 1;
   await addCoupon({ code: 'TEST-MIN', productIds: [P1.productId], minSubtotalCents: minCents });
   const minQ = await quote('TEST-MIN', cart(P1.id, P2.id));
-  check('the minimum is measured on the eligible lines only', minQ.subtotalCents >= minCents && minQ.coupon === null && !!minQ.error && minQ.error.includes('στα προϊόντα της προσφοράς'), minQ.error);
+  check('the minimum is measured on the eligible lines only', minQ.subtotalCents >= minCents && minQ.coupon === null && !!minQ.error && minQ.error.includes('στα προϊόντα στα οποία αναφέρεται το κουπόνι'), minQ.error);
 
   const wrongQ = await quote('TEST-PRODUCT', cart(P2.id));
   check('a cart without any targeted product is refused', wrongQ.coupon === null && wrongQ.error === 'Το κουπόνι δεν ισχύει για τα προϊόντα του καλαθιού σας.', wrongQ.error);
@@ -585,14 +585,27 @@ async function main() {
 
     console.log('  Paid by hand');
     const mp = await newCard();
+    await recordPaymentAttempt(mp.id, { provider: 'viva', ref: 'R-MAN-1' });
     await db.update(orders).set({ paymentStatus: 'paid', paidAt: new Date() }).where(eq(orders.id, mp.id));
     const mpInfo = { provider: 'viva', ref: 'T-MAN-1', amountCents: mp.totalCents, attemptRef: 'R-MAN-1' };
-    check('a card payment on an order marked paid by hand → duplicate_payment', (await recordPayment(mp.id, mpInfo)) === 'duplicate_payment');
+    const manualEvents = async () => (await eventsOf(mp.id)).filter((e) => e.message.includes('αντιστοιχίστηκε'));
+    check('a card payment on an order marked paid by hand → paid_after_manual', (await recordPayment(mp.id, mpInfo)) === 'paid_after_manual');
     const mpRow = await row(mp.id);
     check('…flagged for review', mpRow.paymentFlag === 'review', mpRow.paymentFlag);
-    check("…the timeline says it was marked by hand", (await eventsOf(mp.id)).some((e) => e.message.includes('σημειωμένη χειροκίνητα')));
-    check('…the transaction id stays empty', mpRow.paymentTransactionId === null, mpRow.paymentTransactionId);
-    check('a repeat → already_flagged', (await recordPayment(mp.id, mpInfo)) === 'already_flagged');
+    check('…the gateway transaction id is stored on the order', mpRow.paymentTransactionId === 'T-MAN-1' && mpRow.paymentProvider === 'viva', [mpRow.paymentTransactionId, mpRow.paymentProvider]);
+    check("…the attempt becomes 'paid'", (await attemptByRef('R-MAN-1'))?.status === 'paid', await attemptByRef('R-MAN-1'));
+    const manual = await manualEvents();
+    check('…the timeline says it was marked by hand and matched (one event)', manual.length === 1 && manual[0].message.includes('χειροκίνητα'), manual.map((e) => e.message));
+    check('…and that event does not call it a second payment', manual.length === 1 && !manual[0].message.includes('δεύτερη'), manual.map((e) => e.message));
+    check('a repeat of the same payment → already_paid', (await recordPayment(mp.id, mpInfo)) === 'already_paid');
+    check('…and writes no new event', (await manualEvents()).length === 1, (await manualEvents()).length);
+
+    console.log('  Refunded by hand, then paid');
+    const mr = await newCard();
+    await recordPaymentAttempt(mr.id, { provider: 'viva', ref: 'R-MR-1' });
+    await db.update(orders).set({ paymentStatus: 'refunded', paidAt: new Date() }).where(eq(orders.id, mr.id));
+    check('a refunded order with no stored reference and a gateway payment → duplicate_payment', (await recordPayment(mr.id, { provider: 'viva', ref: 'T-MR-1', amountCents: mr.totalCents, attemptRef: 'R-MR-1' })) === 'duplicate_payment');
+    check('…and its stored reference stays empty', (await row(mr.id)).paymentTransactionId === null, (await row(mr.id)).paymentTransactionId);
 
     console.log('  Cancel only unpaid');
     const s0 = await stock();
@@ -647,10 +660,10 @@ async function main() {
     check('no targets + skips sale items: the minimum message names the non-sale products', !!noSaleMinQ.error && noSaleMinQ.error.endsWith('σε προϊόντα που δεν είναι σε προσφορά.'), noSaleMinQ.error);
     await addCoupon({ code: 'TEST-MSG-TARGET', productIds: [P1.productId], minSubtotalCents: lineOf(minLines, P1.id) + 1 });
     const targetMinQ = await quote('TEST-MSG-TARGET', cart(P1.id));
-    check('a targeted coupon keeps the offer wording', !!targetMinQ.error && targetMinQ.error.endsWith('στα προϊόντα της προσφοράς.'), targetMinQ.error);
+    check('a targeted coupon keeps the offer wording', !!targetMinQ.error && targetMinQ.error.endsWith('στα προϊόντα στα οποία αναφέρεται το κουπόνι.'), targetMinQ.error);
     await addCoupon({ code: 'TEST-MSG-PLAIN', excludeSaleItems: false, minSubtotalCents: 10000000 });
     const plainMinQ = await quote('TEST-MSG-PLAIN', cart(P1.id, P2.id));
-    check('an untargeted coupon without exclusion keeps the plain message', plainMinQ.error === `Το κουπόνι ισχύει για αγορές άνω των ${(10000000 / 100).toFixed(2).replace('.', ',')} €.`, plainMinQ.error);
+    check('an untargeted coupon without exclusion keeps the plain message', plainMinQ.error === `Το κουπόνι ισχύει για αγορές από ${(10000000 / 100).toFixed(2).replace('.', ',')} € και πάνω.`, plainMinQ.error);
     await db.delete(coupons).where(inArray(coupons.code, ['TEST-MSG-NOSALE', 'TEST-MSG-TARGET', 'TEST-MSG-PLAIN']));
 
     console.log('  Sales with an unreadable target list');
@@ -669,6 +682,95 @@ async function main() {
     check('…it contains the valid sale', ctxSales.some((s) => s.id === goodSale.id));
     check('…and not the unreadable one', !ctxSales.some((s) => s.id === badSale.id));
     await db.delete(sales).where(inArray(sales.id, [goodSale.id, badSale.id]));
+  }
+
+  console.log('Round 3 fixes');
+  {
+    const { getOrderByNumber, recordPayment, releaseAbandonedCardOrders } = await import('../src/lib/orders');
+    const { recordPaymentAttempt } = await import('../src/lib/payments/attempts');
+    const { settleCardPayment } = await import('../src/lib/payments/settle');
+    const { newOrderNotificationMail } = await import('../src/lib/email');
+    const { getSettings } = await import('../src/lib/settings.server');
+    const outbox = path.join(dir, 'data', 'outbox');
+    const outboxFiles = () => {
+      try {
+        return readdirSync(outbox);
+      } catch {
+        return [] as string[];
+      }
+    };
+    // the subject is in the comment at the top of each outbox file: «<!-- to: … | subject: … -->»
+    const subjectOf = (file: string) => readFileSync(path.join(outbox, file), 'utf8').match(/subject: (.*?) -->/s)?.[1] ?? '';
+    const row = async (id: number) => (await db.select().from(orders).where(eq(orders.id, id)))[0];
+    const eventsOf = (orderId: number) => db.select().from(orderEvents).where(eq(orderEvents.orderId, orderId));
+    const cardOpts = { customerId: null, cardProviderConfigured: true };
+    const newCardOrder = async () => {
+      const r = await createOrder({ ...base, paymentMethod: 'card', lines: [{ variantId: variant.id, quantity: 1 }] }, settings, cardOpts);
+      if (!r.ok) throw new Error(`card order not created: ${r.message}`);
+      return r.order;
+    };
+    const backdate3h = (id: number) => db.update(orders).set({ createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000) }).where(eq(orders.id, id));
+    await db.update(variants).set({ trackStock: true, stock: 200 }).where(eq(variants.id, variant.id));
+
+    console.log('  Manual payment alert');
+    const ma = await newCardOrder();
+    await recordPaymentAttempt(ma.id, { provider: 'viva', ref: 'R3-MA-1' });
+    await db.update(orders).set({ paymentStatus: 'paid', paidAt: new Date() }).where(eq(orders.id, ma.id));
+    const beforeMa = new Set(outboxFiles());
+    const rMa = await settleCardPayment({ id: ma.id, number: ma.number }, { provider: 'viva', ref: 'R3-MA-TX', amountCents: ma.totalCents, attemptRef: 'R3-MA-1' });
+    check('settleCardPayment on an order marked paid by hand → paid_after_manual', rMa === 'paid_after_manual', rMa);
+    const newMa = outboxFiles().filter((f) => !beforeMa.has(f));
+    check('…writes exactly one owner alert to the outbox', newMa.length === 1, newMa);
+    check('…and no confirmation goes to the buyer', !newMa.some((f) => f.includes(base.email) || subjectOf(f).startsWith('Η παραγγελία σας')), newMa.map(subjectOf));
+
+    console.log('  Abandoned orders that must stay');
+    const cod = await createOrder({ ...base, paymentMethod: 'cod', lines: [{ variantId: variant.id, quantity: 1 }] }, settings, opts);
+    const bank = await createOrder({ ...base, paymentMethod: 'bank_transfer', lines: [{ variantId: variant.id, quantity: 1 }] }, settings, opts);
+    if (!cod.ok || !bank.ok) throw new Error('cod or bank order not created');
+    const confirmedCard = await newCardOrder();
+    await db.update(orders).set({ status: 'confirmed' }).where(eq(orders.id, confirmedCard.id));
+    const oldCard = await newCardOrder();
+    for (const id of [cod.order.id, bank.order.id, confirmedCard.id, oldCard.id]) await backdate3h(id);
+    await releaseAbandonedCardOrders();
+    check('an old pending cash-on-delivery order is not cancelled', (await row(cod.order.id)).status === 'pending', (await row(cod.order.id)).status);
+    check('an old pending bank-transfer order is not cancelled', (await row(bank.order.id)).status === 'pending', (await row(bank.order.id)).status);
+    check('an old confirmed card order that is still unpaid is not cancelled', (await row(confirmedCard.id)).status === 'confirmed' && (await row(confirmedCard.id)).paymentStatus === 'pending', [(await row(confirmedCard.id)).status, (await row(confirmedCard.id)).paymentStatus]);
+    check('an old pending unpaid card order IS cancelled', (await row(oldCard.id)).status === 'cancelled', (await row(oldCard.id)).status);
+
+    console.log('  History wording');
+    const hw = await newCardOrder();
+    await recordPayment(hw.id, { provider: 'viva', ref: 'HW-T2', amountCents: hw.totalCents });
+    const dupOutcome = await recordPayment(hw.id, { provider: 'viva', ref: 'HW-T1', amountCents: hw.totalCents, attemptRef: 'HW-ATT' });
+    check('a second payment on another checkout → duplicate_payment', dupOutcome === 'duplicate_payment', dupOutcome);
+    const dupLine = (await eventsOf(hw.id)).find((e) => e.message.includes('δεύτερη'))?.message ?? '';
+    check('the duplicate line uses the Greek comma amount', /\d+,\d{2}/.test(dupLine), dupLine);
+    check('…and names «Το χειρίστηκα»', dupLine.includes('«Το χειρίστηκα»'), dupLine);
+    const hl = await newCardOrder();
+    await cancelOrder(hl.id, 'test');
+    const lateOutcome = await recordPayment(hl.id, { provider: 'viva', ref: 'HL-T1', amountCents: hl.totalCents });
+    check('a payment on a cancelled order → late_cancelled', lateOutcome === 'late_cancelled', lateOutcome);
+    const lateLine = (await eventsOf(hl.id)).find((e) => e.message.includes('ήρθε αφού'))?.message ?? '';
+    check('the late line uses the Greek comma amount', /\d+,\d{2}/.test(lateLine), lateLine);
+    check('…and names «Επιστροφή χρημάτων»', lateLine.includes('«Επιστροφή χρημάτων»'), lateLine);
+
+    console.log('  Payment mails');
+    const pm = await newCardOrder();
+    await recordPaymentAttempt(pm.id, { provider: 'viva', ref: 'PM-1' });
+    const beforePm = new Set(outboxFiles());
+    const rPm = await settleCardPayment({ id: pm.id, number: pm.number }, { provider: 'viva', ref: 'PM-TX', amountCents: pm.totalCents, attemptRef: 'PM-1' });
+    check('a payment on an unpaid card order → paid', rPm === 'paid', rPm);
+    const newPm = outboxFiles().filter((f) => !beforePm.has(f));
+    const pmSubjects = newPm.map(subjectOf);
+    check('…writes two files: the buyer confirmation and the owner alert', newPm.length === 2, pmSubjects);
+    check('…one confirmation whose subject starts «Η παραγγελία σας»', pmSubjects.filter((s) => s.startsWith('Η παραγγελία σας')).length === 1, pmSubjects);
+    check('…and one owner alert whose subject starts «Πληρώθηκε με κάρτα:»', pmSubjects.filter((s) => s.startsWith('Πληρώθηκε με κάρτα:')).length === 1, pmSubjects);
+
+    console.log('  Pending-card subject');
+    const settingsNow = await getSettings();
+    const pendingCardFull = await getOrderByNumber((await newCardOrder()).number);
+    const codFull = await getOrderByNumber(cod.order.number);
+    check('a new card order awaiting payment has the «ΑΝΑΜΕΝΕΤΑΙ ΠΛΗΡΩΜΗ ΜΕ ΚΑΡΤΑ» subject suffix', !!pendingCardFull && newOrderNotificationMail(pendingCardFull, settingsNow).subject.endsWith('ΑΝΑΜΕΝΕΤΑΙ ΠΛΗΡΩΜΗ ΜΕ ΚΑΡΤΑ'), pendingCardFull?.paymentStatus);
+    check('a cash-on-delivery order has no such suffix', !!codFull && !newOrderNotificationMail(codFull, settingsNow).subject.includes('ΑΝΑΜΕΝΕΤΑΙ'), codFull?.paymentMethod);
   }
 
   console.log('Cleanup');

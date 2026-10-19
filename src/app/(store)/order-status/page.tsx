@@ -7,6 +7,7 @@ import { buttonClass } from '@/components/ui/button';
 import { db } from '@/lib/db';
 import { orders } from '@/lib/db/schema';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
+import { getSettings } from '@/lib/settings.server';
 import { accountsAvailable, requireOrderingOrHistory } from '@/lib/catalogue-mode';
 
 export const metadata: Metadata = { title: 'Η παραγγελία μου', robots: { index: false, follow: true } };
@@ -25,14 +26,36 @@ async function lookup(formData: FormData) {
   redirect(`/order/${order.number}?t=${order.token}`);
 }
 
-export default async function OrderStatusPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+/** What the buyer is told when the card payment sends them back here (see api/payments/viva/return/route.ts). */
+function paymentNotice(state: string | undefined, phone: string): { title: string; text: string; tone: 'amber' | 'red' } | null {
+  const call = phone ? ` Αν δεν έχετε τον αριθμό της παραγγελίας ή χρειάζεστε βοήθεια, καλέστε μας στο ${phone}.` : '';
+  if (state === 'failed') {
+    return { title: 'Η πληρωμή δεν ολοκληρώθηκε', text: `Η παραγγελία σας δεν έχει εξοφληθεί. Για να δοκιμάσετε ξανά με κάρτα, βρείτε την παραγγελία σας παρακάτω και πατήστε «Πληρωμή με κάρτα».${call}`, tone: 'red' };
+  }
+  if (state === 'pending') {
+    return { title: 'Η πληρωμή σας βρίσκεται σε επεξεργασία', text: `Μην πληρώσετε ξανά: η παραγγελία θα ενημερωθεί μόλις ολοκληρωθεί η πληρωμή (για παράδειγμα, μέσω IRIS μπορεί να χρειαστούν λίγα λεπτά). Μπορείτε να τη βρείτε παρακάτω.${call}`, tone: 'amber' };
+  }
+  if (state === 'review') {
+    return { title: 'Λάβαμε την πληρωμή σας', text: `Η παραγγελία σας χρειάζεται έλεγχο από εμάς. Μην πληρώσετε ξανά: θα επικοινωνήσουμε μαζί σας το συντομότερο.${call}`, tone: 'amber' };
+  }
+  return null;
+}
+
+export default async function OrderStatusPage({ searchParams }: { searchParams: Promise<{ error?: string; payment?: string }> }) {
   await requireOrderingOrHistory();
-  const { error } = await searchParams;
+  const { error, payment } = await searchParams;
+  const notice = paymentNotice(payment, (await getSettings()).shop.phone);
   return (
     <div className="container-page max-w-xl py-6 sm:py-8">
       <Breadcrumbs items={[{ name: 'Η παραγγελία μου', href: '/order-status' }]} />
       <h1 className="display mt-5 text-4xl sm:text-5xl">Η παραγγελία μου</h1>
-      <p className="mt-3 text-ink-600">Συμπληρώστε τον αριθμό της παραγγελίας (θα τον βρείτε στο e-mail επιβεβαίωσης) και το e-mail με το οποίο την κάνατε.</p>
+      {notice && (
+        <div role="status" className={notice.tone === 'red' ? 'mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-900' : 'mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900'}>
+          <p className="font-bold">{notice.title}</p>
+          <p className="mt-1 text-sm">{notice.text}</p>
+        </div>
+      )}
+      <p className="mt-3 text-ink-600">Συμπληρώστε τον αριθμό της παραγγελίας (τον βρίσκετε στο e-mail επιβεβαίωσης ή στη σελίδα της παραγγελίας) και το e-mail με το οποίο την κάνατε.</p>
 
       <form action={lookup} className="mt-7 space-y-4 rounded-3xl border border-line bg-white p-6 shadow-tile">
         {error && <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-800">{error === 'rate' ? 'Πολλές προσπάθειες. Δοκιμάστε ξανά σε λίγα λεπτά.' : 'Δεν βρέθηκε παραγγελία με αυτά τα στοιχεία.'}</p>}

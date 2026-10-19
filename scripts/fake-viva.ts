@@ -19,7 +19,8 @@ export type WebhookMode = 'before-return' | 'after-return' | 'none';
 export type FakeOrder = { amountCents: number; merchantTrns: string; createdAt: number };
 
 export type FakeTransaction = {
-  statusId: 'F' | 'E';
+  /** F = paid, E = failed, A = pending (e.g. IRIS, not yet settled) */
+  statusId: 'F' | 'E' | 'A';
   amountCents: number;
   orderCode: string;
   merchantTrns: string;
@@ -35,6 +36,10 @@ export type FakeViva = {
   reportCurrency: string | number | null;
   /** when the webhook is sent relative to the buyer's redirect back to the shop */
   webhookMode: WebhookMode;
+  /** the transactions endpoint reports the payment source "9999" (a payment from another channel of the same account) */
+  foreignSourceCode: boolean;
+  /** «Πληρωμή» creates a pending transaction (statusId 'A') instead of a paid one; the browser is still sent back to the shop */
+  pendingMode: boolean;
   readonly orders: Map<string, FakeOrder>;
   readonly transactions: Map<string, FakeTransaction>;
   /** POSTs a webhook to the shop and answers its HTTP status */
@@ -63,7 +68,7 @@ function send(res: ServerResponse, status: number, body: string, type = 'text/pl
   res.end(body);
 }
 
-export async function startFakeViva(opts: { siteBase: string }): Promise<FakeViva> {
+export async function startFakeViva(opts: { siteBase: string; sourceCode?: string }): Promise<FakeViva> {
   const siteBase = opts.siteBase.replace(/\/$/, '');
   const orders = new Map<string, FakeOrder>();
   const transactions = new Map<string, FakeTransaction>();
@@ -75,12 +80,16 @@ export async function startFakeViva(opts: { siteBase: string }): Promise<FakeViv
     reportAmountCents: null,
     reportCurrency: null,
     webhookMode: 'none',
+    foreignSourceCode: false,
+    pendingMode: false,
     orders,
     transactions,
 
     async sendWebhook(orderCode, transactionId, eventTypeId = 1796) {
       // Built by hand: the 16-digit OrderCode must reach the shop as typed, not rounded through a JS number.
-      const body = `{"EventTypeId":${eventTypeId},"EventData":{"TransactionId":"${transactionId}","OrderCode":${orderCode}}}`;
+      // EventData carries StatusId like Viva's own payload: F for a payment, E for a failure.
+      const statusId = eventTypeId === 1796 ? 'F' : 'E';
+      const body = `{"EventTypeId":${eventTypeId},"EventData":{"TransactionId":"${transactionId}","OrderCode":${orderCode},"StatusId":"${statusId}"}}`;
       const res = await fetch(`${siteBase}/api/payments/viva/webhook`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -146,7 +155,8 @@ export async function startFakeViva(opts: { siteBase: string }): Promise<FakeViv
       const euros = (fake.reportAmountCents ?? tx.amountCents) / 100;
       const currency = fake.reportCurrency ?? '978';
       const currencyText = typeof currency === 'number' ? String(currency) : JSON.stringify(currency);
-      const text = `{"statusId":"${tx.statusId}","amount":${euros},"orderCode":${tx.orderCode},"merchantTrns":${JSON.stringify(tx.merchantTrns)},"currencyCode":${currencyText}}`;
+      const sourceCode = fake.foreignSourceCode ? '9999' : (opts.sourceCode ?? '1234');
+      const text = `{"statusId":"${tx.statusId}","amount":${euros},"orderCode":${tx.orderCode},"merchantTrns":${JSON.stringify(tx.merchantTrns)},"currencyCode":${currencyText},"sourceCode":"${sourceCode}"}`;
       return send(res, 200, text, 'application/json');
     }
 
@@ -173,7 +183,7 @@ export async function startFakeViva(opts: { siteBase: string }): Promise<FakeViv
       const paid = url.pathname === '/fake/pay';
       const transactionId = randomUUID();
       transactions.set(transactionId, {
-        statusId: paid ? 'F' : 'E',
+        statusId: paid ? (fake.pendingMode ? 'A' : 'F') : 'E',
         amountCents: order.amountCents,
         orderCode: ref,
         merchantTrns: order.merchantTrns,

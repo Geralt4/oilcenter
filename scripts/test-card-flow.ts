@@ -102,7 +102,7 @@ async function main() {
   console.log(`Test product: /product/${pick.slug} at ${pick.priceCents} cents`);
 
   // Started before the shop, so the shop's first call to Viva finds it.
-  const fake = await startFakeViva({ siteBase: base });
+  const fake = await startFakeViva({ siteBase: base, sourceCode: 'FAKE-SOURCE' });
 
   let server: ChildProcess | undefined;
   let browser: Browser | undefined;
@@ -242,6 +242,9 @@ async function main() {
         const ownerNew = mails.filter((mail) => mail.subject.startsWith('Νέα παραγγελία'));
         check('exactly one customer confirmation mail', confirmations.length === 1, mails.map((mail) => mail.subject));
         check('exactly one owner mail "Νέα παραγγελία"', ownerNew.length === 1, mails.map((mail) => mail.subject));
+        check('that mail says the card payment is awaited', ownerNew.length === 1 && ownerNew[0]!.subject.endsWith('ΑΝΑΜΕΝΕΤΑΙ ΠΛΗΡΩΜΗ ΜΕ ΚΑΡΤΑ'), ownerNew.map((mail) => mail.subject));
+        const ownerPaid = mails.filter((mail) => mail.subject.startsWith('Πληρώθηκε με κάρτα:'));
+        check('exactly one owner mail "Πληρώθηκε με κάρτα:"', ownerPaid.length === 1, mails.map((mail) => mail.subject));
       } finally {
         await ctx.close();
       }
@@ -257,7 +260,7 @@ async function main() {
         const placed = await orderByRef(ref);
         await page.getByRole('link', { name: 'Αποτυχία', exact: true }).click();
         await page.waitForURL((url) => url.pathname === '/order-status', { timeout: 30_000 });
-        check('a failed payment sends the buyer to the order lookup', page.url().includes('/order-status'), page.url());
+        check('a failed payment sends the buyer to the lookup page with ?payment=failed', page.url().includes('/order-status?payment=failed'), page.url());
 
         await page.locator('#number').fill(placed.number);
         await page.locator('#email').fill(placed.email);
@@ -313,7 +316,7 @@ async function main() {
         await older.goto(`${fake.baseUrl}/fake/pay?ref=${refA}`);
         await older.waitForURL((url) => url.pathname === '/order-status', { timeout: 30_000 });
         const landed = new URL(older.url());
-        check('the older payment ends on the lookup page, with no secret link or success state', landed.pathname === '/order-status' && !landed.searchParams.has('t') && !landed.searchParams.has('payment'), older.url());
+        check('the older payment ends on the lookup page with ?payment=review, with no secret link or success state', landed.pathname === '/order-status' && landed.searchParams.get('payment') === 'review' && !landed.searchParams.has('t'), older.url());
 
         const after = await orderByNumber(placed.number);
         check('the order stays paid with its original payment', after.paymentStatus === 'paid' && after.paymentTransactionId === originalTransaction, { before: originalTransaction, after: after.paymentTransactionId });
@@ -339,7 +342,7 @@ async function main() {
         fake.reportAmountCents = placed.totalCents + 500;
         await page.getByRole('link', { name: 'Πληρωμή', exact: true }).click();
         await page.waitForURL((url) => url.pathname === '/order-status', { timeout: 30_000 });
-        check('the wrong amount ends on the lookup page', page.url().includes('/order-status'), page.url());
+        check('the wrong amount ends on the lookup page with ?payment=review', page.url().includes('/order-status?payment=review'), page.url());
 
         const after = await orderByNumber(placed.number);
         check('the order is not marked paid', after.paymentStatus === 'pending', after.paymentStatus);
@@ -402,7 +405,7 @@ async function main() {
         await page.getByRole('link', { name: 'Πληρωμή', exact: true }).click();
         await page.waitForURL((url) => url.pathname === '/order-status', { timeout: 30_000 });
         const landed = new URL(page.url());
-        check('the late payment ends on the lookup page, with no secret link or success state', !landed.searchParams.has('t') && !landed.searchParams.has('payment'), page.url());
+        check('the late payment ends on the lookup page with ?payment=review, with no secret link or success state', landed.pathname === '/order-status' && landed.searchParams.get('payment') === 'review' && !landed.searchParams.has('t'), page.url());
 
         const after = await orderByNumber(placed.number);
         check("the payment is recorded as paid while the order stays cancelled", after.paymentStatus === 'paid' && after.status === 'cancelled', { paymentStatus: after.paymentStatus, status: after.status });
@@ -418,7 +421,92 @@ async function main() {
       }
     };
 
+    // ── S8 ─────────────────────────────────────────────────────────────────────
+    const s8 = async () => {
+      console.log('S8 the payment is still pending at Viva');
+      fake.webhookMode = 'none';
+      fake.pendingMode = true;
+      const { ctx, page } = await newPage();
+      try {
+        const ref = await placeCardOrder(page);
+        const placed = await orderByRef(ref);
+        await page.getByRole('link', { name: 'Πληρωμή', exact: true }).click();
+        await page.waitForURL((url) => url.pathname === '/order-status' && url.searchParams.get('payment') === 'pending', { timeout: 30_000 });
+        check('a pending payment ends on the lookup page with ?payment=pending', page.url().includes('/order-status?payment=pending'), page.url());
+        const shown = await page.getByRole('status').filter({ hasText: 'Η πληρωμή σας βρίσκεται σε επεξεργασία' }).first().waitFor({ state: 'visible', timeout: 15_000 }).then(() => true, () => false);
+        check("the page says 'Η πληρωμή σας βρίσκεται σε επεξεργασία'", shown);
+        const after = await orderByNumber(placed.number);
+        check('the order stays unpaid', after.paymentStatus !== 'paid', after.paymentStatus);
+      } finally {
+        fake.pendingMode = false;
+        await ctx.close();
+      }
+    };
+
+    // ── S9 ─────────────────────────────────────────────────────────────────────
+    const s9 = async () => {
+      console.log('S9 failure banner on the lookup page');
+      fake.webhookMode = 'none';
+      const { ctx, page } = await newPage();
+      try {
+        await placeCardOrder(page);
+        await page.getByRole('link', { name: 'Αποτυχία', exact: true }).click();
+        await page.waitForURL((url) => url.pathname === '/order-status' && url.searchParams.get('payment') === 'failed', { timeout: 30_000 });
+        const shown = await page.getByRole('status').filter({ hasText: 'Η πληρωμή δεν ολοκληρώθηκε' }).first().waitFor({ state: 'visible', timeout: 15_000 }).then(() => true, () => false);
+        check("after «Αποτυχία» the lookup page shows 'Η πληρωμή δεν ολοκληρώθηκε'", shown, page.url());
+      } finally {
+        await ctx.close();
+      }
+    };
+
+    // ── S10 ────────────────────────────────────────────────────────────────────
+    const s10 = async () => {
+      console.log('S10 refunded order offers no card retry');
+      fake.webhookMode = 'none';
+      const { ctx, page } = await newPage();
+      try {
+        const ref = await placeCardOrder(page);
+        const placed = await orderByRef(ref);
+        await page.getByRole('link', { name: 'Πληρωμή', exact: true }).click();
+        await page.waitForURL(succeeded, { timeout: 30_000 });
+        await db.update(orders).set({ paymentStatus: 'refunded' }).where(eq(orders.id, placed.id));
+        await page.goto(`${base}/order/${placed.number}?t=${placed.accessToken}`);
+        const loaded = await page.getByRole('heading', { name: placed.number }).waitFor({ timeout: 20_000 }).then(() => true, () => false);
+        check('the refunded order page loads', loaded, page.url());
+        check('a refunded order offers no card retry', (await page.getByRole('button', { name: 'Πληρωμή με κάρτα' }).count()) === 0);
+        check("a refunded order shows no 'Εκκρεμεί η πληρωμή με κάρτα' text", (await page.getByText('Εκκρεμεί η πληρωμή με κάρτα').count()) === 0);
+      } finally {
+        await ctx.close();
+      }
+    };
+
+    // ── S12 ────────────────────────────────────────────────────────────────────
+    const s12 = async () => {
+      console.log('S12 paid transaction of another payment source on the same account');
+      fake.webhookMode = 'none';
+      fake.foreignSourceCode = true;
+      const { ctx, page } = await newPage();
+      try {
+        const ref = await placeCardOrder(page);
+        const placed = await orderByRef(ref);
+        const before = snapshot();
+        const { transactionId } = fake.payNow(ref);
+        const status = await fake.sendWebhook(ref, transactionId);
+        check('the shop answers the webhook 200', status === 200, status);
+        const after = await orderByNumber(placed.number);
+        check('the order stays unpaid', after.paymentStatus !== 'paid', after.paymentStatus);
+        const rows = await db.select().from(unmatchedPayments).where(eq(unmatchedPayments.orderCode, ref));
+        check('no unmatched payment is kept', rows.length === 0, rows.length);
+        check('no mail is sent about it', mailsSince(before).length === 0, mailsSince(before).map((mail) => mail.subject));
+      } finally {
+        fake.foreignSourceCode = false;
+        await ctx.close();
+      }
+    };
+
     const run = async (fn: () => Promise<void>, label: string) => {
+      // placeOrder allows 8 orders per 10 minutes per IP: each scenario starts with fresh limits
+      await db.delete(rateLimits);
       try {
         await fn();
       } catch (err) {
@@ -432,6 +520,10 @@ async function main() {
     await run(s5, 'S5');
     await run(s6, 'S6');
     await run(s7, 'S7');
+    await run(s8, 'S8');
+    await run(s9, 'S9');
+    await run(s10, 'S10');
+    await run(s12, 'S12');
   } finally {
     await browser?.close().catch(() => undefined);
     if (server && server.exitCode === null) {

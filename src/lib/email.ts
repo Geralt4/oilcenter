@@ -150,8 +150,17 @@ export function orderConfirmationMail(order: OrderWithItems, settings: ShopSetti
 }
 
 export function newOrderNotificationMail(order: OrderWithItems, settings: ShopSettings): Mail {
-  const body = `<p style="margin:0;font-size:15px;line-height:1.6;"><strong>${esc(order.firstName)} ${esc(order.lastName)}</strong> · <a href="tel:${esc(order.phone)}" style="color:#11141a;">${esc(order.phone)}</a> · <a href="mailto:${esc(order.email)}" style="color:#11141a;">${esc(order.email)}</a><br>Σύνολο <strong>${formatPrice(order.totalCents)}</strong> · ${PAYMENT_LABELS[order.paymentMethod]} · ${SHIPPING_LABELS[order.shippingMethod]}${order.isTest ? ' · <strong>ΔΟΚΙΜΑΣΤΙΚΗ</strong>' : ''}</p>${itemsTable(order)}${detailsBlock(order)}${button(`${siteUrl()}/admin/orders/${order.id}`, 'Άνοιγμα στη διαχείριση')}`;
-  return { to: process.env.ORDERS_NOTIFY_EMAIL || settings.shop.email, subject: `Νέα παραγγελία ${order.number} · ${formatPrice(order.totalCents)}`, html: layout(settings.shop, `Νέα παραγγελία ${order.number}`, body), replyTo: order.email };
+  // a card order is mailed the moment checkout starts, before anyone has paid: it must not read like a finished sale
+  const unpaidCard = order.paymentMethod === 'card' && order.paymentStatus !== 'paid';
+  const unpaidNote = unpaidCard ? '<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#b45309;"><strong>ΑΝΑΜΕΝΕΤΑΙ ΠΛΗΡΩΜΗ ΜΕ ΚΑΡΤΑ</strong>: δεν έχει εισπραχθεί ακόμη. Θα πάρετε νέο e-mail όταν ολοκληρωθεί η πληρωμή.</p>' : '';
+  const body = `${unpaidNote}<p style="margin:0;font-size:15px;line-height:1.6;"><strong>${esc(order.firstName)} ${esc(order.lastName)}</strong> · <a href="tel:${esc(order.phone)}" style="color:#11141a;">${esc(order.phone)}</a> · <a href="mailto:${esc(order.email)}" style="color:#11141a;">${esc(order.email)}</a><br>Σύνολο <strong>${formatPrice(order.totalCents)}</strong> · ${PAYMENT_LABELS[order.paymentMethod]} · ${SHIPPING_LABELS[order.shippingMethod]}${order.isTest ? ' · <strong>ΔΟΚΙΜΑΣΤΙΚΗ</strong>' : ''}</p>${itemsTable(order)}${detailsBlock(order)}${button(`${siteUrl()}/admin/orders/${order.id}`, 'Άνοιγμα στη διαχείριση')}`;
+  return { to: process.env.ORDERS_NOTIFY_EMAIL || settings.shop.email, subject: `Νέα παραγγελία ${order.number} · ${formatPrice(order.totalCents)}${unpaidCard ? ' · ΑΝΑΜΕΝΕΤΑΙ ΠΛΗΡΩΜΗ ΜΕ ΚΑΡΤΑ' : ''}`, html: layout(settings.shop, `Νέα παραγγελία ${order.number}`, body), replyTo: order.email };
+}
+
+/** The card payment for an order the shop was already told about has gone through. Its subject does not start with «Νέα παραγγελία». */
+export function orderPaidNotificationMail(order: OrderWithItems, settings: ShopSettings): Mail {
+  const body = `<p style="margin:0;font-size:15px;line-height:1.6;"><strong>Η πληρωμή με κάρτα ολοκληρώθηκε.</strong><br>${esc(order.firstName)} ${esc(order.lastName)} · ${formatPrice(order.totalCents)}${order.isTest ? ' · <strong>ΔΟΚΙΜΑΣΤΙΚΗ</strong>' : ''}</p>${button(`${siteUrl()}/admin/orders/${order.id}`, 'Άνοιγμα στη διαχείριση')}`;
+  return { to: process.env.ORDERS_NOTIFY_EMAIL || settings.shop.email, subject: `Πληρώθηκε με κάρτα: ${order.number} · ${formatPrice(order.totalCents)}`, html: layout(settings.shop, `Πληρώθηκε ${order.number}`, body) };
 }
 
 /** Tells the owner a card payment needs a human: the money and the order do not agree. */
@@ -165,7 +174,7 @@ export function unmatchedPaymentMail(
   p: { provider: string; orderCode: string; transactionId: string; merchantTrns: string | null; amountCents: number; currency: string | null },
   settings: ShopSettings,
 ): Mail {
-  const body = `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;"><strong>Εισπράχθηκε πληρωμή που δεν αντιστοιχεί σε καμία παραγγελία.</strong></p><p style="margin:0;font-size:15px;line-height:1.6;">Ποσό <strong>${formatPrice(p.amountCents)}</strong>${p.currency ? ` (${esc(p.currency)})` : ''} · πάροχος ${esc(p.provider)}<br>Συναλλαγή ${esc(p.transactionId)} · κωδικός πληρωμής ${esc(p.orderCode)}${p.merchantTrns ? ` · αναφορά ${esc(p.merchantTrns)}` : ''}</p><p style="margin:12px 0 0;font-size:15px;line-height:1.6;">Βρείτε τον πελάτη στο Viva και επιστρέψτε τα χρήματα ή δημιουργήστε την παραγγελία χειροκίνητα.</p>${button(`${siteUrl()}/admin`, 'Άνοιγμα στη διαχείριση')}`;
+  const body = `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;"><strong>Εισπράχθηκε πληρωμή που δεν αντιστοιχεί σε καμία παραγγελία.</strong></p><p style="margin:0;font-size:15px;line-height:1.6;">Ποσό <strong>${formatPrice(p.amountCents)}</strong>${p.currency ? ` (${esc(p.currency)})` : ''} · πάροχος ${esc(p.provider)}<br>Συναλλαγή ${esc(p.transactionId)} · κωδικός πληρωμής ${esc(p.orderCode)}${p.merchantTrns ? ` · αναφορά ${esc(p.merchantTrns)}` : ''}</p><p style="margin:12px 0 0;font-size:15px;line-height:1.6;">Βρείτε την πληρωμή στον πάροχο πληρωμών: επιστρέψτε τα χρήματα ή επικοινωνήστε με τον πελάτη. Μετά πατήστε «Το χειρίστηκα» στη διαχείριση.</p>${button(`${siteUrl()}/admin`, 'Άνοιγμα στη διαχείριση')}`;
   return { to: process.env.ORDERS_NOTIFY_EMAIL || settings.shop.email, subject: `Χρειάζεται έλεγχος: πληρωμή χωρίς παραγγελία ${formatPrice(p.amountCents)}`, html: layout(settings.shop, 'Πληρωμή χωρίς παραγγελία', body) };
 }
 
