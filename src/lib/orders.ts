@@ -220,6 +220,8 @@ export async function createOrder(input: CheckoutInput, settings: ShopSettings, 
           lineTotalCents: l.lineTotalCents,
           weightGrams: l.unitWeightGrams,
           availability: l.availability,
+          // step 3 took these units off the shelf exactly when the size's stock is counted
+          stockReserved: l.maxQuantity !== null,
         })),
       );
       await tx.insert(orderEvents).values({ orderId: created.id, type: 'created', message: `Η παραγγελία καταχωρήθηκε${isTest ? ' (δοκιμαστική)' : ''}.`, actor: 'customer' });
@@ -414,7 +416,9 @@ export async function cancelOrder(orderId: number, actor: string, reason?: strin
     const tracked = ids.length ? await tx.select({ id: variants.id, trackStock: variants.trackStock }).from(variants).where(inArray(variants.id, ids)) : [];
     const isTracked = new Set(tracked.filter((v) => v.trackStock).map((v) => v.id));
     for (const item of items) {
-      if (item.variantId && isTracked.has(item.variantId)) {
+      // exactly what the order took: counting switched on after the order must not add units it never reserved, and switched
+      // off after it must not keep them; orders from before this was recorded fall back to whether the size counts now
+      if (item.variantId && (item.stockReserved ?? isTracked.has(item.variantId))) {
         await tx.update(variants).set({ stock: sql`${variants.stock} + ${item.quantity}` }).where(eq(variants.id, item.variantId));
       }
     }

@@ -65,7 +65,11 @@ export function parseCsv(input: string): { sep: ';' | ','; header: string[]; row
 
 export type PriceCsvSource = { sku: string; brand: string | null; product: string; pack: string; priceCents: number; stock: number; trackStock: boolean; priceVerified: boolean; availability: Availability };
 
-/** sku;brand;product;pack;price;stock;verified;availability — semicolon + BOM so Greek Excel opens it correctly on double-click. */
+/**
+ * sku;brand;product;pack;price;stock;verified;availability;exported_stock — semicolon + BOM so Greek Excel opens it correctly
+ * on double-click. `exported_stock` repeats the stock at the moment of the export: stock moves while the file sits in Excel
+ * (orders take units, cancellations return them), and the import uses it to apply only what the owner changed.
+ */
 export function buildPriceCsv(rows: PriceCsvSource[]): string {
   const cell = (value: string | number | null) => {
     const s = String(value ?? '');
@@ -74,8 +78,8 @@ export function buildPriceCsv(rows: PriceCsvSource[]): string {
     return /[";\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
   };
   const lines = [
-    ['sku', 'brand', 'product', 'pack', 'price', 'stock', 'verified', 'availability'].join(';'),
-    ...rows.map((v) => [v.sku, v.brand, v.product, v.pack, (v.priceCents / 100).toFixed(2).replace('.', ','), v.trackStock ? v.stock : '', v.priceVerified ? 'yes' : 'no', v.availability].map(cell).join(';')),
+    ['sku', 'brand', 'product', 'pack', 'price', 'stock', 'verified', 'availability', 'exported_stock'].join(';'),
+    ...rows.map((v) => [v.sku, v.brand, v.product, v.pack, (v.priceCents / 100).toFixed(2).replace('.', ','), v.trackStock ? v.stock : '', v.priceVerified ? 'yes' : 'no', v.availability, v.trackStock ? v.stock : ''].map(cell).join(';')),
   ];
   return String.fromCharCode(BOM) + lines.join('\r\n');
 }
@@ -92,7 +96,9 @@ const YES = new Set(['yes', 'y', 'ναι', 'nai', 'true', '1', 'x']);
  * What an uploaded price list would change, given what the shop holds now (`current`, by SKU).
  * - price: a new amount is saved and counts as confirmed (the owner typed it);
  * - verified: `yes` confirms a price that was not; nothing ever un-confirms one;
- * - stock: a whole number starts counting stock for that size; an EMPTY cell leaves it exactly as it is;
+ * - stock: a whole number starts counting stock for that size; an EMPTY cell leaves it exactly as it is. In a file this shop
+ *   exported (`exported_stock` filled in), a stock cell left as exported changes nothing, and an edited one moves today's
+ *   stock by the same amount: units sold since the export stay sold;
  * - availability: one of the exported keys; anything else leaves it as it is.
  * A row that would change nothing is not written at all.
  */
@@ -104,6 +110,7 @@ export function planPriceImport(input: string, current: Map<string, PriceCsvCurr
     stock: header.findIndex((h) => h.startsWith('stock') || h.startsWith('απόθ') || h.startsWith('αποθ')),
     verified: header.findIndex((h) => h.startsWith('verif') || h.startsWith('επιβεβ')),
     availability: header.findIndex((h) => h.startsWith('availab') || h.startsWith('διαθεσ')),
+    exportedStock: header.indexOf('exported_stock'),
   };
   if (col.sku < 0 || col.price < 0) return { error: 'Η πρώτη γραμμή πρέπει να έχει στήλες «sku» και «price».' };
 
@@ -147,7 +154,11 @@ export function planPriceImport(input: string, current: Map<string, PriceCsvCurr
     if (cents !== now.priceCents) Object.assign(patch, { priceCents: cents, priceVerified: true });
     else if (!now.priceVerified && YES.has(at(col.verified).toLowerCase())) patch.priceVerified = true;
     if (stockCell !== '') {
-      const stock = Number(stockCell);
+      const typed = Number(stockCell);
+      const exportedCell = at(col.exportedStock);
+      const exported = /^\d{1,7}$/.test(exportedCell) ? Number(exportedCell) : null;
+      // counted when exported and still counted: the owner's change, applied to the stock as it is now
+      const stock = exported !== null && now.trackStock ? Math.max(0, now.stock + (typed - exported)) : typed;
       if (!now.trackStock || stock !== now.stock) Object.assign(patch, { stock, trackStock: true });
     }
     const availability = at(col.availability).toLowerCase();
