@@ -20,9 +20,11 @@ export async function GET(request: Request) {
     if (!order || order.paymentRef !== sessionId) return home;
     const orderUrl = `${siteUrl()}/order/${order.number}?t=${order.accessToken}`;
     if (session.paid) {
-      await settleCardPayment(order, { provider: 'stripe', ref: session.paymentIntent ?? sessionId, amountCents: session.amountCents });
-      // a cancelled order must not get the "thank you" page (the Viva route does the same)
-      return NextResponse.redirect(order.status === 'cancelled' ? orderUrl : `${orderUrl}&payment=success`);
+      const outcome = await settleCardPayment(order, { provider: 'stripe', ref: session.paymentIntent ?? sessionId, amountCents: session.amountCents });
+      // a payment that does not add up, or that belongs to a cancelled or refunded order, must not get the "thank you" page
+      // (the Viva route does the same)
+      const settled = outcome === 'paid' || outcome === 'already_paid' || outcome === 'paid_after_manual';
+      return NextResponse.redirect(order.status === 'cancelled' || order.paymentStatus === 'refunded' || !settled ? orderUrl : `${orderUrl}&payment=success`);
     }
     return NextResponse.redirect(`${orderUrl}&payment=failed`);
   } catch (err) {

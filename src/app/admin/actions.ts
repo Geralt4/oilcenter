@@ -239,6 +239,9 @@ export async function changeAdminPassword(_prev: AdminFormState, fd: FormData): 
   const next = String(fd.get('newPassword') ?? '');
   if (next.length < 10) return { ok: false, message: 'Ο νέος κωδικός πρέπει να έχει τουλάχιστον 10 χαρακτήρες.' };
   if (next !== String(fd.get('newPasswordRepeat') ?? '')) return { ok: false, message: 'Οι δύο νέοι κωδικοί δεν είναι ίδιοι.' };
+  // the current-password check is a password check like the login: a stolen session must not be able to guess it freely
+  const limited = await rateLimit(`admin-password:${await clientIp()}:${me.id}`, 5, 15 * 60 * 1000);
+  if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
   const [row] = await db.select().from(adminUsers).where(eq(adminUsers.id, me.id));
   if (!row || !(await verifyPassword(String(fd.get('currentPassword') ?? ''), row.passwordHash))) return { ok: false, message: 'Ο τρέχων κωδικός δεν είναι σωστός.' };
   // Bump the session version so other sessions are signed out; re-issue this one so the admin stays logged in here.
@@ -556,7 +559,7 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
 
       for (const [sort, v] of priced.entries()) {
         const row = {
-          productId: pid, label: v.label, volumeMl: /\d\s*g$/i.test(v.label) ? null : parseVolumeMl(v.label), priceCents: v.priceCents!, compareAtCents: v.compareAtCents,
+          productId: pid, label: v.label, volumeMl: parseVolumeMl(v.label), priceCents: v.priceCents!, compareAtCents: v.compareAtCents,
           stock: v.stock, trackStock: v.trackStock, availability: v.availability ?? 'in_stock', weightGrams: v.weightGrams, barcode: v.barcode ? normalizeGtin(v.barcode) : null, mpn: v.mpn || null, imageUrl: sort === lone ? uploads[0] : v.imageUrl && ownImages.has(v.imageUrl) ? v.imageUrl : null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
           sku: skus[sort],
         };
@@ -762,6 +765,17 @@ export async function saveCategory(_prev: AdminFormState, fd: FormData): Promise
   if (!name) return { ok: false, message: 'Συμπληρώστε όνομα.' };
   const parentId = int(fd, 'parentId') || null;
   if (id && parentId === id) return { ok: false, message: 'Μια κατηγορία δεν μπορεί να είναι γονέας του εαυτού της.' };
+  // Two levels only (the admin list and the shop menu show no deeper): a subcategory under a subcategory, or a cycle,
+  // would vanish from both.
+  if (parentId) {
+    const [parent] = await db.select({ parentId: categories.parentId }).from(categories).where(eq(categories.id, parentId));
+    if (!parent) return { ok: false, message: 'Η κατηγορία-γονέας δεν υπάρχει πια. Ανανεώστε τη σελίδα.' };
+    if (parent.parentId !== null) return { ok: false, message: 'Η κατηγορία-γονέας είναι ήδη υποκατηγορία. Επιλέξτε κύρια κατηγορία.' };
+    if (id) {
+      const [child] = await db.select({ id: categories.id }).from(categories).where(eq(categories.parentId, id)).limit(1);
+      if (child) return { ok: false, message: 'Η κατηγορία έχει υποκατηγορίες, άρα δεν μπορεί να γίνει υποκατηγορία η ίδια. Μετακινήστε πρώτα τις υποκατηγορίες της.' };
+    }
+  }
   // on an existing category an empty slug box means "leave the address as it is" (see saveProduct)
   const [storedCategory] = id ? await db.select({ slug: categories.slug }).from(categories).where(eq(categories.id, id)) : [];
   const values = { name, slug: slugify(str(fd, 'slug') || storedCategory?.slug || name), parentId, icon: str(fd, 'icon') || null, description: str(fd, 'description') || null, isActive: bool(fd, 'isActive'), sort: int(fd, 'sort') };
@@ -1050,7 +1064,8 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
   };
   const vatRaw = str(fd, 'vatRate');
   const vatRate = int(fd, 'vatRate', current.tax.vatRate);
-  if (vatRaw && (!/^\d{1,2}([.,]\d+)?$/.test(vatRaw) || vatRate > 50)) problems.push(`ΦΠΑ: «${vatRaw}» δεν είναι ποσοστό`);
+  // whole percentages only (orders store the rate as an integer): «13,5» is refused, never quietly saved as 14
+  if (vatRaw && (!/^\d{1,2}([.,]0+)?$/.test(vatRaw) || vatRate > 50)) problems.push(`ΦΠΑ: «${vatRaw}» δεν είναι ακέραιο ποσοστό`);
   if (problems.length) return { ok: false, message: `Δεν αποθηκεύτηκε τίποτα. ${problems.slice(0, 3).join(' · ')}${problems.length > 3 ? ` · και ${problems.length - 3} ακόμη` : ''}.` };
 
   await saveSettingsGroup('shop', shop);
@@ -1178,14 +1193,22 @@ export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promi
         const patch: { barcode?: string; mpn?: string } = {};
         const ean = col.ean >= 0 ? normalizeGtin(cells[col.ean] ?? '') : '';
         if (ean) {
-          if (!isValidGtin(ean) || (owner.has(ean) && owner.get(ean) !== current.id)) rejected.push(sku);
-          else patch.barcode = ean;
+          // a rejected row is left alone entirely, so it is not reported as both updated and rejected
+          if (!isValidGtin(ean) || (owner.has(ean) && owner.get(ean) !== current.id)) {
+            rejected.push(sku);
+            continue;
+          }
+          patch.barcode = ean;
         }
         const mpn = col.mpn >= 0 ? (cells[col.mpn] ?? '').slice(0, 80) : '';
         if (mpn) patch.mpn = mpn;
         if (!patch.barcode && !patch.mpn) continue;
         await tx.update(variants).set(patch).where(eq(variants.id, current.id));
-        if (patch.barcode) owner.set(patch.barcode, current.id);
+        if (patch.barcode) {
+          // the pack's previous barcode is free again: a later row of the same file may give it to another pack
+          for (const [code, id] of owner) if (id === current.id) owner.delete(code);
+          owner.set(patch.barcode, current.id);
+        }
         updated++;
       }
     });

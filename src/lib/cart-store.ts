@@ -97,7 +97,8 @@ export const useCart = create<CartState>()(
             const f = byId.get(l.variantId);
             if (!f) return [l];
             if (!f.snapshot || f.quantity <= 0) return []; // discontinued or sold out
-            return [{ variantId: l.variantId, quantity: f.quantity, snapshot: f.snapshot }];
+            // the reply describes the cart as it was when the request left: keep any quantity changed since, only capped by fresh stock
+            return [{ variantId: l.variantId, quantity: clampQty(l.quantity, f.snapshot.maxQuantity), snapshot: f.snapshot }];
           });
           return { lines };
         }),

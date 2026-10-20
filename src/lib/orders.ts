@@ -7,7 +7,7 @@ import { claimAttemptStatus, setAttemptStatus, type Executor } from '@/lib/payme
 import { resolveCartLines, type ResolvedCartLine } from '@/lib/catalog';
 import { commerceEnabled } from '@/lib/commerce-flag';
 import { cleanIds, hasTargets, matchesTargets } from '@/lib/discounts';
-import { availablePaymentMethods, computeTotals, type AppliedCoupon } from '@/lib/pricing';
+import { availablePaymentMethods, CARD_MIN_CENTS, computeTotals, type AppliedCoupon } from '@/lib/pricing';
 import { loadCategoryPaths } from '@/lib/sales';
 import type { ShopSettings } from '@/lib/settings';
 import { formatPrice, isGreekPostalCode, isValidAfm } from '@/lib/utils';
@@ -139,6 +139,10 @@ export async function createOrder(input: CheckoutInput, settings: ShopSettings, 
   if (couponError) return { ok: false, reason: 'coupon', message: couponError };
 
   const totals = computeTotals({ subtotalCents, weightGrams, shippingMethod: input.shippingMethod, paymentMethod: input.paymentMethod, coupon, lines, shipping, vatRate: tax.vatRate });
+  // a coupon can bring the total below what a card gateway accepts: such an order could never be paid
+  if (input.paymentMethod === 'card' && totals.totalCents < CARD_MIN_CENTS) {
+    return { ok: false, reason: 'invalid_method', message: 'Για τόσο μικρό ποσό δεν είναι δυνατή η πληρωμή με κάρτα. Επιλέξτε άλλον τρόπο πληρωμής.' };
+  }
   const courier = input.shippingMethod === 'courier';
 
   try {
@@ -379,16 +383,31 @@ export async function markOrderPaid(orderId: number, info: PaymentInfo): Promise
   return (await recordPayment(orderId, info)) === 'paid';
 }
 
-/** Puts reserved stock back. Safe to call once per order: guarded by the status transition. */
-export async function cancelOrder(orderId: number, actor: string, reason?: string, opts: { requireUnpaid?: boolean } = {}): Promise<boolean> {
+/** Puts reserved stock and the coupon use back. Safe to call once per order: guarded by the status transition. */
+export async function cancelOrder(orderId: number, actor: string, reason?: string, opts: { requireUnpaid?: boolean; noAttemptSince?: Date } = {}): Promise<boolean> {
   return db.transaction(async (tx) => {
     const flipped = await tx
       .update(orders)
       .set({ status: 'cancelled' })
-      // requireUnpaid: the automatic release must never cancel an order whose payment landed after it was selected
-      .where(and(eq(orders.id, orderId), sql`${orders.status} <> 'cancelled'`, opts.requireUnpaid ? sql`${orders.paymentStatus} NOT IN ('paid', 'refunded')` : undefined))
-      .returning({ id: orders.id });
+      .where(
+        and(
+          eq(orders.id, orderId),
+          sql`${orders.status} <> 'cancelled'`,
+          // requireUnpaid: the automatic release must never cancel an order whose payment landed, or was flagged for the
+          // owner, or that someone moved on, after it was selected
+          opts.requireUnpaid ? and(sql`${orders.paymentStatus} NOT IN ('paid', 'refunded')`, eq(orders.status, 'pending'), isNull(orders.paymentFlag)) : undefined,
+          // …nor one whose buyer opened a new checkout in the meantime
+          opts.noAttemptSince ? sql`NOT EXISTS (SELECT 1 FROM payment_attempts a WHERE a.order_id = ${orders.id} AND a.created_at >= ${opts.noAttemptSince.getTime()})` : undefined,
+        ),
+      )
+      .returning({ id: orders.id, couponCode: orders.couponCode });
     if (flipped.length === 0) return false;
+
+    // a cancelled order no longer counts against the coupon's «μέγιστες χρήσεις»
+    const { couponCode } = flipped[0];
+    if (couponCode) {
+      await tx.update(coupons).set({ usedCount: sql`MAX(${coupons.usedCount} - 1, 0)` }).where(eq(coupons.code, couponCode));
+    }
 
     const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
     const ids = items.map((i) => i.variantId).filter((id): id is number => id !== null);
@@ -427,7 +446,7 @@ export async function releaseAbandonedCardOrders(): Promise<number> {
       ),
     );
   let released = 0;
-  for (const o of stale) if (await cancelOrder(o.id, 'system', 'η πληρωμή με κάρτα δεν ολοκληρώθηκε', { requireUnpaid: true })) released++;
+  for (const o of stale) if (await cancelOrder(o.id, 'system', 'η πληρωμή με κάρτα δεν ολοκληρώθηκε', { requireUnpaid: true, noAttemptSince: cutoff })) released++;
   return released;
 }
 

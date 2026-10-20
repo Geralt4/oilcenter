@@ -164,17 +164,19 @@ export function formatVolume(ml: number): string {
   return `${ml}ml`;
 }
 
-/** "5L" | "300 ml" | "1 lt" | "20 Liter" → millilitres, or null */
+/** "5L" | "300 ml" | "1 lt" | "20 Liter" | "5 λίτρα" → millilitres, or null. A weight ("1 kg", "400 gr") is not a volume: null. */
 export function parseVolumeMl(label: string): number | null {
+  // `u` + an explicit look-ahead instead of \b: \b only knows ASCII letters, so «5 λίτρα» never matched
   const m = label
     .toLowerCase()
     .replace(',', '.')
-    .match(/([\d.]+)\s*(ml|l|lt|ltr|liter|litre|λίτρ\S*|λιτρ\S*|kg|g|gr)\b/);
+    .match(/([\d.]+)\s*(ml|l|lt|ltr|liter|litre|λίτρ\p{L}*|λιτρ\p{L}*|λιτ|kg|g|gr)(?![\p{L}\p{N}])/u);
   if (!m) return null;
   const n = Number(m[1]);
   if (!Number.isFinite(n)) return null;
   const unit = m[2];
-  if (unit === 'ml' || unit === 'g' || unit === 'gr') return Math.round(n);
+  if (unit === 'kg' || unit === 'g' || unit === 'gr') return null;
+  if (unit === 'ml') return Math.round(n);
   return Math.round(n * 1000);
 }
 
