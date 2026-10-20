@@ -260,7 +260,8 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
           setAvailabilityDrafts((d) => Object.fromEntries(Object.entries(d).filter(([id]) => !done.has(Number(id)))) as Record<number, Availability>);
           setFailed(result.failed);
           setSavedIds([...done]);
-          const undo = result.saved.flatMap((s) => (s.previousCents !== null ? [{ id: s.id, price: centsToInput(s.previousCents) }] : []));
+          // undo puts back the price AND whether it was confirmed: undoing a typo on a placeholder must not publish the placeholder
+          const undo = result.saved.flatMap((s) => (s.previousCents !== null ? [{ id: s.id, price: centsToInput(s.previousCents), verified: s.previousVerified }] : []));
           setNotice({ ok: result.ok, text: isUndo && result.ok ? 'Οι προηγούμενες τιμές επανήλθαν.' : result.message, undo: !isUndo && undo.length ? undo : undefined });
         } catch {
           setNotice({ ok: false, text: 'Η αποθήκευση απέτυχε. Ελέγξτε τη σύνδεσή σας και δοκιμάστε ξανά — οι αλλαγές σας είναι ακόμη εδώ.' });
@@ -302,12 +303,14 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
     setNotice(null);
   };
 
+  const percentRows = shown.filter((r) => r.verified);
   const percentValue = Number(percent.replace(',', '.').replace('%', '').trim());
   const percentValid = percent.trim() !== '' && Number.isFinite(percentValue) && percentValue !== 0 && percentValue > -90 && percentValue <= 300;
   const applyPercent = () => {
     if (!percentValid) return;
-    // always from the saved price, so pressing the button twice does not compound
-    setDrafts((d) => ({ ...d, ...Object.fromEntries(shown.map((r) => [r.id, centsToInput(applyRounding(r.priceCents * (1 + percentValue / 100), rounding))])) }));
+    // always from the saved price, so pressing the button twice does not compound; only CONFIRMED prices: saving a new price
+    // confirms it, and a placeholder raised by 3 % is still a guess that must not go live
+    setDrafts((d) => ({ ...d, ...Object.fromEntries(percentRows.map((r) => [r.id, centsToInput(applyRounding(r.priceCents * (1 + percentValue / 100), rounding))])) }));
     setNotice(null);
   };
 
@@ -368,7 +371,7 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
         </summary>
         <div className="border-t border-line px-4 py-4">
           <p className="text-sm text-ink-600">
-            Εφαρμόζεται στις τιμές που εμφανίζονται τώρα από κάτω ({scope}). Οι νέες τιμές γράφονται στα κουτάκια για να τις δείτε — <strong>δεν αλλάζει τίποτα στο κατάστημα μέχρι να πατήσετε «Αποθήκευση»</strong>.
+            Εφαρμόζεται στις επιβεβαιωμένες τιμές που εμφανίζονται τώρα από κάτω ({scope}) — όχι στις «προς επιβεβαίωση», που πρέπει να γραφτούν μία μία. Οι νέες τιμές γράφονται στα κουτάκια για να τις δείτε — <strong>δεν αλλάζει τίποτα στο κατάστημα μέχρι να πατήσετε «Αποθήκευση»</strong>.
           </p>
           <div className="mt-3 flex flex-wrap items-end gap-3">
             <label className="block">
@@ -384,8 +387,8 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
                 <option value="90">Να τελειώνει σε ,90 — 12,90</option>
               </select>
             </label>
-            <button type="button" onClick={applyPercent} disabled={!percentValid || shown.length === 0} className={buttonClass({ variant: 'dark' })}>
-              Υπολογισμός σε {shown.length} {shown.length === 1 ? 'τιμή' : 'τιμές'}
+            <button type="button" onClick={applyPercent} disabled={!percentValid || percentRows.length === 0} className={buttonClass({ variant: 'dark' })}>
+              Υπολογισμός σε {percentRows.length} {percentRows.length === 1 ? 'τιμή' : 'τιμές'}
             </button>
           </div>
         </div>

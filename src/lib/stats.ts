@@ -105,7 +105,13 @@ export const recordSignup = () => bump(athensDay(), 'signup');
 // ─── Reading ─────────────────────────────────────────────────────────────────
 export type DayPoint = { day: string; visitors: number; pageviews: number };
 
-const since = (days: number) => athensDay(new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000));
+/** The Athens calendar day `n` days before today. Stepped on the calendar, not by 24 h: a clock-change day is 23 or 25 hours long. */
+function athensDaysAgo(n: number): string {
+  const [y, m, d] = athensDay().split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d - n)).toISOString().slice(0, 10);
+}
+
+const since = (days: number) => athensDaysAgo(days - 1);
 
 export async function dailySeries(days: number): Promise<DayPoint[]> {
   const rows = await db
@@ -115,7 +121,7 @@ export async function dailySeries(days: number): Promise<DayPoint[]> {
     .groupBy(statCounters.day, statCounters.kind);
   const byDay = new Map<string, DayPoint>();
   for (let i = days - 1; i >= 0; i--) {
-    const day = athensDay(new Date(Date.now() - i * 24 * 60 * 60 * 1000));
+    const day = athensDaysAgo(i);
     byDay.set(day, { day, visitors: 0, pageviews: 0 });
   }
   for (const r of rows) {

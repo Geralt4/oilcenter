@@ -41,11 +41,13 @@ export default async function OrderPage({ params, searchParams }: Props) {
 
   const justPlaced = sp.placed === '1' || sp.payment === 'success';
   const paymentProblem = sp.payment === 'failed' || sp.payment === 'cancelled';
+  // the gateway took the payment but has not settled it yet (e.g. SEPA Debit): no retry button, or the buyer pays twice
+  const paymentProcessing = sp.payment === 'pending';
   // only a payment that is still open asks for a card: a REFUNDED order must not offer to be paid again
   const unpaidCard = order.paymentMethod === 'card' && (order.paymentStatus === 'pending' || order.paymentStatus === 'failed') && order.status !== 'cancelled';
   // a flagged unpaid order may already have been charged (wrong amount / currency): it waits for the owner, never for a new payment
   const paymentUnderReview = unpaidCard && order.paymentFlag !== null;
-  const awaitingCard = unpaidCard && !paymentUnderReview;
+  const awaitingCard = unpaidCard && !paymentUnderReview && !paymentProcessing;
 
   return (
     <div className="container-page max-w-4xl py-8 sm:py-12">
@@ -62,6 +64,15 @@ export default async function OrderPage({ params, searchParams }: Props) {
           Η παραγγελία ακυρώθηκε.
           {order.paymentStatus === 'paid' ? ' Η πληρωμή σας θα επιστραφεί: θα επικοινωνήσουμε μαζί σας.' : order.paymentStatus === 'refunded' ? ' Η πληρωμή σας έχει επιστραφεί.' : ' Δεν υπάρχει οφειλή.'}
         </p>
+      )}
+      {unpaidCard && !paymentUnderReview && paymentProcessing && (
+        <div role="status" className="mb-8 rounded-3xl border border-amber-200 bg-amber-50 p-6">
+          <h2 className="flex items-center gap-2 font-bold text-amber-950"><CircleAlert className="h-5 w-5" />Η πληρωμή σας βρίσκεται σε επεξεργασία</h2>
+          <p className="mt-1.5 text-sm text-amber-900">Μην πληρώσετε ξανά: η παραγγελία θα ενημερωθεί μόλις ολοκληρωθεί η πληρωμή. Για οτιδήποτε καλέστε μας.</p>
+          <div className="mt-4">
+            <a href={telHref(shop.phone)} className={buttonClass({ variant: 'outline', className: 'tabular' })}><Phone className="h-4 w-4" />{shop.phone}</a>
+          </div>
+        </div>
       )}
       {paymentUnderReview && (
         <div role="status" className="mb-8 rounded-3xl border border-amber-200 bg-amber-50 p-6">

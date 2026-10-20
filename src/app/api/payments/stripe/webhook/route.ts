@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
       if (order && order.paymentRef === session.id) {
         const ref = typeof session.payment_intent === 'string' ? session.payment_intent : session.id;
-        await settleCardPayment(order, { provider: 'stripe', ref, amountCents: session.amount_total ?? 0 });
+        await settleCardPayment(order, { provider: 'stripe', ref, amountCents: session.amount_total ?? 0, attemptRef: session.id });
       }
     }
   }

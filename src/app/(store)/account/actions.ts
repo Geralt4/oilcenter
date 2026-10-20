@@ -1,6 +1,7 @@
 'use server';
 
 import { redirect } from 'next/navigation';
+import { after } from 'next/server';
 import { and, eq, gt } from 'drizzle-orm';
 import { z } from 'zod';
 import { hashPassword, randomToken, sha256, verifyPassword } from '@/lib/auth/password';
@@ -40,13 +41,13 @@ function safeNext(value: FormDataEntryValue | null): string {
 export async function registerCustomer(_prev: FormState, formData: FormData): Promise<FormState> {
   // the pages are hidden in catalogue mode (lib/catalogue-mode.ts); the action must not be a way around that
   if (!(await canOrderNow())) return { ok: false, message: 'Οι λογαριασμοί πελατών θα ανοίξουν μαζί με τις online παραγγελίες.' };
-  const limited = await rateLimit(`register:${await clientIp()}`, 6, 30 * 60 * 1000);
-  if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.' };
-
   const parsed = z
     .object({ firstName: z.string().trim().min(2, 'Συμπληρώστε το όνομά σας').max(80), lastName: z.string().trim().min(2, 'Συμπληρώστε το επώνυμό σας').max(80), email, password, acceptTerms: z.literal('on', { error: 'Πρέπει να αποδεχτείτε τους όρους' }) })
     .safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { ok: false, message: 'Ελέγξτε τα σημειωμένα πεδία.', fieldErrors: fieldErrors(parsed.error) };
+  // counted only for a valid form (as the contact forms do): a typo or an unticked box must not use up the attempts
+  const limited = await rateLimit(`register:${await clientIp()}`, 6, 30 * 60 * 1000);
+  if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.' };
 
   const [existing] = await db.select({ id: customers.id }).from(customers).where(eq(customers.email, parsed.data.email));
   if (existing) return { ok: false, message: 'Υπάρχει ήδη λογαριασμός με αυτό το e-mail.', fieldErrors: { email: 'Συνδεθείτε ή κάντε επαναφορά κωδικού.' } };
@@ -109,7 +110,9 @@ export async function requestPasswordReset(_prev: FormState, formData: FormData)
   if (customer) {
     const token = randomToken();
     await db.update(customers).set({ resetTokenHash: sha256(token), resetTokenExpires: new Date(Date.now() + 60 * 60 * 1000) }).where(eq(customers.id, customer.id));
-    await sendMail(passwordResetMail(parsed.data, token, await getSettings()));
+    const mail = passwordResetMail(parsed.data, token, await getSettings());
+    // sent after the reply: waiting for the mail server only when the account exists would tell who has one
+    after(() => sendMail(mail));
   }
   return done; // identical answer either way
 }

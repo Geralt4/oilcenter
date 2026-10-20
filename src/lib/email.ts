@@ -37,7 +37,17 @@ const from = () => {
 const resendKey = () => process.env.RESEND_API_KEY?.trim() || '';
 export const mailConfigured = () => Boolean(resendKey() || process.env.SMTP_HOST);
 
-const plainText = (html: string) => html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+const plainText = (html: string) =>
+  html
+    .replace(/<style[\s\S]*?<\/style>/g, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    // undo esc(): «Castrol &amp; Motul» must read «Castrol & Motul» in the text part (&amp; last, so «&amp;lt;» stays «&lt;»)
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&');
 
 async function sendWithResend(mail: Mail): Promise<void> {
   const res = await fetch('https://api.resend.com/emails', {
