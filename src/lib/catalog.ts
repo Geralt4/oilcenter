@@ -364,8 +364,9 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
     base: (p: IndexedProduct) => !baseSet.size || (p.baseType !== null && baseSet.has(p.baseType)),
     stock: (p: IndexedProduct) => !filters.inStockOnly || p.inStock,
     sale: (p: IndexedProduct) => !filters.onSaleOnly || p.onSale,
-    // a price filter can only match products that show a price
-    price: (p: IndexedProduct) => (min === undefined && max === undefined) || (p.hasPrice && (min === undefined || p.maxPriceCents >= min) && (max === undefined || p.minPriceCents <= max)),
+    // a price filter can only match products that show a price, and only through a size priced inside the range
+    // (1 L at 5 € and 5 L at 50 € has nothing between 10 and 20 €, although its range overlaps)
+    price: (p: IndexedProduct) => (min === undefined && max === undefined) || p.variants.some((v) => v.priced && (min === undefined || v.priceCents >= min) && (max === undefined || v.priceCents <= max)),
   };
   type TestKey = keyof typeof tests;
   const applyExcept = (skip: TestKey | null) =>

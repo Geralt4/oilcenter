@@ -79,6 +79,8 @@ export async function retryCardPayment(number: string, token: string): Promise<{
   if (!order || order.accessToken !== token) return { ok: false, message: 'Η παραγγελία δεν βρέθηκε.' };
   // only an open payment can be retried: a paid or REFUNDED order must not be charged again
   if (order.paymentMethod !== 'card' || (order.paymentStatus !== 'pending' && order.paymentStatus !== 'failed') || order.status === 'cancelled') return { ok: false, message: 'Η παραγγελία δεν αναμένει πληρωμή.' };
+  // a flagged order may already have been charged (e.g. a payment with the wrong amount): the owner sorts it out, no second charge
+  if (order.paymentFlag !== null) return { ok: false, message: 'Η πληρωμή σας ελέγχεται από το κατάστημα. Μην πληρώσετε ξανά· θα επικοινωνήσουμε μαζί σας.' };
   try {
     const payment = await startCardPayment(order);
     await recordPaymentAttempt(order.id, payment);

@@ -22,7 +22,7 @@ export async function ProductEditor({ product, created, saved }: Props) {
   const missingWording = hazard ? unknownCodes(hazard) : [];
 
   const rows: VariantRow[] = (product?.variants ?? []).map((v) => ({
-    id: v.id, label: v.label, sku: v.sku, price: centsToInput(v.priceCents), compareAt: centsToInput(v.compareAtCents), stock: v.stock, trackStock: v.trackStock, availability: v.availability,
+    id: v.id, label: v.label, sku: v.sku, price: centsToInput(v.priceCents), compareAt: centsToInput(v.compareAtCents), stock: v.stock, loadedStock: v.stock, trackStock: v.trackStock, availability: v.availability,
     weightGrams: v.weightGrams, barcode: v.barcode ?? '', mpn: v.mpn ?? '', imageUrl: v.imageUrl ?? '', isActive: v.isActive, priceVerified: v.priceVerified,
   }));
   // several sizes and several photos, yet no size has a photo of its own: every size would show the main one
@@ -80,8 +80,10 @@ export async function ProductEditor({ product, created, saved }: Props) {
 
         <Card title="Συσκευασίες, τιμές & απόθεμα" description="Κάθε συσκευασία (1L, 4L, 20L…) έχει δική της τιμή, βάρος αποστολής και απόθεμα.">
           {needsSizePhotos && <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900">Το προϊόν έχει περισσότερες από μία συσκευασίες και φωτογραφίες, αλλά καμία συσκευασία δεν έχει τη δική της. Πατήστε στη στήλη «Φωτογραφία» αυτήν που ταιριάζει σε κάθε μέγεθος και αποθηκεύστε.</p>}
-          {/* remounts once a save has given new sizes their ids: sent back without one, a size would be deleted and created again */}
-          <VariantsEditor key={rows.map((r) => r.id ?? 'new').join('-')} initial={rows} images={(product?.images ?? []).map((i) => i.url)} />
+          {/* Remounts after every save (and when stock moved), so the rows start again from what is stored now: new sizes get
+              their ids (sent back without one, a size would be deleted and created again), and a second save does not apply
+              the same stock change twice (the save works on the change since the page loaded). */}
+          <VariantsEditor key={`${product?.updatedAt?.getTime() ?? 0}|${rows.map((r) => `${r.id ?? 'new'}:${r.stock}`).join('-')}`} initial={rows} images={(product?.images ?? []).map((i) => i.url)} />
         </Card>
 
         <Card title="Προσθήκη φωτογραφιών" description="Τραβήξτε το προϊόν σε ανοιχτόχρωμο φόντο. Το σύστημα καθαρίζει το φόντο, κεντράρει και φέρνει όλες τις φωτογραφίες στο ίδιο μέγεθος.">

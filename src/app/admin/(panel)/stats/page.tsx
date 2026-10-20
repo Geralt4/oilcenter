@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { desc, inArray } from 'drizzle-orm';
+import { count, desc, inArray } from 'drizzle-orm';
 import { Download } from 'lucide-react';
 import { deleteSignup } from '@/app/admin/actions';
 import { ConfirmButton } from '@/components/admin/admin-form';
@@ -43,7 +43,7 @@ export default async function AdminStatsPage({ searchParams }: { searchParams: P
   const sp = await searchParams;
   const days = PERIODS.includes(Number(sp.days)) ? Number(sp.days) : 30;
 
-  const [series, visitors, pageviews, closedCheckout, signupsInPeriod, topProducts, topCategories, topBrands, searches, emptySearches, sources, devices, clicks, carts, signups] = await Promise.all([
+  const [series, visitors, pageviews, closedCheckout, signupsInPeriod, topProducts, topCategories, topBrands, searches, emptySearches, sources, devices, clicks, carts, signups, [{ n: signupCount }]] = await Promise.all([
     dailySeries(days),
     total('visitor', days),
     total('pageview', days),
@@ -59,6 +59,8 @@ export default async function AdminStatsPage({ searchParams }: { searchParams: P
     topKeys('click', days, 10),
     topKeys('cart', days, 10),
     db.select().from(launchSignups).orderBy(desc(launchSignups.createdAt)).limit(200),
+    // the list above stops at 200; the totals must not
+    db.select({ n: count() }).from(launchSignups),
   ]);
 
   // slugs → names
@@ -102,7 +104,7 @@ export default async function AdminStatsPage({ searchParams }: { searchParams: P
           { label: 'Επισκέπτες', value: visitors, hint: 'μοναδικοί ανά ημέρα' },
           { label: 'Προβολές σελίδων', value: pageviews, hint: visitors ? `${(pageviews / visitors).toFixed(1).replace('.', ',')} ανά επισκέπτη` : '' },
           { label: 'Έφτασαν ως το ταμείο', value: closedCheckout, hint: 'ενώ οι παραγγελίες ήταν κλειστές' },
-          { label: 'Ζήτησαν ειδοποίηση', value: signupsInPeriod, hint: `${signups.length} συνολικά` },
+          { label: 'Ζήτησαν ειδοποίηση', value: signupsInPeriod, hint: `${signupCount} συνολικά` },
         ].map((k) => (
           <Card key={k.label}>
             <p className="text-sm font-medium text-ink-500">{k.label}</p>
@@ -138,7 +140,7 @@ export default async function AdminStatsPage({ searchParams }: { searchParams: P
         <TopList title="Τι πάτησαν για να σας βρουν" rows={named(clicks, new Map(Object.entries(CLICK_LABELS)))} empty="Κανένα κλικ σε τηλέφωνο, χάρτη ή social ακόμη." />
         <TopList title="Συσκευή" rows={devices.map((r) => ({ label: r.key, n: r.n }))} empty="Καμία επίσκεψη ακόμη." />
 
-        <Card title={`Θέλουν ειδοποίηση όταν ανοίξουν οι παραγγελίες (${signups.length})`} description="Χρησιμοποιήστε αυτά τα e-mail μόνο για να τους ενημερώσετε ότι άνοιξαν οι online παραγγελίες. Αν κάποιος ζητήσει διαγραφή, σβήστε τον από εδώ.">
+        <Card title={`Θέλουν ειδοποίηση όταν ανοίξουν οι παραγγελίες (${signupCount})`} description="Χρησιμοποιήστε αυτά τα e-mail μόνο για να τους ενημερώσετε ότι άνοιξαν οι online παραγγελίες. Αν κάποιος ζητήσει διαγραφή, σβήστε τον από εδώ.">
           {signups.length === 0 ? (
             <p className="text-sm text-ink-500">Καμία εγγραφή ακόμη.</p>
           ) : (
