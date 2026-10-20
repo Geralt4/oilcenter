@@ -1,0 +1,77 @@
+# Runs what a contributor runs locally (README → Scripts) on every pull request and on every push to main.
+# Each test script works on a throwaway copy of the database that `npm run setup` creates here from catalog/.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # test-only values: the database is created from scratch on the runner and thrown away with it
+  SITE_URL: http://localhost:3000
+  DATABASE_URL: file:./data/shop.db
+  DATA_DIR: ./data
+  ADMIN_EMAIL: admin@example.invalid
+  ADMIN_PASSWORD: ci-only-password-not-a-secret
+  VIVA_ENV: demo
+
+jobs:
+  checks:
+    name: Typecheck, lint and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Session secret for this run
+        run: echo "AUTH_SECRET=$(openssl rand -base64 48 | tr -d '\n')" >> "$GITHUB_ENV"
+      # next-env.d.ts and the route types are generated, not committed
+      - run: npx next typegen
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Database (migrate, seed, data patches)
+        run: npm run setup
+      - run: npm run test:orders
+      - run: npm run test:security
+      - run: npm run test:viva
+      - run: npm run test:feed
+      - run: npm run test:catalog
+      - run: npm run test:admin
+
+  browser:
+    name: Production build and browser flows
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Session secret for this run
+        run: echo "AUTH_SECRET=$(openssl rand -base64 48 | tr -d '\n')" >> "$GITHUB_ENV"
+      - name: Database (migrate, seed, data patches)
+        run: npm run setup
+      - run: npm run build
+      # test:flows and test:card build first; the build above serves both
+      - name: Admin flows (login + TOTP, database download, CSV import, photo/SDS save)
+        run: npx tsx scripts/test-flows.ts
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+      - name: Card payment flow against a fake Viva
+        run: npx tsx scripts/test-card-flow.ts
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
