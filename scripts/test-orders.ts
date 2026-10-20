@@ -72,6 +72,21 @@ async function main() {
   check('cancel restocks', (await cancelOrder(first.order.id, 'test')) === true && (await stock()) === 2, await stock());
   check('second cancel does nothing (no double restock)', (await cancelOrder(first.order.id, 'test')) === false && (await stock()) === 2, await stock());
 
+  console.log('Stock counting switched after an order');
+  await db.update(variants).set({ trackStock: false, stock: 0 }).where(eq(variants.id, variant.id));
+  const untrackedOrder = await createOrder({ ...base, lines: [{ variantId: variant.id, quantity: 2 }] }, settings, opts);
+  if (!untrackedOrder.ok) throw new Error(`order while untracked not created: ${untrackedOrder.message}`);
+  await db.update(variants).set({ trackStock: true, stock: 5 }).where(eq(variants.id, variant.id));
+  await cancelOrder(untrackedOrder.order.id, 'test');
+  check('an order placed while stock was not counted returns nothing when counting was switched on since', (await stock()) === 5, await stock());
+  const trackedOrder = await createOrder({ ...base, lines: [{ variantId: variant.id, quantity: 2 }] }, settings, opts);
+  if (!trackedOrder.ok) throw new Error(`order while tracked not created: ${trackedOrder.message}`);
+  check('(the counted order reserved its 2 units)', (await stock()) === 3, await stock());
+  await db.update(variants).set({ trackStock: false }).where(eq(variants.id, variant.id));
+  await cancelOrder(trackedOrder.order.id, 'test');
+  check('an order that reserved stock gives it back even when counting was switched off since', (await stock()) === 5, await stock());
+  await db.update(variants).set({ trackStock: true, stock: 2 }).where(eq(variants.id, variant.id));
+
   console.log('Coupons');
   await db.update(coupons).set({ isActive: true, minSubtotalCents: 1000, maxUses: 1, usedCount: 0 }).where(eq(coupons.code, 'WELCOME5'));
   const withCoupon = await createOrder({ ...base, paymentMethod: 'bank_transfer', couponCode: 'welcome5', lines: [{ variantId: variant.id, quantity: 2 }] }, settings, opts);

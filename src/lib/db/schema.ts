@@ -382,6 +382,11 @@ export const orderItems = sqliteTable(
     weightGrams: integer('weight_grams').notNull().default(0),
     /** what the buyer was told when ordering; null on orders from before availability labels existed */
     availability: text('availability').$type<Availability>(),
+    /**
+     * whether placing the order took these units off counted stock, so a cancel returns exactly that (the size's stock
+     * counting may have been switched on or off since); null on orders from before this was recorded
+     */
+    stockReserved: integer('stock_reserved', { mode: 'boolean' }),
   },
   (t) => [index('order_items_order_idx').on(t.orderId)],
 );

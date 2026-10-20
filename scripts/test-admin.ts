@@ -91,6 +91,18 @@ async function main() {
   const twice = plan('sku;price\nA-1;13,00\nA-1;14,00\n');
   check('a code listed twice: one change, the last line wins, measured from the original price', twice.changes.length === 1 && twice.changes[0].newCents === 1400 && twice.changes[0].oldCents === 1290, twice.changes);
   check('a file without sku/price columns is refused', planPriceImport('code;amount\nA-1;5\n', shop()).error !== undefined);
+  // B-2 was exported at 7 (exported_stock); by the upload orders have taken 3, so the shop holds 4
+  const later = () => new Map([...shop()].map(([sku, v]) => [sku, sku === 'B-2' ? { ...v, stock: 4 } : v]));
+  const planLater = (text: string) => {
+    const p = planPriceImport(text, later());
+    if (p.error !== undefined) throw new Error(p.error);
+    return p;
+  };
+  check('an exported file uploaded later leaves the stock alone when its cell was not edited', planLater('sku;price;stock;exported_stock\nB-2;45,00;7;7\n').changes.length === 0);
+  const editedStock = planLater('sku;price;stock;exported_stock\nB-2;45,00;9;7\n');
+  check('…and an edited cell (+2) moves today\'s stock by the same amount: 4 → 6', editedStock.changes.length === 1 && editedStock.changes[0].patch.stock === 6, editedStock.changes);
+  const handMade = planLater('sku;price;stock\nB-2;45,00;9\n');
+  check('a file without exported_stock still sets the number typed', handMade.changes.length === 1 && handMade.changes[0].patch.stock === 9, handMade.changes);
 
   console.log('Price list: the real catalogue, exported and uploaded back');
   const rows = await db.select({ v: variants, productName: products.name, brandName: brands.name }).from(variants).innerJoin(products, eq(variants.productId, products.id)).leftJoin(brands, eq(products.brandId, brands.id)).orderBy(asc(variants.id));
