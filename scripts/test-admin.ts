@@ -100,7 +100,18 @@ async function main() {
   };
   check('an exported file uploaded later leaves the stock alone when its cell was not edited', planLater('sku;price;stock;exported_stock\nB-2;45,00;7;7\n').changes.length === 0);
   const editedStock = planLater('sku;price;stock;exported_stock\nB-2;45,00;9;7\n');
-  check('…and an edited cell (+2) moves today\'s stock by the same amount: 4 → 6', editedStock.changes.length === 1 && editedStock.changes[0].patch.stock === 6, editedStock.changes);
+  check('…and an edited cell (+2) is kept as an ADJUSTMENT of +2, applied to the stock as it is when saved', editedStock.changes.length === 1 && editedStock.changes[0].patch.stockDelta === 2 && editedStock.changes[0].patch.stock === undefined && editedStock.changes[0].patch.trackStock === true, editedStock.changes);
+  // the same row twice: the adjustment is worked out once, from the stock the shop held before the upload (10 → 12, not 14)
+  const tenShop = () => new Map([['B-2', { id: 2, priceCents: 4500, priceVerified: true, stock: 10, trackStock: true, availability: 'in_stock' as const }]]);
+  const doubled = planPriceImport('sku;price;stock;exported_stock\nB-2;45,00;12;10\nB-2;45,00;12;10\n', tenShop());
+  if (doubled.error !== undefined) throw new Error(doubled.error);
+  check('the same row twice applies its adjustment once (+2, not +4)', doubled.changes.length === 1 && doubled.changes[0].patch.stockDelta === 2, doubled.changes);
+  const replaced = planPriceImport('sku;price;stock;exported_stock\nB-2;45,00;12;10\nB-2;45,00;11;10\n', tenShop());
+  if (replaced.error !== undefined) throw new Error(replaced.error);
+  check('two different rows for one code: the later one wins (+1)', replaced.changes.length === 1 && replaced.changes[0].patch.stockDelta === 1, replaced.changes);
+  const mixedKinds = planPriceImport('sku;price;stock\nB-2;45,00;20\n', tenShop());
+  if (mixedKinds.error !== undefined) throw new Error(mixedKinds.error);
+  check('a hand-made row (no exported_stock) still sets the absolute number', mixedKinds.changes[0].patch.stock === 20 && mixedKinds.changes[0].patch.stockDelta === undefined, mixedKinds.changes);
   const handMade = planLater('sku;price;stock\nB-2;45,00;9\n');
   check('a file without exported_stock still sets the number typed', handMade.changes.length === 1 && handMade.changes[0].patch.stock === 9, handMade.changes);
 
@@ -610,6 +621,25 @@ async function main() {
     check('…and the sessions were invalidated once (token version +1)', afterReset.tokenVersion === customer.tokenVersion + 1, afterReset.tokenVersion);
     check('…and the link is spent', afterReset.resetTokenHash === null);
     await db.delete(customers).where(eq(customers.id, customer.id));
+
+    // a stock adjustment from an exported file, read at 10, saved after a sale took one unit: 9 + 2 = 11 (not the stale 12)
+    const { applyPriceChanges } = await import('../src/lib/price-apply');
+    const [stockVariant] = await db.select().from(variants).limit(1);
+    await db.update(variants).set({ trackStock: true, stock: 10 }).where(eq(variants.id, stockVariant.id));
+    const stalePlan = planPriceImport(
+      `sku;price;stock;exported_stock\n${stockVariant.sku};${(stockVariant.priceCents / 100).toFixed(2).replace('.', ',')};12;10\n`,
+      new Map([[stockVariant.sku, { id: stockVariant.id, priceCents: stockVariant.priceCents, priceVerified: stockVariant.priceVerified, stock: 10, trackStock: true, availability: stockVariant.availability }]]),
+    );
+    if (stalePlan.error !== undefined) throw new Error(stalePlan.error);
+    await db.update(variants).set({ stock: 9 }).where(eq(variants.id, stockVariant.id));
+    await db.transaction((tx) => applyPriceChanges(tx, stalePlan.changes));
+    const stockAfterImport = (await db.select({ s: variants.stock }).from(variants).where(eq(variants.id, stockVariant.id)))[0].s;
+    check('an import adjustment is applied to the stock as it is when saved: 9 + 2 = 11', stockAfterImport === 11, stockAfterImport);
+    await db.update(variants).set({ stock: 1 }).where(eq(variants.id, stockVariant.id));
+    const down = planPriceImport(`sku;price;stock;exported_stock\n${stockVariant.sku};${(stockVariant.priceCents / 100).toFixed(2).replace('.', ',')};5;10\n`, new Map([[stockVariant.sku, { id: stockVariant.id, priceCents: stockVariant.priceCents, priceVerified: stockVariant.priceVerified, stock: 10, trackStock: true, availability: stockVariant.availability }]]));
+    if (down.error !== undefined) throw new Error(down.error);
+    await db.transaction((tx) => applyPriceChanges(tx, down.changes));
+    check('…and a downward adjustment never takes the stock below zero', (await db.select({ s: variants.stock }).from(variants).where(eq(variants.id, stockVariant.id)))[0].s === 0);
 
     // the owner saves «Απέτυχε» and the card payment lands right after the order was read: the payment must survive.
     // The race is forced: the first read of the order inside updateOrder is delayed until the payment has been recorded.

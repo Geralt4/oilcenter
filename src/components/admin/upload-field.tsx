@@ -41,7 +41,10 @@ export function UploadField({ name, kind, accept, multiple, maxFiles, maxTotalMb
   const clear = useCallback(() => {
     setTokens([]);
     setProblem('');
-    inputRef.current?.setCustomValidity('');
+    if (inputRef.current) {
+      inputRef.current.setCustomValidity('');
+      inputRef.current.value = '';
+    }
   }, []);
 
   useEffect(() => {
@@ -117,6 +120,14 @@ export function UploadField({ name, kind, accept, multiple, maxFiles, maxTotalMb
       ))}
       {busy && <p role="status" className="mt-2 text-sm font-medium text-ink-600">Ανεβαίνει… παρακαλώ περιμένετε.</p>}
       {problem && <p role="alert" className="mt-2 text-sm font-medium text-red-700">{problem}</p>}
+      {/* a refused upload leaves the picker blocked with nothing uploaded: it needs its own way out, or the form cannot be saved */}
+      {!busy && tokens.length === 0 && problem && (
+        <p className="mt-2 text-xs text-ink-500">
+          <button type="button" className="font-semibold text-petrol-500 underline underline-offset-2" onClick={clear}>
+            Καθαρισμός
+          </button>
+        </p>
+      )}
       {!busy && tokens.length > 0 && (
         <p className="mt-2 text-xs text-ink-500">
           {tokens.length} {what} έτοιμα για αποθήκευση.{' '}
