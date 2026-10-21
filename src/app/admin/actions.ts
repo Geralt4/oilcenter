@@ -1206,7 +1206,9 @@ export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promi
     // all or nothing: a failure halfway through the file must not leave half the barcodes applied
     await db.transaction(async (tx) => {
       for (const { cells } of lines) {
-        const sku = (cells[col.sku] ?? '').toUpperCase();
+        // a code typed by hand in the product editor keeps its case, so the cell is tried as written first
+        const typed = cells[col.sku] ?? '';
+        const sku = bySku.has(typed) ? typed : typed.toUpperCase();
         if (!sku) continue;
         const current = bySku.get(sku);
         if (!current) {

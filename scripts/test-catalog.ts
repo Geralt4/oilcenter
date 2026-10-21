@@ -21,6 +21,7 @@ async function main() {
   const { categories, products, variants } = await import('../src/lib/db/schema');
   const { getViscosities, getViscosityBySlug, listProducts, matchCode, suggestProducts, viscosityLabel, viscositySlug } = await import('../src/lib/catalog');
   const { activeFilterCount, parseListingParams } = await import('../src/lib/listing-params');
+  const { parseVolumeMl } = await import('../src/lib/utils');
 
   // what the shop window holds, counted without the read model: active products with at least one active size
   const rows = await db.select({ id: products.id, viscosity: products.viscosity, categoryId: products.categoryId }).from(products).innerJoin(variants, eq(variants.productId, products.id)).where(eq(products.isActive, true));
@@ -248,6 +249,12 @@ async function main() {
   check('?spec= is read as a list, lower-cased', parseListingParams({ spec: 'VW-504-00,mb-229.51' }).approvals?.join('|') === 'vw-504-00|mb-229.51');
   const parsed = parseListingParams({ cat: 'valvolines,atf-cvt-dct', visc: '5W-30' });
   check('?cat= is read as a list and counts as active filters', parsed.categories?.join('|') === 'valvolines|atf-cvt-dct' && activeFilterCount(parsed) === 3);
+
+  console.log('Pack sizes');
+  const ml = (label: string) => parseVolumeMl(label);
+  check('«5 λίτρα» and «4 Λίτρα» read as litres', ml('5 λίτρα') === 5000 && ml('4 Λίτρα') === 4000);
+  check('latin units still read: 5L, 1 lt, 300 ml, 1,5L, 20 Liter', ml('5L') === 5000 && ml('1 lt') === 1000 && ml('300 ml') === 300 && ml('1,5L') === 1500 && ml('20 Liter') === 20000);
+  check('a label with no unit is not a size', ml('Τεμάχιο') === null);
 }
 
 main()

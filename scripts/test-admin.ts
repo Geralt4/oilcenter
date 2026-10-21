@@ -33,7 +33,7 @@ async function main() {
   // revalidatePath needs a request's cache store; outside a request there is nothing to revalidate.
   const cachePath = require.resolve('next/cache');
   require.cache[cachePath] = { id: cachePath, filename: cachePath, loaded: true, exports: { revalidatePath: () => undefined, revalidateTag: () => undefined } } as unknown as NodeJS.Module;
-  const { asc, eq } = await import('drizzle-orm');
+  const { asc, eq, inArray } = await import('drizzle-orm');
   const { migrate } = await import('drizzle-orm/libsql/migrator');
   const { db } = await import('../src/lib/db');
   const { brands, products, variants } = await import('../src/lib/db/schema');
@@ -584,6 +584,22 @@ async function main() {
 
     for (const code of r3Codes) await db.delete(coupons).where(eq(coupons.code, code));
     await db.delete(sales).where(eq(sales.name, 'Δοκιμή κλάδεμα'));
+  }
+
+  console.log('Category tree (saveCategory)');
+  {
+    const { categories } = await import('../src/lib/db/schema');
+    const { saveCategory } = await import('../src/app/admin/actions');
+    const [top] = await db.insert(categories).values({ name: 'ΔοκιμήΑ', slug: 'test-loop-a' }).returning();
+    const [mid] = await db.insert(categories).values({ name: 'ΔοκιμήΒ', slug: 'test-loop-b', parentId: top.id }).returning();
+    const [low] = await db.insert(categories).values({ name: 'ΔοκιμήΓ', slug: 'test-loop-c', parentId: mid.id }).returning();
+    const move = async (id: number, parentId: number) => (await saveCategory(null, form({ id: String(id), name: 'Δοκιμή', slug: '', parentId: String(parentId), isActive: 'on' })))!;
+    const loop = await move(top.id, low.id);
+    check('a category cannot be moved under its own grandchild', loop.ok === false, loop);
+    check('…and nothing changed', (await db.select().from(categories).where(eq(categories.id, top.id)))[0].parentId === null);
+    const fine = await move(low.id, top.id);
+    check('moving it under an ancestor is still allowed', fine.ok === true, fine);
+    await db.delete(categories).where(inArray(categories.id, [top.id, mid.id, low.id]));
   }
 
   console.log('Second pass');
