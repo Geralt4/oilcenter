@@ -294,6 +294,9 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
     }
   }
 
+  // refused up front, before anything is written: a cancelled order does not come back (its stock is already released)
+  if (status !== order.status && order.status === 'cancelled') return { ok: false, message: 'Μια ακυρωμένη παραγγελία δεν επανέρχεται (το απόθεμα έχει ήδη αποδεσμευτεί). Δημιουργήστε νέα.' };
+
   // The payment is written first and only from the status that was read above: a payment that landed since (the webhook, the
   // buyer's return) must not be overwritten by this save, and a refused save changes nothing else on the order.
   if (payment !== order.paymentStatus) {
@@ -311,7 +314,6 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
     }[payment];
     await addOrderEvent(id, 'payment', message, actor);
   }
-
 
   if (status === 'cancelled' && order.status !== 'cancelled') {
     await cancelOrder(id, actor); // restocks

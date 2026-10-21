@@ -647,6 +647,13 @@ async function main() {
     const afterRace = await orderNow(raced.id);
     check('a payment that lands while the owner saves «Απέτυχε» is not overwritten', afterRace.paymentStatus === 'paid' && afterRace.paidAt !== null, [afterRace.paymentStatus, afterRace.paidAt]);
     check('…and the owner is told to reload instead of seeing «saved»', result?.ok === false, result);
+
+    // reviving a cancelled order is refused as a whole: the payment change in the same save must not be written either
+    const dead = await makeOrder({ paymentMethod: 'card', status: 'cancelled' });
+    const revive = await updateOrder(null, form({ id: String(dead.id), status: 'processing', paymentStatus: 'paid', loadedStatus: 'cancelled', loadedPayment: 'pending' }));
+    const deadAfter = await orderNow(dead.id);
+    check('a save that tries to revive a cancelled order is refused…', revive?.ok === false, revive);
+    check('…and its payment change is not written either', deadAfter.paymentStatus === 'pending' && deadAfter.status === 'cancelled', [deadAfter.paymentStatus, deadAfter.status]);
   }
 
   console.log('Category tree (saveCategory)');
