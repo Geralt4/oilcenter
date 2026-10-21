@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
 import { commerceEnabled } from '@/lib/commerce-flag';
-import { db } from '@/lib/db';
-import { orders } from '@/lib/db/schema';
+import { addOrderEvent } from '@/lib/orders';
 import { siteUrl } from '@/lib/payments';
+import { findOrderByPayment, setAttemptStatus } from '@/lib/payments/attempts';
 import { settleCardPayment } from '@/lib/payments/settle';
 import { stripeRetrieveSession } from '@/lib/payments/stripe';
 
@@ -16,8 +15,9 @@ export async function GET(request: Request) {
 
   try {
     const session = await stripeRetrieveSession(sessionId);
-    const [order] = await db.select().from(orders).where(eq(orders.id, session.orderId));
-    if (!order || order.paymentRef !== sessionId) return home;
+    // through the checkout history: the buyer may have paid an earlier checkout than the latest one
+    const order = await findOrderByPayment('stripe', sessionId);
+    if (!order) return home;
     const orderUrl = `${siteUrl()}/order/${order.number}?t=${order.accessToken}`;
     if (session.paid) {
       // attemptRef: the checkout that was paid, so a payment on an order already marked paid by hand is recognised (as with Viva)
@@ -28,6 +28,7 @@ export async function GET(request: Request) {
       return NextResponse.redirect(order.status === 'cancelled' || order.paymentStatus === 'refunded' || !settled ? orderUrl : `${orderUrl}&payment=success`);
     }
     // a delayed payment method is not a failure: «pay again» here would charge the buyer twice once it settles
+    if (session.processing && (await setAttemptStatus('stripe', sessionId, 'processing', null, ['created']))) await addOrderEvent(order.id, 'payment', 'Η πληρωμή με κάρτα/τράπεζα είναι σε επεξεργασία: δεν έχει εισπραχθεί ακόμη.');
     return NextResponse.redirect(`${orderUrl}&payment=${session.processing ? 'pending' : 'failed'}`);
   } catch (err) {
     console.error('[stripe] return verification failed', err);

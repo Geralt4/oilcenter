@@ -294,6 +294,27 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
     }
   }
 
+  // refused up front, before anything is written: a cancelled order does not come back (its stock is already released)
+  if (status !== order.status && order.status === 'cancelled') return { ok: false, message: 'Μια ακυρωμένη παραγγελία δεν επανέρχεται (το απόθεμα έχει ήδη αποδεσμευτεί). Δημιουργήστε νέα.' };
+
+  // The payment is written first and only from the status that was read above: a payment that landed since (the webhook, the
+  // buyer's return) must not be overwritten by this save, and a refused save changes nothing else on the order.
+  if (payment !== order.paymentStatus) {
+    const written = await db
+      .update(orders)
+      .set({ paymentStatus: payment, paidAt: payment === 'paid' ? new Date() : payment === 'refunded' ? order.paidAt : null, ...(payment === 'refunded' ? { paymentFlag: null } : {}) })
+      .where(and(eq(orders.id, id), eq(orders.paymentStatus, order.paymentStatus)))
+      .returning({ id: orders.id });
+    if (written.length === 0) return { ok: false, message: staleMessage };
+    const message = {
+      paid: 'Σημειώθηκε ως εξοφλημένη.',
+      pending: 'Η ένδειξη εξόφλησης αφαιρέθηκε.',
+      failed: 'Σημειώθηκε ως αποτυχημένη πληρωμή.',
+      refunded: 'Σημειώθηκε ως επιστραφείσα (χειροκίνητη επιστροφή από τον πάροχο πληρωμών).',
+    }[payment];
+    await addOrderEvent(id, 'payment', message, actor);
+  }
+
   if (status === 'cancelled' && order.status !== 'cancelled') {
     await cancelOrder(id, actor); // restocks
     // Cancelling an order that ends up paid leaves money with the shop: put it on the owner's list until it is refunded. Where
@@ -313,20 +334,6 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
     const moved = await db.update(orders).set({ status }).where(and(eq(orders.id, id), eq(orders.status, order.status))).returning({ id: orders.id });
     if (moved.length === 0) return { ok: false, message: staleMessage };
     await addOrderEvent(id, 'status', `Κατάσταση: ${ORDER_STATUS_LABELS[order.status]} → ${ORDER_STATUS_LABELS[status]}.`, actor);
-  }
-
-  if (payment !== order.paymentStatus) {
-    await db
-      .update(orders)
-      .set({ paymentStatus: payment, paidAt: payment === 'paid' ? new Date() : payment === 'refunded' ? order.paidAt : null, ...(payment === 'refunded' ? { paymentFlag: null } : {}) })
-      .where(eq(orders.id, id));
-    const message = {
-      paid: 'Σημειώθηκε ως εξοφλημένη.',
-      pending: 'Η ένδειξη εξόφλησης αφαιρέθηκε.',
-      failed: 'Σημειώθηκε ως αποτυχημένη πληρωμή.',
-      refunded: 'Σημειώθηκε ως επιστραφείσα (χειροκίνητη επιστροφή από τον πάροχο πληρωμών).',
-    }[payment];
-    await addOrderEvent(id, 'payment', message, actor);
   }
 
   await db.update(orders).set({ trackingCarrier, trackingNumber, adminNotes: str(fd, 'adminNotes') || null }).where(eq(orders.id, id));

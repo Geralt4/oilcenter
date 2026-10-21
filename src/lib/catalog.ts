@@ -353,6 +353,9 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
   const baseSet = new Set(filters.baseTypes ?? []);
   const min = filters.minPriceCents;
   const max = filters.maxPriceCents;
+  const priceActive = min !== undefined || max !== undefined;
+  /** one size priced inside the typed range; a size without a confirmed price is in no range */
+  const inPriceRange = (v: CatalogVariant) => v.priced && (min === undefined || v.priceCents >= min) && (max === undefined || v.priceCents <= max);
 
   const tests = {
     brand: (p: IndexedProduct) => !brandSet.size || (p.brand !== null && brandSet.has(p.brand.slug)),
@@ -366,11 +369,15 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
     sale: (p: IndexedProduct) => !filters.onSaleOnly || p.onSale,
     // a price filter can only match products that show a price, and only through a size priced inside the range
     // (1 L at 5 € and 5 L at 50 € has nothing between 10 and 20 €, although its range overlaps)
-    price: (p: IndexedProduct) => (min === undefined && max === undefined) || p.variants.some((v) => v.priced && (min === undefined || v.priceCents >= min) && (max === undefined || v.priceCents <= max)),
+    price: (p: IndexedProduct) => !priceActive || p.variants.some(inPriceRange),
+    // «5 L» and «up to €10» together mean ONE size that is both: the two tests above each find their own size, so a product
+    // with a cheap 1 L and an expensive 5 L would pass both. Only active when both filters are; the facets leave it out when
+    // they count for either of the two (see applyExcept).
+    packPrice: (p: IndexedProduct) => !packSet.size || !priceActive || p.variants.some((v) => v.volumeMl !== null && packSet.has(v.volumeMl) && inPriceRange(v)),
   };
   type TestKey = keyof typeof tests;
   const applyExcept = (skip: TestKey | null) =>
-    scope.filter((p) => (Object.keys(tests) as TestKey[]).every((k) => k === skip || tests[k](p)));
+    scope.filter((p) => (Object.keys(tests) as TestKey[]).every((k) => k === skip || (k === 'packPrice' && (skip === 'pack' || skip === 'price')) || tests[k](p)));
 
   const count = <K extends string>(items: IndexedProduct[], keysOf: (p: IndexedProduct) => K[]) => {
     const m = new Map<K, number>();
@@ -383,7 +390,7 @@ export async function listProducts(filters: ListingFilters): Promise<Listing> {
   const categoryCounts = count(applyExcept('category'), (p) => (categoryOf(p) ? [categoryOf(p)!.slug] : []));
   const categoryBySlug = new Map([...categoryLookup.values()].map((c) => [c.slug, c]));
   const viscCounts = count(applyExcept('viscosity'), (p) => (p.viscosity ? [p.viscosity] : []));
-  const packCounts = count(applyExcept('pack'), (p) => p.variants.flatMap((v) => (v.volumeMl ? [String(v.volumeMl)] : [])));
+  const packCounts = count(applyExcept('pack'), (p) => p.variants.flatMap((v) => (v.volumeMl && (!priceActive || inPriceRange(v)) ? [String(v.volumeMl)] : [])));
   const baseCounts = count(applyExcept('base'), (p) => (p.baseType ? [p.baseType] : []));
 
   const matched = applyExcept(null);

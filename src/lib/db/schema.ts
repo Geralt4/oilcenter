@@ -289,6 +289,8 @@ export const orders = sqliteTable(
     totalCents: integer('total_cents').notNull(),
     vatRate: integer('vat_rate').notNull().default(24),
     couponCode: text('coupon_code'),
+    /** the coupon by its immutable id: the code can be renamed later, the order must still find its coupon (cancel gives the use back) */
+    couponId: integer('coupon_id').references(() => coupons.id, { onDelete: 'set null' }),
     totalWeightGrams: integer('total_weight_grams').notNull().default(0),
 
     trackingCarrier: text('tracking_carrier'),
@@ -338,7 +340,8 @@ export const unmatchedPayments = sqliteTable(
   (t) => [uniqueIndex('unmatched_payments_tx_uq').on(t.provider, t.transactionId)],
 );
 
-export type PaymentAttemptStatus = 'created' | 'paid' | 'failed' | 'mismatch';
+/** 'processing': the buyer finished the checkout but a delayed payment method (SEPA…) has not settled yet */
+export type PaymentAttemptStatus = 'created' | 'processing' | 'paid' | 'failed' | 'mismatch';
 
 /**
  * Every gateway checkout opened for an order. A buyer can retry, and an older checkout stays payable for a while:

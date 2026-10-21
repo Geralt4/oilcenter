@@ -2,7 +2,7 @@
 
 import { redirect } from 'next/navigation';
 import { after } from 'next/server';
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { hashPassword, randomToken, sha256, verifyPassword } from '@/lib/auth/password';
 import { createSession, destroySession, getCustomer, requireCustomer, revokeAllSessions } from '@/lib/auth/session';
@@ -123,17 +123,23 @@ export async function resetPassword(_prev: FormState, formData: FormData): Promi
   const parsed = z.object({ token: z.string().min(20).max(200), password }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { ok: false, message: 'Ελέγξτε τον κωδικό.', fieldErrors: fieldErrors(parsed.error) };
 
-  const [customer] = await db
-    .select({ id: customers.id, tokenVersion: customers.tokenVersion })
-    .from(customers)
-    .where(and(eq(customers.resetTokenHash, sha256(parsed.data.token)), gt(customers.resetTokenExpires, new Date())));
-  if (!customer) return { ok: false, message: 'Ο σύνδεσμος επαναφοράς δεν ισχύει ή έχει λήξει. Ζητήστε νέο.' };
-
+  // The link is spent by the same UPDATE that uses it: its hash and expiry are part of the WHERE, so two requests carrying the
+  // same link at once cannot both set a password and sign in (the loser matches no row).
+  const tokenHash = sha256(parsed.data.token);
+  // cheap look first, so a made-up link costs no password hash; the UPDATE below is what actually decides
+  const [known] = await db.select({ id: customers.id }).from(customers).where(and(eq(customers.resetTokenHash, tokenHash), gt(customers.resetTokenExpires, new Date())));
+  if (!known) return { ok: false, message: 'Ο σύνδεσμος επαναφοράς δεν ισχύει ή έχει λήξει. Ζητήστε νέο.' };
+  const passwordHash = await hashPassword(parsed.data.password);
   // Bump the session version: every other session for this account (e.g. one an attacker opened with the
   // old password) is invalidated, and only this browser stays signed in.
-  const nextVersion = customer.tokenVersion + 1;
-  await db.update(customers).set({ passwordHash: await hashPassword(parsed.data.password), resetTokenHash: null, resetTokenExpires: null, tokenVersion: nextVersion }).where(eq(customers.id, customer.id));
-  await createSession('customer', customer.id, nextVersion);
+  const [customer] = await db
+    .update(customers)
+    .set({ passwordHash, resetTokenHash: null, resetTokenExpires: null, tokenVersion: sql`${customers.tokenVersion} + 1` })
+    .where(and(eq(customers.resetTokenHash, tokenHash), gt(customers.resetTokenExpires, new Date())))
+    .returning({ id: customers.id, tokenVersion: customers.tokenVersion });
+  if (!customer) return { ok: false, message: 'Ο σύνδεσμος επαναφοράς δεν ισχύει ή έχει λήξει. Ζητήστε νέο.' };
+
+  await createSession('customer', customer.id, customer.tokenVersion);
   redirect('/account');
 }
 

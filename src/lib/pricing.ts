@@ -9,6 +9,8 @@ export type ShippingConfig = ShopSettings['shipping'];
 export type PaymentsConfig = ShopSettings['payments'];
 
 export type AppliedCoupon = {
+  /** the coupon row; absent on a coupon built by hand (tests) */
+  id?: number;
   code: string;
   type: CouponType;
   value: number;

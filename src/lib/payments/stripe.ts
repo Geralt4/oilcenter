@@ -2,7 +2,7 @@ import Stripe from 'stripe';
 
 /*
  * Stripe Checkout (hosted page) — https://docs.stripe.com/payments/checkout
- * Webhook endpoint:  {SITE_URL}/api/payments/stripe/webhook   (event: checkout.session.completed)
+ * Webhook endpoint:  {SITE_URL}/api/payments/stripe/webhook   (events: checkout.session.completed, …async_payment_succeeded, …async_payment_failed)
  *
  * NOT YET EXERCISED WITH REAL KEYS — test with sk_test_… and `stripe listen` before going live.
  */

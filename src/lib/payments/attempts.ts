@@ -41,6 +41,12 @@ export async function findOrderByPayment(provider: string, ref: string, merchant
   return null;
 }
 
+/** A checkout the buyer finished whose money is still on its way (a delayed method): no second checkout may be opened and the order must not be released. */
+export async function hasProcessingPayment(orderId: number, exec: Executor = db): Promise<boolean> {
+  const [hit] = await exec.select({ id: paymentAttempts.id }).from(paymentAttempts).where(and(eq(paymentAttempts.orderId, orderId), eq(paymentAttempts.status, 'processing'))).limit(1);
+  return Boolean(hit);
+}
+
 /**
  * Like setAttemptStatus, but creates the attempt when it was never recorded (an order found through merchantTrns). True when
  * this call made the change, false when the attempt was already in a status outside `onlyFrom`: the "first to report it"
