@@ -8,6 +8,9 @@ import { buttonClass } from '@/components/ui/button';
 import type { CatalogProduct } from '@/lib/catalog';
 import { useHydrated, useWishlist } from '@/lib/cart-store';
 
+/** the most ids /api/products takes in one request */
+const BATCH = 60;
+
 export function WishlistView() {
   const hydrated = useHydrated();
   const ids = useWishlist((s) => s.ids);
@@ -18,9 +21,17 @@ export function WishlistView() {
   useEffect(() => {
     if (!hydrated || ids.length === 0) return;
     const controller = new AbortController();
-    fetch(`/api/products?ids=${ids.slice(0, 60).join(',')}`, { signal: controller.signal })
-      .then((r) => (r.ok ? r.json() : { products: [] }))
-      .then((d: { products: CatalogProduct[] }) => setProducts(d.products))
+    // the endpoint answers at most 60 ids per request: a longer list goes in batches, joined back in the saved order
+    const batches: number[][] = [];
+    for (let i = 0; i < ids.length; i += BATCH) batches.push(ids.slice(i, i + BATCH));
+    Promise.all(
+      batches.map((batch) =>
+        fetch(`/api/products?ids=${batch.join(',')}`, { signal: controller.signal })
+          .then((r) => (r.ok ? r.json() : { products: [] }))
+          .then((d: { products: CatalogProduct[] }) => d.products),
+      ),
+    )
+      .then((parts) => setProducts(parts.flat()))
       .catch(() => undefined);
     return () => controller.abort();
   }, [hydrated, ids]);

@@ -85,7 +85,11 @@ export function buildPriceCsv(rows: PriceCsvSource[]): string {
 }
 
 export type PriceCsvCurrent = { id: number; priceCents: number; priceVerified: boolean; stock: number; trackStock: boolean; availability: Availability };
-export type PriceCsvPatch = { priceCents?: number; priceVerified?: boolean; stock?: number; trackStock?: boolean; availability?: Availability };
+/**
+ * `stock` is an absolute number (a hand-made file); `stockDelta` is an ADJUSTMENT of what the shop holds when the change is
+ * saved (a file this shop exported): units sold between the export and the save stay sold. Never both.
+ */
+export type PriceCsvPatch = { priceCents?: number; priceVerified?: boolean; stock?: number; stockDelta?: number; trackStock?: boolean; availability?: Availability };
 export type PriceCsvChange = { id: number; sku: string; patch: PriceCsvPatch; oldCents: number; newCents: number };
 export type PriceCsvSkip = { line: number; sku: string; reason: string };
 export type PriceCsvPlan = { error: string } | { error?: undefined; changes: PriceCsvChange[]; unchanged: number; skipped: PriceCsvSkip[]; unknown: string[] };
@@ -153,13 +157,21 @@ export function planPriceImport(input: string, current: Map<string, PriceCsvCurr
     const patch: PriceCsvPatch = {};
     if (cents !== now.priceCents) Object.assign(patch, { priceCents: cents, priceVerified: true });
     else if (!now.priceVerified && YES.has(at(col.verified).toLowerCase())) patch.priceVerified = true;
+    // what the stock will be after this row, for the decisions below; the SAVED instruction is `stock` or `stockDelta`
+    let stockAfter: number | null = null;
     if (stockCell !== '') {
       const typed = Number(stockCell);
       const exportedCell = at(col.exportedStock);
       const exported = /^\d{1,7}$/.test(exportedCell) ? Number(exportedCell) : null;
-      // counted when exported and still counted: the owner's change, applied to the stock as it is now
-      const stock = exported !== null && now.trackStock ? Math.max(0, now.stock + (typed - exported)) : typed;
-      if (!now.trackStock || stock !== now.stock) Object.assign(patch, { stock, trackStock: true });
+      // always measured from the shop as it was BEFORE the file (`current`): a code listed twice must not add its adjustment to
+      // the first line's result
+      const before = current.get(sku)!;
+      const adjust = exported !== null && before.trackStock;
+      const effective = adjust ? Math.max(0, before.stock + (typed - exported)) : typed;
+      if (!now.trackStock || effective !== now.stock) {
+        Object.assign(patch, adjust ? { stockDelta: typed - exported, trackStock: true } : { stock: typed, trackStock: true });
+        stockAfter = effective;
+      }
     }
     const availability = at(col.availability).toLowerCase();
     if (isAvailability(availability) && availability !== now.availability) patch.availability = availability;
@@ -169,9 +181,13 @@ export function planPriceImport(input: string, current: Map<string, PriceCsvCurr
       continue;
     }
     // a SKU listed twice: the later line wins, as one change against what the shop held before the upload
-    const before = merged.get(now.id);
-    merged.set(now.id, { id: now.id, sku, patch: { ...before?.patch, ...patch }, oldCents: before?.oldCents ?? now.priceCents, newCents: cents });
-    Object.assign(now, patch);
+    const earlier = merged.get(now.id);
+    const combined: PriceCsvPatch = { ...earlier?.patch, ...patch };
+    if (patch.stockDelta !== undefined) delete combined.stock;
+    if (patch.stock !== undefined) delete combined.stockDelta;
+    merged.set(now.id, { id: now.id, sku, patch: combined, oldCents: earlier?.oldCents ?? now.priceCents, newCents: cents });
+    const { stock: _stock, stockDelta: _delta, ...rest } = patch;
+    Object.assign(now, rest, stockAfter !== null ? { stock: stockAfter } : {});
   }
   return { changes: [...merged.values()], unchanged, skipped, unknown };
 }

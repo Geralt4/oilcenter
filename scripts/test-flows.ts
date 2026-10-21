@@ -289,6 +289,42 @@ async function main() {
     const staged = await db.select({ kind: pendingUploads.kind, claimedAt: pendingUploads.claimedAt }).from(pendingUploads);
     check('no CSV upload is left claimed', staged.filter((row) => row.kind.endsWith('-csv')).every((row) => row.claimedAt === null), staged.map((row) => `${row.kind}:${row.claimedAt ? 'claimed' : 'open'}`));
 
+    console.log('A failed optional upload can be cleared');
+    await page.goto(`${base}/admin/products/${product.id}`);
+    const sdsPicker = page.locator('input[type="file"][accept*="pdf"]');
+    const sdsField = sdsPicker.locator('xpath=..');
+    await sdsPicker.setInputFiles({ name: 'not-a-pdf.pdf', mimeType: 'application/pdf', buffer: Buffer.from('this is plain text, not a PDF', 'utf8') });
+    await sdsField.locator('p[role="alert"]').waitFor({ timeout: 20_000 });
+    check('a refused SDS upload is reported and blocks the form', !(await sdsPicker.evaluate((el: HTMLInputElement) => el.checkValidity())));
+    const clearFailed = sdsField.locator('button', { hasText: 'Καθαρισμός' });
+    check('…and there is a way to clear it, although no upload succeeded', (await clearFailed.count()) === 1, (await clearFailed.count()) === 1 ? undefined : (await sdsField.innerHTML()).slice(0, 900));
+    if ((await clearFailed.count()) === 1) {
+      await clearFailed.click();
+      check('clearing removes the message and the blocked validation', (await sdsField.locator('p[role="alert"]').count()) === 0 && (await sdsPicker.evaluate((el: HTMLInputElement) => el.checkValidity())));
+    }
+
+    console.log('Search box');
+    await page.goto(`${base}/`);
+    const searchBox = page.locator('input[role="combobox"]:visible').first();
+    await searchBox.fill('castrol');
+    await page.locator('[role="option"]').first().waitFor({ timeout: 20_000 });
+    await searchBox.press('ArrowDown');
+    await searchBox.fill('');
+    await searchBox.press('Enter');
+    await delay(1500);
+    check('after clearing the box, Enter does not open the suggestion that was selected', !page.url().includes('/product/'), page.url());
+
+    console.log('Favourites');
+    const favouriteIds = (await db.selectDistinct({ id: products.id }).from(products).innerJoin(variants, eq(variants.productId, products.id)).where(eq(products.isActive, true)).orderBy(asc(products.id)).limit(61)).map((row) => row.id);
+    check('there are 61 products to favourite', favouriteIds.length === 61, favouriteIds.length);
+    await page.goto(`${base}/`);
+    await page.evaluate((ids) => localStorage.setItem('oilcenter-wishlist', JSON.stringify({ state: { ids }, version: 1 })), favouriteIds);
+    await page.goto(`${base}/wishlist`);
+    await page.locator('main article').first().waitFor({ timeout: 20_000 });
+    await delay(1500);
+    check('all 61 favourites are listed, not only the first 60', (await page.locator('main article').count()) === 61, await page.locator('main article').count());
+    await page.evaluate(() => localStorage.removeItem('oilcenter-wishlist'));
+
     console.log('Sales and targeted coupons');
     // The owner's path end to end: the form posts the ticked brand and the picked product, the shop shows the sale,
     // and the coupon list says what the code is limited to. (The unit tests build their FormData by hand.)

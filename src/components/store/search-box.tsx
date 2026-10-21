@@ -70,7 +70,8 @@ export function SearchBox({ autoFocus = false, onNavigate }: { autoFocus?: boole
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const q = query.trim();
-    if (active >= 0 && items[active]) return go(`/product/${items[active].slug}`);
+    // a highlighted suggestion counts only while the list it belongs to is on screen for what is typed now
+    if (showPanel && active >= 0 && items[active]) return go(`/product/${items[active].slug}`);
     if (q) go(`/products?q=${encodeURIComponent(q)}`);
   };
 
@@ -101,6 +102,7 @@ export function SearchBox({ autoFocus = false, onNavigate }: { autoFocus?: boole
           autoFocus={autoFocus}
           onChange={(e) => {
             setQuery(e.target.value);
+            setActive(-1);
             setOpen(true);
             setLoading(e.target.value.trim().length >= 2);
           }}
@@ -119,7 +121,7 @@ export function SearchBox({ autoFocus = false, onNavigate }: { autoFocus?: boole
         <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-1">
           {busy && <LoaderCircle className="h-4 w-4 animate-spin text-ink-500" />}
           {query && !busy && (
-            <button type="button" onClick={() => setQuery('')} aria-label="Καθαρισμός" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-500 hover:bg-ink-100 hover:text-ink-700">
+            <button type="button" onClick={() => { setQuery(''); setActive(-1); setItems([]); }} aria-label="Καθαρισμός" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-500 hover:bg-ink-100 hover:text-ink-700">
               <X className="h-4 w-4" />
             </button>
           )}

@@ -18,6 +18,7 @@ import { cleanIds, hasTargets, type Targets } from '@/lib/discounts';
 import { buildHazard } from '@/lib/ghs';
 import { isValidGtin, normalizeGtin } from '@/lib/gtin';
 import { addOrderEvent, cancelOrder, flagForReview, getOrderByNumber, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/orders';
+import { applyPriceChanges } from '@/lib/price-apply';
 import { describePriceImport, MAX_PRICE_CENTS, parseCsv, planPriceImport } from '@/lib/price-csv';
 import { clientIp, loginBudgets, rateLimit } from '@/lib/rate-limit';
 import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours, type ShopSettings } from '@/lib/settings';
@@ -751,12 +752,7 @@ export async function importPricesCsv(_prev: AdminFormState, fd: FormData): Prom
     }
 
     // all or nothing: half a price list is worse than none
-    await db.transaction(async (tx) => {
-      for (const change of plan.changes) {
-        await tx.update(variants).set(change.patch).where(eq(variants.id, change.id));
-        if (change.patch.priceCents !== undefined) await tx.insert(priceChanges).values({ variantId: change.id, oldCents: change.oldCents, newCents: change.newCents, source: 'csv' });
-      }
-    });
+    await db.transaction((tx) => applyPriceChanges(tx, plan.changes));
     await finishUpload(token);
     revalidatePath('/admin/prices');
     // Completed even when some rows were skipped: returning ok:false here would keep the form-looking
