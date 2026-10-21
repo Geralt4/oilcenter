@@ -586,6 +586,69 @@ async function main() {
     await db.delete(sales).where(eq(sales.name, 'Δοκιμή κλάδεμα'));
   }
 
+  console.log('Concurrent changes');
+  {
+    const { customers } = await import('../src/lib/db/schema');
+    const { hashPassword, randomToken, sha256 } = await import('../src/lib/auth/password');
+    const { resetPassword } = await import('../src/app/(store)/account/actions');
+    const { recordPayment } = await import('../src/lib/orders');
+
+    // a reset link used twice at the same moment: only one of the two may set a password and sign in
+    const token = randomToken();
+    const [customer] = await db
+      .insert(customers)
+      .values({ email: 'reset-race@example.com', passwordHash: await hashPassword('old-password-1'), firstName: 'Τεστ', lastName: 'Reset', resetTokenHash: sha256(token), resetTokenExpires: new Date(Date.now() + 60 * 60 * 1000) })
+      .returning();
+    const reset = (password: string) =>
+      resetPassword(null, form({ token, password })).then(
+        (r) => r?.ok === true,
+        (err: unknown) => (String((err as { digest?: string })?.digest ?? err).startsWith('NEXT_REDIRECT') ? true : Promise.reject(err)),
+      );
+    const outcomes = await Promise.all([reset('first-password-1'), reset('second-password-2')]);
+    check('one reset link used twice at once works exactly once', outcomes.filter(Boolean).length === 1, outcomes);
+    const [afterReset] = await db.select().from(customers).where(eq(customers.id, customer.id));
+    check('…and the sessions were invalidated once (token version +1)', afterReset.tokenVersion === customer.tokenVersion + 1, afterReset.tokenVersion);
+    check('…and the link is spent', afterReset.resetTokenHash === null);
+    await db.delete(customers).where(eq(customers.id, customer.id));
+
+    // the owner saves «Απέτυχε» and the card payment lands right after the order was read: the payment must survive.
+    // The race is forced: the first read of the order inside updateOrder is delayed until the payment has been recorded.
+    const raced = await makeOrder({ paymentMethod: 'card' });
+    const realSelect = db.select.bind(db);
+    let armed = true;
+    const delayed = (builder: unknown, after: () => Promise<unknown>): unknown =>
+      new Proxy(builder as object, {
+        get(target, prop, receiver) {
+          const value = Reflect.get(target, prop, receiver);
+          if (prop === 'then') return (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => Promise.resolve(value.call(target)).then(async (rows) => { await after(); return rows; }).then(resolve, reject);
+          return typeof value === 'function' ? (...args: unknown[]) => delayed(value.apply(target, args), after) : value;
+        },
+      });
+    (db as unknown as { select: unknown }).select = (...args: unknown[]) => {
+      const builder = (realSelect as (...a: unknown[]) => unknown)(...args) as { from: (t: unknown) => unknown };
+      return new Proxy(builder, {
+        get(target, prop, receiver) {
+          if (prop !== 'from') return Reflect.get(target, prop, receiver);
+          return (table: unknown) => {
+            const next = target.from(table);
+            if (!armed || table !== orders) return next;
+            armed = false;
+            return delayed(next, () => recordPayment(raced.id, { provider: 'test', ref: 'race-tx', amountCents: raced.totalCents }));
+          };
+        },
+      });
+    };
+    let result;
+    try {
+      result = await updateOrder(null, form({ id: String(raced.id), status: raced.status, paymentStatus: 'failed', loadedStatus: raced.status, loadedPayment: 'pending' }));
+    } finally {
+      (db as unknown as { select: unknown }).select = realSelect;
+    }
+    const afterRace = await orderNow(raced.id);
+    check('a payment that lands while the owner saves «Απέτυχε» is not overwritten', afterRace.paymentStatus === 'paid' && afterRace.paidAt !== null, [afterRace.paymentStatus, afterRace.paidAt]);
+    check('…and the owner is told to reload instead of seeing «saved»', result?.ok === false, result);
+  }
+
   console.log('Category tree (saveCategory)');
   {
     const { categories } = await import('../src/lib/db/schema');

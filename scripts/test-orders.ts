@@ -834,6 +834,77 @@ async function main() {
     check('a cash-on-delivery order has no such suffix', !!codFull && !newOrderNotificationMail(codFull, settingsNow).subject.includes('ΑΝΑΜΕΝΕΤΑΙ'), codFull?.paymentMethod);
   }
 
+  console.log('Payment fixes (older Stripe checkouts, processing payments, renamed coupons)');
+  {
+    const { recordPaymentAttempt } = await import('../src/lib/payments/attempts');
+    const { releaseAbandonedCardOrders } = await import('../src/lib/orders');
+    const { paymentAttempts } = await import('../src/lib/db/schema');
+    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_dummy';
+    const { POST } = await import('../src/app/api/payments/stripe/webhook/route');
+    const { stripe } = await import('../src/lib/payments/stripe');
+    const row = async (id: number) => (await db.select().from(orders).where(eq(orders.id, id)))[0];
+    const attemptOf = async (ref: string) => (await db.select().from(paymentAttempts).where(eq(paymentAttempts.ref, ref)))[0];
+    const cardOpts = { customerId: null, cardProviderConfigured: true };
+    await db.update(variants).set({ trackStock: true, stock: 20 }).where(eq(variants.id, variant.id));
+    const newCard = async (extra: Record<string, unknown> = {}) => {
+      const r = await createOrder({ ...base, paymentMethod: 'card', lines: [{ variantId: variant.id, quantity: 1 }], ...extra }, settings, cardOpts);
+      if (!r.ok) throw new Error(`card order not created: ${r.message}`);
+      return r.order;
+    };
+    // a signed Stripe event, delivered to the real webhook route
+    let eventNo = 0;
+    const deliver = (type: string, session: Record<string, unknown>) => {
+      const payload = JSON.stringify({ id: `evt_t${++eventNo}`, object: 'event', type, data: { object: { object: 'checkout.session', ...session } } });
+      const signature = stripe().webhooks.generateTestHeaderString({ payload, secret: 'whsec_test_dummy' });
+      return POST(new Request('http://localhost/api/payments/stripe/webhook', { method: 'POST', headers: { 'stripe-signature': signature }, body: payload }));
+    };
+    const session = (id: string, order: { id: number; totalCents: number }, paid: boolean) => ({ id, payment_status: paid ? 'paid' : 'unpaid', status: 'complete', metadata: { orderId: String(order.id) }, amount_total: order.totalCents, payment_intent: `pi_${id}` });
+
+    console.log('  Stripe: a payment on an older checkout');
+    const sA = await newCard();
+    await recordPaymentAttempt(sA.id, { provider: 'stripe', ref: 'cs_old_A' });
+    await recordPaymentAttempt(sA.id, { provider: 'stripe', ref: 'cs_new_B' });
+    const answer = await deliver('checkout.session.completed', session('cs_old_A', sA, true));
+    check('the webhook answers 200 for the older checkout', answer.status === 200, answer.status);
+    check('…and the order IS paid (not left unpaid behind a 200)', (await row(sA.id)).paymentStatus === 'paid', (await row(sA.id)).paymentStatus);
+
+    console.log('  Stripe: a delayed payment is "processing", not open');
+    const sP = await newCard();
+    await recordPaymentAttempt(sP.id, { provider: 'stripe', ref: 'cs_proc_P' });
+    await deliver('checkout.session.completed', session('cs_proc_P', sP, false));
+    check('the unpaid-but-complete session is remembered as processing', (await attemptOf('cs_proc_P'))?.status === 'processing', (await attemptOf('cs_proc_P'))?.status);
+    check('…the order is still unpaid', (await row(sP.id)).paymentStatus === 'pending');
+    await db.update(orders).set({ createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000) }).where(eq(orders.id, sP.id));
+    await db.update(paymentAttempts).set({ createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000) }).where(eq(paymentAttempts.ref, 'cs_proc_P'));
+    await releaseAbandonedCardOrders();
+    check('…and the 2 h release does not cancel it', (await row(sP.id)).status === 'pending', (await row(sP.id)).status);
+    const { hasProcessingPayment } = await import('../src/lib/payments/attempts');
+    check('…and a retry is blocked while it is processing', (await hasProcessingPayment(sP.id)) === true);
+    await deliver('checkout.session.async_payment_succeeded', session('cs_proc_P', sP, true));
+    const sPaid = await row(sP.id);
+    check('when the money arrives the order is paid and confirmed', sPaid.paymentStatus === 'paid' && sPaid.status === 'confirmed', [sPaid.paymentStatus, sPaid.status]);
+    check('…and the attempt is paid', (await attemptOf('cs_proc_P'))?.status === 'paid', (await attemptOf('cs_proc_P'))?.status);
+
+    const sF = await newCard();
+    await recordPaymentAttempt(sF.id, { provider: 'stripe', ref: 'cs_proc_F' });
+    await deliver('checkout.session.completed', session('cs_proc_F', sF, false));
+    await deliver('checkout.session.async_payment_failed', session('cs_proc_F', sF, false));
+    check('a delayed payment that fails frees the order for a retry', (await attemptOf('cs_proc_F'))?.status === 'failed' && (await hasProcessingPayment(sF.id)) === false, (await attemptOf('cs_proc_F'))?.status);
+
+    console.log('  A renamed coupon');
+    await db.update(coupons).set({ isActive: true, minSubtotalCents: 0, maxUses: 1, usedCount: 0 }).where(eq(coupons.code, 'WELCOME5'));
+    await db.update(variants).set({ stock: 20 }).where(eq(variants.id, variant.id));
+    const cp = await newCard({ couponCode: 'WELCOME5' });
+    const [couponRow] = await db.select().from(coupons).where(eq(coupons.code, 'WELCOME5'));
+    check('the coupon use is counted', couponRow.usedCount === 1, couponRow.usedCount);
+    await db.update(coupons).set({ code: 'WELCOME5-RENAMED' }).where(eq(coupons.id, couponRow.id));
+    await cancelOrder(cp.id, 'test');
+    const afterCancel = (await db.select().from(coupons).where(eq(coupons.id, couponRow.id)))[0];
+    check('cancelling the order after the coupon was renamed still gives the use back', afterCancel.usedCount === 0, afterCancel.usedCount);
+    await db.update(coupons).set({ code: 'WELCOME5' }).where(eq(coupons.id, couponRow.id));
+  }
+
   console.log('Cleanup');
   await db.delete(sales).where(eq(sales.id, running.id));
   await db.delete(coupons).where(inArray(coupons.code, CODES));

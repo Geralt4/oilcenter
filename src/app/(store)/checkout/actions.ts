@@ -7,7 +7,7 @@ import { resolveCartLines } from '@/lib/catalog';
 import { newOrderNotificationMail, orderConfirmationMail, sendMail } from '@/lib/email';
 import { addOrderEvent, CheckoutSchema, createOrder, findCoupon, getOrderByNumber } from '@/lib/orders';
 import { cardProvider, startCardPayment } from '@/lib/payments';
-import { recordPaymentAttempt } from '@/lib/payments/attempts';
+import { hasProcessingPayment, recordPaymentAttempt } from '@/lib/payments/attempts';
 import type { AppliedCoupon } from '@/lib/pricing';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 import { getSettings } from '@/lib/settings.server';
@@ -81,6 +81,8 @@ export async function retryCardPayment(number: string, token: string): Promise<{
   if (order.paymentMethod !== 'card' || (order.paymentStatus !== 'pending' && order.paymentStatus !== 'failed') || order.status === 'cancelled') return { ok: false, message: 'Η παραγγελία δεν αναμένει πληρωμή.' };
   // a flagged order may already have been charged (e.g. a payment with the wrong amount): the owner sorts it out, no second charge
   if (order.paymentFlag !== null) return { ok: false, message: 'Η πληρωμή σας ελέγχεται από το κατάστημα. Μην πληρώσετε ξανά· θα επικοινωνήσουμε μαζί σας.' };
+  // a delayed payment (SEPA…) the buyer already finished is still on its way: a second charge would double it
+  if (await hasProcessingPayment(order.id)) return { ok: false, message: 'Η πληρωμή σας βρίσκεται σε επεξεργασία. Μην πληρώσετε ξανά· θα ενημερωθείτε μόλις ολοκληρωθεί.' };
   try {
     const payment = await startCardPayment(order);
     await recordPaymentAttempt(order.id, payment);

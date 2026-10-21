@@ -103,7 +103,7 @@ export async function findCoupon(code: string | undefined | null, lines: Resolve
         : `Το κουπόνι ισχύει για αγορές από ${min} € και πάνω σε προϊόντα που δεν είναι σε προσφορά.`;
     return { coupon: null, error };
   }
-  return { coupon: { code: row.code, type: row.type, value: row.value, minSubtotalCents: row.minSubtotalCents, variantIds }, error: null };
+  return { coupon: { id: row.id, code: row.code, type: row.type, value: row.value, minSubtotalCents: row.minSubtotalCents, variantIds }, error: null };
 }
 
 // ─── Create ──────────────────────────────────────────────────────────────────
@@ -162,7 +162,7 @@ export async function createOrder(input: CheckoutInput, settings: ShopSettings, 
         const bumped = await tx
           .update(coupons)
           .set({ usedCount: sql`${coupons.usedCount} + 1` })
-          .where(and(eq(coupons.code, coupon.code), sql`(${coupons.maxUses} IS NULL OR ${coupons.usedCount} < ${coupons.maxUses})`))
+          .where(and(coupon.id !== undefined ? eq(coupons.id, coupon.id) : eq(coupons.code, coupon.code), sql`(${coupons.maxUses} IS NULL OR ${coupons.usedCount} < ${coupons.maxUses})`))
           .returning({ id: coupons.id });
         if (bumped.length === 0) throw new CouponGoneError();
       }
@@ -197,6 +197,7 @@ export async function createOrder(input: CheckoutInput, settings: ShopSettings, 
           totalCents: totals.totalCents,
           vatRate: tax.vatRate,
           couponCode: coupon?.code ?? null,
+          couponId: coupon?.id ?? null,
           totalWeightGrams: weightGrams,
           isTest,
         })
@@ -304,7 +305,7 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
           .where(and(eq(orders.id, orderId), isNull(orders.paymentTransactionId)))
           .returning({ id: orders.id });
         if (attached.length === 0) return 'already_paid';
-        await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'failed', 'mismatch'], tx);
+        await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'processing', 'failed', 'mismatch'], tx);
         await flagForReview(orderId, tx);
         const refunded = order.paymentStatus === 'refunded';
         await addOrderEvent(
@@ -318,7 +319,7 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
         );
         return refunded ? 'paid_after_refund' : 'paid_after_manual';
       }
-      if (!(await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'failed'], tx))) return 'already_flagged';
+      if (!(await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'processing', 'failed'], tx))) return 'already_flagged';
       await flagForReview(orderId, tx);
       await addOrderEvent(
         orderId,
@@ -334,7 +335,7 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
     const problem: PaymentOutcome | null = currency && currency !== 'EUR' ? 'currency_mismatch' : info.amountCents !== order.totalCents ? 'amount_mismatch' : null;
     if (problem) {
       // the browser return and the webhook both report the same wrong payment: only the first one raises the alarm
-      if (info.attemptRef && !(await claimAttemptStatus(orderId, info.provider, info.attemptRef, 'mismatch', info.ref, ['created', 'failed'], tx))) return 'already_flagged';
+      if (info.attemptRef && !(await claimAttemptStatus(orderId, info.provider, info.attemptRef, 'mismatch', info.ref, ['created', 'processing', 'failed'], tx))) return 'already_flagged';
       await flagForReview(orderId, tx);
       await addOrderEvent(
         orderId,
@@ -397,18 +398,27 @@ export async function cancelOrder(orderId: number, actor: string, reason?: strin
           sql`${orders.status} <> 'cancelled'`,
           // requireUnpaid: the automatic release must never cancel an order whose payment landed, or was flagged for the
           // owner, or that someone moved on, after it was selected
-          opts.requireUnpaid ? and(sql`${orders.paymentStatus} NOT IN ('paid', 'refunded')`, eq(orders.status, 'pending'), isNull(orders.paymentFlag)) : undefined,
+          opts.requireUnpaid
+            ? and(
+                sql`${orders.paymentStatus} NOT IN ('paid', 'refunded')`,
+                eq(orders.status, 'pending'),
+                isNull(orders.paymentFlag),
+                // a delayed payment (SEPA…) that is still on its way is not abandoned
+                sql`NOT EXISTS (SELECT 1 FROM payment_attempts a WHERE a.order_id = ${orders.id} AND a.status = 'processing')`,
+              )
+            : undefined,
           // …nor one whose buyer opened a new checkout in the meantime
           opts.noAttemptSince ? sql`NOT EXISTS (SELECT 1 FROM payment_attempts a WHERE a.order_id = ${orders.id} AND a.created_at >= ${opts.noAttemptSince.getTime()})` : undefined,
         ),
       )
-      .returning({ id: orders.id, couponCode: orders.couponCode });
+      .returning({ id: orders.id, couponCode: orders.couponCode, couponId: orders.couponId });
     if (flipped.length === 0) return false;
 
     // a cancelled order no longer counts against the coupon's «μέγιστες χρήσεις»
-    const { couponCode } = flipped[0];
-    if (couponCode) {
-      await tx.update(coupons).set({ usedCount: sql`MAX(${coupons.usedCount} - 1, 0)` }).where(eq(coupons.code, couponCode));
+    // by the coupon's id: its code may have been renamed since (orders from before the id was kept fall back to the code)
+    const { couponCode, couponId } = flipped[0];
+    if (couponId !== null || couponCode) {
+      await tx.update(coupons).set({ usedCount: sql`MAX(${coupons.usedCount} - 1, 0)` }).where(couponId !== null ? eq(coupons.id, couponId) : eq(coupons.code, couponCode!));
     }
 
     const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
@@ -445,6 +455,8 @@ export async function releaseAbandonedCardOrders(): Promise<number> {
         // an order with a payment problem waits for the owner (the money may already be taken): never auto-cancelled
         isNull(orders.paymentFlag),
         lt(orders.createdAt, cutoff),
+        // the buyer finished a delayed payment that has not settled yet: wait for the gateway's answer
+        sql`NOT EXISTS (SELECT 1 FROM payment_attempts a WHERE a.order_id = ${orders.id} AND a.status = 'processing')`,
         // a retry opened shortly before the cutoff is still payable: leave the order alone until that checkout has expired too
         sql`NOT EXISTS (SELECT 1 FROM payment_attempts a WHERE a.order_id = ${orders.id} AND a.created_at >= ${cutoff.getTime()})`,
       ),

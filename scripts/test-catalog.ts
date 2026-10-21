@@ -250,6 +250,26 @@ async function main() {
   const parsed = parseListingParams({ cat: 'valvolines,atf-cvt-dct', visc: '5W-30' });
   check('?cat= is read as a list and counts as active filters', parsed.categories?.join('|') === 'valvolines|atf-cvt-dct' && activeFilterCount(parsed) === 3);
 
+  console.log('Pack size and price together');
+  {
+    const [pp] = await db.insert(products).values({ slug: 'test-pack-price', name: 'Δοκιμή συσκευασίας και τιμής', searchText: 'dokimi packprice', isActive: true }).returning();
+    await db.insert(variants).values([
+      { productId: pp.id, label: '1L', sku: 'TEST-PACKPRICE-1L', volumeMl: 1000, priceCents: 500, priceVerified: true, isActive: true, sort: 0 },
+      { productId: pp.id, label: '5L', sku: 'TEST-PACKPRICE-5L', volumeMl: 5000, priceCents: 5000, priceVerified: true, isActive: true, sort: 1 },
+    ]);
+    const has = async (filters: Parameters<typeof listProducts>[0]) => (await listProducts({ q: 'packprice', perPage: 100, ...filters })).products.some((p) => p.id === pp.id);
+    check('5 L alone finds it', await has({ packs: [5000] }));
+    check('up to €10 alone finds it (the 1 L is that cheap)', await has({ maxPriceCents: 1000 }));
+    check('5 L up to €10 does NOT find it: no single size is both 5 L and under €10', !(await has({ packs: [5000], maxPriceCents: 1000 })));
+    check('1 L up to €10 finds it', await has({ packs: [1000], maxPriceCents: 1000 }));
+    check('5 L up to €60 finds it', await has({ packs: [5000], maxPriceCents: 6000 }));
+    check('5 L from €40 finds it, 1 L from €40 does not', (await has({ packs: [5000], minPriceCents: 4000 })) && !(await has({ packs: [1000], minPriceCents: 4000 })));
+    const facets = (await listProducts({ q: 'packprice', packs: [5000], maxPriceCents: 1000 })).facets.packs.map((f) => f.value);
+    check('the pack list still offers 1 L, so the visitor can switch (counts ignore the pack choice itself)', facets.includes('1000'), facets);
+    await db.delete(variants).where(eq(variants.productId, pp.id));
+    await db.delete(products).where(eq(products.id, pp.id));
+  }
+
   console.log('Pack sizes');
   const ml = (label: string) => parseVolumeMl(label);
   check('«5 λίτρα» and «4 Λίτρα» read as litres', ml('5 λίτρα') === 5000 && ml('4 Λίτρα') === 4000);

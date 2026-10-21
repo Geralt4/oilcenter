@@ -275,7 +275,7 @@ the owner's attention show on the admin dashboard («Πληρωμές που θ�
 the shop owner about opening the Viva account.
 
 **Stripe Checkout** — set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`; webhook endpoint
-`{SITE_URL}/api/payments/stripe/webhook`, event `checkout.session.completed`.
+`{SITE_URL}/api/payments/stripe/webhook`, events `checkout.session.completed`, `checkout.session.async_payment_succeeded` and `checkout.session.async_payment_failed` (the last two matter only for delayed methods such as SEPA: without them an order whose bank payment fails stays «σε επεξεργασία» until the owner cancels it).
 
 Both flows re-verify the payment server-side with the provider's API (the browser redirect is never trusted), check the
 paid amount against the order total, and are idempotent, so a return + webhook for the same payment settles it once.

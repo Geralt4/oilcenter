@@ -17,7 +17,7 @@ import { cn, formatDateTime, formatPrice, formatWeight, vatPortion } from '@/lib
 
 export const metadata = { title: 'Παραγγελία' };
 
-const ATTEMPT_LABELS = { created: 'ανοιχτή', paid: 'πληρώθηκε', failed: 'απέτυχε', mismatch: 'διαφορά στο ποσό' } as const;
+const ATTEMPT_LABELS = { created: 'ανοιχτή', processing: 'σε επεξεργασία', paid: 'πληρώθηκε', failed: 'απέτυχε', mismatch: 'διαφορά στο ποσό' } as const;
 
 export default async function AdminOrderPage({ params }: { params: Promise<{ id: string }> }) {
   await requireAdmin();
