@@ -116,9 +116,14 @@ const CodeLine = memo(function CodeLine({ row, draft, problem, justSaved, onDraf
 });
 
 export function CodesEditor({ rows: serverRows }: { rows: CodeRow[] }) {
-  // What the server confirmed on save; the page re-renders with the same values a moment later (same idea as the price editor).
-  const [overrides, setOverrides] = useState<Record<number, { barcode: string; mpn: string }>>({});
-  const rows = useMemo(() => serverRows.map((r) => (overrides[r.id] && (overrides[r.id].barcode !== r.barcode || overrides[r.id].mpn !== r.mpn) ? { ...r, ...overrides[r.id] } : r)), [serverRows, overrides]);
+  // What the server confirmed on save, kept only until the page has been re-read. `base` is what the server row held when the
+  // save was made: while the row still equals it the page has not caught up and the saved values are shown; once it has changed
+  // — to the saved values, or to something newer such as a CSV import — the server's row wins and the override is ignored.
+  const [overrides, setOverrides] = useState<Record<number, { barcode: string; mpn: string; base: { barcode: string; mpn: string } }>>({});
+  const rows = useMemo(() => serverRows.map((r) => {
+    const o = overrides[r.id];
+    return o && o.base.barcode === r.barcode && o.base.mpn === r.mpn ? { ...r, barcode: o.barcode, mpn: o.mpn } : r;
+  }), [serverRows, overrides]);
 
   const [query, setQuery] = useState('');
   const [onlyMissing, setOnlyMissing] = useState(false);
@@ -199,8 +204,18 @@ export function CodesEditor({ rows: serverRows }: { rows: CodeRow[] }) {
       try {
         const result = await updateCodes(payload);
         const done = new Set(result.saved.map((s) => s.id));
-        setOverrides((o) => ({ ...o, ...Object.fromEntries(result.saved.map((s) => [s.id, { barcode: s.barcode, mpn: s.mpn }])) }));
-        setDrafts((d) => Object.fromEntries(Object.entries(d).filter(([id]) => !done.has(Number(id)))));
+        const serverById = new Map(serverRows.map((r) => [r.id, r]));
+        setOverrides((o) => ({ ...o, ...Object.fromEntries(result.saved.flatMap((s) => { const server = serverById.get(s.id); return server ? [[s.id, { barcode: s.barcode, mpn: s.mpn, base: { barcode: server.barcode, mpn: server.mpn } }]] : []; })) }));
+        // a field is dropped from the drafts only when it IS what was saved: text typed after the request left stays
+        const confirmed = new Map(result.saved.map((s) => [s.id, s]));
+        setDrafts((d) => Object.fromEntries(Object.entries(d).flatMap(([id, draft]) => {
+          const s = confirmed.get(Number(id));
+          if (!s) return [[id, draft]];
+          const rest: Draft = {};
+          if (draft.barcode !== undefined && normalizeGtin(draft.barcode) !== s.barcode) rest.barcode = draft.barcode;
+          if (draft.mpn !== undefined && draft.mpn.trim() !== s.mpn) rest.mpn = draft.mpn;
+          return Object.keys(rest).length ? [[id, rest]] : [];
+        })));
         setProblems((p) => ({ ...p, ...Object.fromEntries(result.failed.map((f) => [f.id, f.reason])) }));
         setSavedIds((ids) => [...new Set([...ids, ...done])]);
         setNotice({ ok: result.ok, text: result.message });
@@ -208,7 +223,7 @@ export function CodesEditor({ rows: serverRows }: { rows: CodeRow[] }) {
         setNotice({ ok: false, text: 'Η αποθήκευση απέτυχε. Ελέγξτε τη σύνδεσή σας και δοκιμάστε ξανά — όσα γράψατε είναι ακόμη εδώ.' });
       }
     });
-  }, [pending, updates]);
+  }, [pending, updates, serverRows]);
 
   // `save` changes identity on every keystroke; rows get a stable handler so that typing re-renders one row, not all of them
   const saveRef = useRef(save);

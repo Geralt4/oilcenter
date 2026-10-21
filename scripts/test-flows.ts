@@ -325,6 +325,68 @@ async function main() {
     check('all 61 favourites are listed, not only the first 60', (await page.locator('main article').count()) === 61, await page.locator('main article').count());
     await page.evaluate(() => localStorage.removeItem('oilcenter-wishlist'));
 
+    console.log('Edits typed while a save is in flight');
+    page.on('dialog', (dialog) => void dialog.accept());
+    // hold the server action back so there is time to type while it is running
+    const slowActions = async (path: string, ms: number) =>
+      page.route(`**${path}`, async (route) => {
+        if (route.request().method() === 'POST' && route.request().headers()['next-action']) await delay(ms);
+        await route.continue();
+      });
+    const money = (cents: number) => (cents / 100).toFixed(2).replace('.', ',');
+
+    await page.goto(`${base}/admin/prices`);
+    const priceBox = page.locator('[data-price-input]').first();
+    const priceBefore = Math.round(Number((await priceBox.inputValue()).replace(',', '.')) * 100);
+    await slowActions('/admin/prices', 2500);
+    await priceBox.fill(money(priceBefore + 10));
+    await page.getByRole('button', { name: /^Αποθήκευση 1 αλλαγής/ }).click();
+    await delay(400);
+    await priceBox.fill(money(priceBefore + 20));
+    await page.getByText(/Αποθηκεύτηκε 1 αλλαγή/).waitFor({ timeout: 20_000 });
+    await page.unroute('**/admin/prices');
+    check('a price typed while the save was running is still in the box…', (await priceBox.inputValue()) === money(priceBefore + 20), await priceBox.inputValue());
+    check('…and still counts as an unsaved change', (await page.getByRole('button', { name: /^Αποθήκευση 1 αλλαγής/ }).count()) === 1);
+    if ((await page.getByRole('button', { name: /^Αποθήκευση 1 αλλαγής/ }).count()) === 1) {
+      await page.getByRole('button', { name: /^Αποθήκευση 1 αλλαγής/ }).click();
+      await page.getByText(/Αποθηκεύτηκε 1 αλλαγή/).first().waitFor({ timeout: 20_000 });
+    }
+
+    await page.goto(`${base}/admin/skroutz`);
+    const mpnBox = page.locator('[data-code-input="mpn"]').first();
+    const codeRowId = Number(await mpnBox.getAttribute('data-row-id'));
+    const saveCodes = page.getByRole('button', { name: /^Αποθήκευση \(1\)/ });
+    await slowActions('/admin/skroutz', 2500);
+    await mpnBox.fill('E2E-ONE');
+    await saveCodes.click();
+    await delay(400);
+    await mpnBox.fill('E2E-TWO');
+    await page.getByText(/Αποθηκεύτηκε 1 συσκευασία/).waitFor({ timeout: 20_000 });
+    await page.unroute('**/admin/skroutz');
+    check('a code typed while the save was running is still in the box…', (await mpnBox.inputValue()) === 'E2E-TWO', await mpnBox.inputValue());
+    check('…and still counts as an unsaved change', (await page.getByRole('button', { name: /^Αποθήκευση \(1\)/ }).count()) === 1);
+    // whatever the box holds, now save the second code for real
+    await mpnBox.fill('E2E-TWO');
+    await page.getByRole('button', { name: /^Αποθήκευση \(1\)/ }).click();
+    const savedMpn = async () => (await db.select({ mpn: variants.mpn, sku: variants.sku }).from(variants).where(eq(variants.id, codeRowId)))[0];
+    for (let attempt = 0; attempt < 40 && (await savedMpn()).mpn !== 'E2E-TWO'; attempt++) await delay(250);
+    check('the second code is saved', (await savedMpn()).mpn === 'E2E-TWO', await savedMpn());
+
+    console.log('A code imported after a manual save');
+    const codeSku = (await savedMpn()).sku;
+    await page.getByText('Έχετε λίστα από προμηθευτή; Εισαγωγή από CSV').click();
+    await page.locator('input[type="file"][accept*="csv"]').setInputFiles({ name: 'codes.csv', mimeType: 'text/csv', buffer: Buffer.from(`sku;mpn\n${codeSku};E2E-CSV\n`, 'utf8') });
+    await page.locator('input[type="hidden"][name="file"]').waitFor({ state: 'attached', timeout: 20_000 });
+    await page.getByRole('button', { name: 'Εισαγωγή CSV' }).click();
+    for (let attempt = 0; attempt < 40 && (await savedMpn()).mpn !== 'E2E-CSV'; attempt++) await delay(250);
+    check('the CSV import changed the code in the database', (await savedMpn()).mpn === 'E2E-CSV', await savedMpn());
+    let shownAfterCsv = await mpnBox.inputValue();
+    for (let attempt = 0; attempt < 20 && shownAfterCsv !== 'E2E-CSV'; attempt++) {
+      await delay(250);
+      shownAfterCsv = await mpnBox.inputValue();
+    }
+    check('…and the editor shows the imported code, not the one saved by hand earlier', shownAfterCsv === 'E2E-CSV', shownAfterCsv);
+
     console.log('Sales and targeted coupons');
     // The owner's path end to end: the form posts the ticked brand and the picked product, the shop shows the sale,
     // and the coupon list says what the code is limited to. (The unit tests build their FormData by hand.)

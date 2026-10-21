@@ -411,14 +411,16 @@ export async function cancelOrder(orderId: number, actor: string, reason?: strin
           opts.noAttemptSince ? sql`NOT EXISTS (SELECT 1 FROM payment_attempts a WHERE a.order_id = ${orders.id} AND a.created_at >= ${opts.noAttemptSince.getTime()})` : undefined,
         ),
       )
-      .returning({ id: orders.id, couponCode: orders.couponCode, couponId: orders.couponId });
+      .returning({ id: orders.id, couponId: orders.couponId });
     if (flipped.length === 0) return false;
 
     // a cancelled order no longer counts against the coupon's «μέγιστες χρήσεις»
-    // by the coupon's id: its code may have been renamed since (orders from before the id was kept fall back to the code)
-    const { couponCode, couponId } = flipped[0];
-    if (couponId !== null || couponCode) {
-      await tx.update(coupons).set({ usedCount: sql`MAX(${coupons.usedCount} - 1, 0)` }).where(couponId !== null ? eq(coupons.id, couponId) : eq(coupons.code, couponCode!));
+    // By the coupon's id only. The code is no identity: it can be renamed, and a deleted coupon's code can be created again for a
+    // different coupon. An order whose coupon was deleted has no id any more (SET NULL), so there is nothing to give back.
+    // (Orders from before the id was kept were linked by migration 0018.)
+    const { couponId } = flipped[0];
+    if (couponId !== null) {
+      await tx.update(coupons).set({ usedCount: sql`MAX(${coupons.usedCount} - 1, 0)` }).where(eq(coupons.id, couponId));
     }
 
     const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));

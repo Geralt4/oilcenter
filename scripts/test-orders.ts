@@ -903,6 +903,23 @@ async function main() {
     const afterCancel = (await db.select().from(coupons).where(eq(coupons.id, couponRow.id)))[0];
     check('cancelling the order after the coupon was renamed still gives the use back', afterCancel.usedCount === 0, afterCancel.usedCount);
     await db.update(coupons).set({ code: 'WELCOME5' }).where(eq(coupons.id, couponRow.id));
+
+    console.log('  A deleted and recreated coupon');
+    await db.update(coupons).set({ usedCount: 0, maxUses: 1 }).where(eq(coupons.id, couponRow.id));
+    const oldOrder = await newCard({ couponCode: 'WELCOME5' });
+    const [oldCoupon] = await db.select().from(coupons).where(eq(coupons.id, couponRow.id));
+    await db.delete(coupons).where(eq(coupons.id, couponRow.id));
+    const [replacement] = await db.insert(coupons).values({ code: 'WELCOME5', type: oldCoupon.type, value: oldCoupon.value, minSubtotalCents: 0, maxUses: 1, usedCount: 0, isActive: true }).returning();
+    const replacementOrder = await newCard({ couponCode: 'WELCOME5' });
+    check('the replacement coupon is used once', (await db.select().from(coupons).where(eq(coupons.id, replacement.id)))[0].usedCount === 1);
+    await cancelOrder(oldOrder.id, 'test');
+    const replacementAfter = (await db.select().from(coupons).where(eq(coupons.id, replacement.id)))[0];
+    check('cancelling an order of the DELETED coupon leaves the replacement\'s count alone', replacementAfter.usedCount === 1, replacementAfter.usedCount);
+    const refused = await createOrder({ ...base, paymentMethod: 'card', couponCode: 'WELCOME5', lines: [{ variantId: variant.id, quantity: 1 }] }, settings, cardOpts);
+    check('…so a one-use replacement is still used up', !refused.ok && refused.reason === 'coupon', refused.ok ? 'accepted' : refused);
+    await cancelOrder(replacementOrder.id, 'test');
+    check('cancelling the replacement\'s own order gives its use back', (await db.select().from(coupons).where(eq(coupons.id, replacement.id)))[0].usedCount === 0);
+    await db.update(coupons).set({ maxUses: oldCoupon.maxUses, usedCount: 0 }).where(eq(coupons.id, replacement.id));
   }
 
   console.log('Cleanup');
