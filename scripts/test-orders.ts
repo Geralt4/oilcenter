@@ -82,6 +82,16 @@ async function main() {
   const exhausted = await createOrder({ ...base, couponCode: 'WELCOME5', lines: [{ variantId: variant.id, quantity: 1 }] }, settings, opts);
   check('exhausted coupon is refused', !exhausted.ok && exhausted.reason === 'coupon', exhausted);
   check('…without consuming stock', (await stock()) === 5, await stock());
+  if (withCoupon.ok) {
+    await cancelOrder(withCoupon.order.id, 'test');
+    const back = (await db.select().from(coupons).where(eq(coupons.code, 'WELCOME5')))[0].usedCount;
+    check('cancelling the order gives the coupon use back', back === 0, back);
+    await cancelOrder(withCoupon.order.id, 'test');
+    check('…once only (a second cancel does not go below zero)', (await db.select().from(coupons).where(eq(coupons.code, 'WELCOME5')))[0].usedCount === 0);
+    const again = await createOrder({ ...base, paymentMethod: 'bank_transfer', couponCode: 'WELCOME5', lines: [{ variantId: variant.id, quantity: 2 }] }, settings, opts);
+    check('…and the code works again', again.ok, again);
+    if (again.ok) await cancelOrder(again.order.id, 'test');
+  }
 
   console.log('Method guards');
   const codPickup = await createOrder({ ...base, shippingMethod: 'pickup', paymentMethod: 'cod', lines: [{ variantId: variant.id, quantity: 1 }] }, settings, opts);

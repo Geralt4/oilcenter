@@ -762,6 +762,13 @@ export async function saveCategory(_prev: AdminFormState, fd: FormData): Promise
   if (!name) return { ok: false, message: 'Συμπληρώστε όνομα.' };
   const parentId = int(fd, 'parentId') || null;
   if (id && parentId === id) return { ok: false, message: 'Μια κατηγορία δεν μπορεί να είναι γονέας του εαυτού της.' };
+  if (id && parentId) {
+    // a loop (A under B, B under A) leaves neither of them reachable from the menu: walk up from the new parent and refuse if it meets this category
+    const parents = new Map((await db.select({ id: categories.id, parentId: categories.parentId }).from(categories)).map((c) => [c.id, c.parentId]));
+    for (let p: number | null | undefined = parentId, steps = 0; p && steps < 100; p = parents.get(p), steps++) {
+      if (p === id) return { ok: false, message: 'Η κατηγορία που επιλέξατε ως γονέα βρίσκεται μέσα σε αυτή την κατηγορία.' };
+    }
+  }
   // on an existing category an empty slug box means "leave the address as it is" (see saveProduct)
   const [storedCategory] = id ? await db.select({ slug: categories.slug }).from(categories).where(eq(categories.id, id)) : [];
   const values = { name, slug: slugify(str(fd, 'slug') || storedCategory?.slug || name), parentId, icon: str(fd, 'icon') || null, description: str(fd, 'description') || null, isActive: bool(fd, 'isActive'), sort: int(fd, 'sort') };
@@ -1168,7 +1175,9 @@ export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promi
     // all or nothing: a failure halfway through the file must not leave half the barcodes applied
     await db.transaction(async (tx) => {
       for (const { cells } of lines) {
-        const sku = (cells[col.sku] ?? '').toUpperCase();
+        // a code typed by hand in the product editor keeps its case, so the cell is tried as written first
+        const typed = cells[col.sku] ?? '';
+        const sku = bySku.has(typed) ? typed : typed.toUpperCase();
         if (!sku) continue;
         const current = bySku.get(sku);
         if (!current) {

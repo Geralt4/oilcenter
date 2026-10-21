@@ -387,8 +387,13 @@ export async function cancelOrder(orderId: number, actor: string, reason?: strin
       .set({ status: 'cancelled' })
       // requireUnpaid: the automatic release must never cancel an order whose payment landed after it was selected
       .where(and(eq(orders.id, orderId), sql`${orders.status} <> 'cancelled'`, opts.requireUnpaid ? sql`${orders.paymentStatus} NOT IN ('paid', 'refunded')` : undefined))
-      .returning({ id: orders.id });
+      .returning({ id: orders.id, couponCode: orders.couponCode });
     if (flipped.length === 0) return false;
+
+    // the coupon use goes back with the stock: an abandoned card checkout must not burn a single-use code for good
+    if (flipped[0].couponCode) {
+      await tx.update(coupons).set({ usedCount: sql`MAX(${coupons.usedCount} - 1, 0)` }).where(eq(coupons.code, flipped[0].couponCode));
+    }
 
     const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
     const ids = items.map((i) => i.variantId).filter((id): id is number => id !== null);

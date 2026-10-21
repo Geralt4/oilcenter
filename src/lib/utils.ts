@@ -169,7 +169,8 @@ export function parseVolumeMl(label: string): number | null {
   const m = label
     .toLowerCase()
     .replace(',', '.')
-    .match(/([\d.]+)\s*(ml|l|lt|ltr|liter|litre|λίτρ\S*|λιτρ\S*|kg|g|gr)\b/);
+    // not \b: Greek letters are not "word" characters to JavaScript, so «5 λίτρα» would never end on a boundary
+    .match(/([\d.]+)\s*(ml|l|lt|ltr|liter|litre|λίτρ\S*|λιτρ\S*|kg|g|gr)(?![\p{L}\d])/u);
   if (!m) return null;
   const n = Number(m[1]);
   if (!Number.isFinite(n)) return null;
