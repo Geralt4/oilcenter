@@ -140,7 +140,7 @@ async function main() {
 
   console.log('Off-site backup encryption');
   process.env.BACKUP_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
-  const { decryptBackup, encryptBackup, expired, expiredVersions } = await import('../src/lib/backup-offsite');
+  const { decryptBackup, encryptBackup, expired, expiredBackups, expiredVersions } = await import('../src/lib/backup-offsite');
   const plain = Buffer.from('SQLite format 3\0customer data and password hashes');
   const sealed = encryptBackup(plain);
   check('decrypt(encrypt(x)) === x', decryptBackup(sealed).equals(plain));
@@ -172,6 +172,21 @@ async function main() {
   ];
   check('version retention keeps the newest and marks older versions', expiredVersions(versions, 'shop-', 2).map((v) => v.fileName).join(',') === 'shop-a.db.gz.enc');
   check('version retention never mixes archive families', expiredVersions(versions, 'uploads-', 2).length === 0);
+  // a busy week of deploys: 20 days of daily copies, 5 boot snapshots and 5 uploads versions per day
+  const busy: Array<{ fileName: string; uploadTimestamp: number }> = [];
+  for (let d = 1; d <= 20; d++) {
+    const day = `2026-10-${String(d).padStart(2, '0')}`;
+    busy.push({ fileName: `shop-${day}.db.gz.enc`, uploadTimestamp: d * 100 });
+    for (let b = 1; b <= 5; b++) {
+      busy.push({ fileName: `shop-${day}-0${b}0000.db.gz.enc`, uploadTimestamp: d * 100 + b });
+      busy.push({ fileName: `uploads-${day}.tar.gz.enc`, uploadTimestamp: d * 100 + b });
+    }
+  }
+  const pruned = new Set(expiredBackups(busy));
+  const left = busy.filter((v) => !pruned.has(v));
+  check('frequent deploys do not shorten the 14 daily database copies', left.filter((v) => /^shop-[\d-]{10}\.db/.test(v.fileName)).length === 14, left.map((v) => v.fileName));
+  check('…boot snapshots are kept separately (7 newest)', left.filter((v) => /^shop-[\d-]{10}-\d{6}/.test(v.fileName)).length === 7);
+  check('…and the uploads archives of 14 days survive, one version each', new Set(left.filter((v) => v.fileName.startsWith('uploads-')).map((v) => v.fileName)).size === 14 && left.filter((v) => v.fileName.startsWith('uploads-')).length === 14);
   process.env.BACKUP_ENCRYPTION_KEY = Buffer.alloc(31, 1).toString('base64');
   let badKeyRefused = false;
   try {

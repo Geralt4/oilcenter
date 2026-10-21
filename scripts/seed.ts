@@ -5,6 +5,7 @@ import { count, eq } from 'drizzle-orm';
 import { db } from '../src/lib/db';
 import { adminUsers, brands, categories, coupons, productImages, products, variants, type BaseType } from '../src/lib/db/schema';
 import { hashPassword } from '../src/lib/auth/password';
+import { pruneDeadTargets } from '../src/lib/discount-cleanup';
 import { extraKeywords } from '../src/lib/search-keywords';
 import { applyHazardLabels, applyManufacturerSpecs } from './manufacturer-data';
 import { loadSkroutzPrices } from './skroutz-prices';
@@ -112,6 +113,11 @@ async function main() {
     // What the manufacturers' data sheets say, where the catalogue was silent (same files as the data patches).
     console.log(`Manufacturer specs: ${await applyManufacturerSpecs({ verbose: false })}`);
     console.log(`Hazard labels: ${await applyHazardLabels({ verbose: false })}`);
+    if (existing > 0) {
+      // the replaced catalogue has new ids: coupons and sales limited to the old ones must not quietly become shop-wide
+      const { cleaned, switchedOff } = await pruneDeadTargets();
+      if (cleaned) console.log(`Coupons/sales: ${cleaned} pointed at the replaced catalogue and were trimmed; ${switchedOff} had nothing left and were switched off — check them in the admin.`);
+    }
 
     // An example coupon so the feature can be demonstrated. Inactive on purpose: enable it from /admin/coupons.
     await db

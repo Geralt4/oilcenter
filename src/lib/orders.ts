@@ -7,7 +7,7 @@ import { claimAttemptStatus, setAttemptStatus, type Executor } from '@/lib/payme
 import { resolveCartLines, type ResolvedCartLine } from '@/lib/catalog';
 import { commerceEnabled } from '@/lib/commerce-flag';
 import { cleanIds, hasTargets, matchesTargets } from '@/lib/discounts';
-import { availablePaymentMethods, computeTotals, type AppliedCoupon } from '@/lib/pricing';
+import { availablePaymentMethods, CARD_MIN_CENTS, computeTotals, type AppliedCoupon } from '@/lib/pricing';
 import { loadCategoryPaths } from '@/lib/sales';
 import type { ShopSettings } from '@/lib/settings';
 import { formatPrice, isGreekPostalCode, isValidAfm } from '@/lib/utils';
@@ -139,6 +139,10 @@ export async function createOrder(input: CheckoutInput, settings: ShopSettings, 
   if (couponError) return { ok: false, reason: 'coupon', message: couponError };
 
   const totals = computeTotals({ subtotalCents, weightGrams, shippingMethod: input.shippingMethod, paymentMethod: input.paymentMethod, coupon, lines, shipping, vatRate: tax.vatRate });
+  // a coupon can bring the total below what a card gateway accepts: such an order could never be paid
+  if (input.paymentMethod === 'card' && totals.totalCents < CARD_MIN_CENTS) {
+    return { ok: false, reason: 'invalid_method', message: 'Για τόσο μικρό ποσό δεν είναι δυνατή η πληρωμή με κάρτα. Επιλέξτε άλλον τρόπο πληρωμής.' };
+  }
   const courier = input.shippingMethod === 'courier';
 
   try {
@@ -216,6 +220,8 @@ export async function createOrder(input: CheckoutInput, settings: ShopSettings, 
           lineTotalCents: l.lineTotalCents,
           weightGrams: l.unitWeightGrams,
           availability: l.availability,
+          // step 3 took these units off the shelf exactly when the size's stock is counted
+          stockReserved: l.maxQuantity !== null,
         })),
       );
       await tx.insert(orderEvents).values({ orderId: created.id, type: 'created', message: `Η παραγγελία καταχωρήθηκε${isTest ? ' (δοκιμαστική)' : ''}.`, actor: 'customer' });
@@ -379,20 +385,30 @@ export async function markOrderPaid(orderId: number, info: PaymentInfo): Promise
   return (await recordPayment(orderId, info)) === 'paid';
 }
 
-/** Puts reserved stock back. Safe to call once per order: guarded by the status transition. */
-export async function cancelOrder(orderId: number, actor: string, reason?: string, opts: { requireUnpaid?: boolean } = {}): Promise<boolean> {
+/** Puts reserved stock and the coupon use back. Safe to call once per order: guarded by the status transition. */
+export async function cancelOrder(orderId: number, actor: string, reason?: string, opts: { requireUnpaid?: boolean; noAttemptSince?: Date } = {}): Promise<boolean> {
   return db.transaction(async (tx) => {
     const flipped = await tx
       .update(orders)
       .set({ status: 'cancelled' })
-      // requireUnpaid: the automatic release must never cancel an order whose payment landed after it was selected
-      .where(and(eq(orders.id, orderId), sql`${orders.status} <> 'cancelled'`, opts.requireUnpaid ? sql`${orders.paymentStatus} NOT IN ('paid', 'refunded')` : undefined))
+      .where(
+        and(
+          eq(orders.id, orderId),
+          sql`${orders.status} <> 'cancelled'`,
+          // requireUnpaid: the automatic release must never cancel an order whose payment landed, or was flagged for the
+          // owner, or that someone moved on, after it was selected
+          opts.requireUnpaid ? and(sql`${orders.paymentStatus} NOT IN ('paid', 'refunded')`, eq(orders.status, 'pending'), isNull(orders.paymentFlag)) : undefined,
+          // …nor one whose buyer opened a new checkout in the meantime
+          opts.noAttemptSince ? sql`NOT EXISTS (SELECT 1 FROM payment_attempts a WHERE a.order_id = ${orders.id} AND a.created_at >= ${opts.noAttemptSince.getTime()})` : undefined,
+        ),
+      )
       .returning({ id: orders.id, couponCode: orders.couponCode });
     if (flipped.length === 0) return false;
 
-    // the coupon use goes back with the stock: an abandoned card checkout must not burn a single-use code for good
-    if (flipped[0].couponCode) {
-      await tx.update(coupons).set({ usedCount: sql`MAX(${coupons.usedCount} - 1, 0)` }).where(eq(coupons.code, flipped[0].couponCode));
+    // a cancelled order no longer counts against the coupon's «μέγιστες χρήσεις»
+    const { couponCode } = flipped[0];
+    if (couponCode) {
+      await tx.update(coupons).set({ usedCount: sql`MAX(${coupons.usedCount} - 1, 0)` }).where(eq(coupons.code, couponCode));
     }
 
     const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
@@ -400,7 +416,9 @@ export async function cancelOrder(orderId: number, actor: string, reason?: strin
     const tracked = ids.length ? await tx.select({ id: variants.id, trackStock: variants.trackStock }).from(variants).where(inArray(variants.id, ids)) : [];
     const isTracked = new Set(tracked.filter((v) => v.trackStock).map((v) => v.id));
     for (const item of items) {
-      if (item.variantId && isTracked.has(item.variantId)) {
+      // exactly what the order took: counting switched on after the order must not add units it never reserved, and switched
+      // off after it must not keep them; orders from before this was recorded fall back to whether the size counts now
+      if (item.variantId && (item.stockReserved ?? isTracked.has(item.variantId))) {
         await tx.update(variants).set({ stock: sql`${variants.stock} + ${item.quantity}` }).where(eq(variants.id, item.variantId));
       }
     }
@@ -432,7 +450,7 @@ export async function releaseAbandonedCardOrders(): Promise<number> {
       ),
     );
   let released = 0;
-  for (const o of stale) if (await cancelOrder(o.id, 'system', 'η πληρωμή με κάρτα δεν ολοκληρώθηκε', { requireUnpaid: true })) released++;
+  for (const o of stale) if (await cancelOrder(o.id, 'system', 'η πληρωμή με κάρτα δεν ολοκληρώθηκε', { requireUnpaid: true, noAttemptSince: cutoff })) released++;
   return released;
 }
 

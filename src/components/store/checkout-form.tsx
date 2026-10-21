@@ -92,7 +92,12 @@ export function CheckoutForm({ prefill, pickupAddress }: { prefill: CheckoutPref
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: '' }));
   };
 
-  const paymentOptions = useMemo(() => availablePaymentMethods(shippingMethod, config.payments, config.cardProviderConfigured), [shippingMethod, config]);
+  const subtotal = cartSubtotalCents(lines);
+  const weight = cartWeightGrams(lines);
+  const couponLines = cartCouponLines(lines);
+  // what a card would be charged (no COD fee): a coupon can bring it below the gateway's minimum
+  const cardTotal = computeTotals({ subtotalCents: subtotal, weightGrams: weight, shippingMethod, paymentMethod: null, coupon, lines: couponLines, shipping: config.shipping, vatRate: config.vatRate }).totalCents;
+  const paymentOptions = useMemo(() => availablePaymentMethods(shippingMethod, config.payments, config.cardProviderConfigured, cardTotal), [shippingMethod, config, cardTotal]);
   // Derived, not synced: switching courier ↔ pickup can invalidate the choice, so fall back to the first valid one.
   const paymentMethod = chosenPayment && paymentOptions.includes(chosenPayment) ? chosenPayment : (paymentOptions[0] ?? null);
 
@@ -123,9 +128,6 @@ export function CheckoutForm({ prefill, pickupAddress }: { prefill: CheckoutPref
     }
   }
 
-  const subtotal = cartSubtotalCents(lines);
-  const weight = cartWeightGrams(lines);
-  const couponLines = cartCouponLines(lines);
   const totals = computeTotals({ subtotalCents: subtotal, weightGrams: weight, shippingMethod, paymentMethod, coupon, lines: couponLines, shipping: config.shipping, vatRate: config.vatRate });
   const courierTotals = computeTotals({ subtotalCents: subtotal, weightGrams: weight, shippingMethod: 'courier', paymentMethod: null, coupon, lines: couponLines, shipping: config.shipping, vatRate: config.vatRate });
 

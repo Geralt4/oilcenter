@@ -37,7 +37,17 @@ const from = () => {
 const resendKey = () => process.env.RESEND_API_KEY?.trim() || '';
 export const mailConfigured = () => Boolean(resendKey() || process.env.SMTP_HOST);
 
-const plainText = (html: string) => html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+const plainText = (html: string) =>
+  html
+    .replace(/<style[\s\S]*?<\/style>/g, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    // undo esc(): «Castrol &amp; Motul» must read «Castrol & Motul» in the text part (&amp; last, so «&amp;lt;» stays «&lt;»)
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&');
 
 async function sendWithResend(mail: Mail): Promise<void> {
   const res = await fetch('https://api.resend.com/emails', {
@@ -104,7 +114,7 @@ function layout(shop: ShopSettings['shop'], heading: string, body: string): stri
 <tr><td style="padding:28px;"><h1 style="margin:0 0 16px;font-size:22px;line-height:1.25;">${esc(heading)}</h1>${body}</td></tr>
 <tr><td style="background:#f5f6f8;padding:20px 28px;font-size:13px;line-height:1.6;color:#59616f;">
 <strong style="color:#11141a;">${esc(shop.name)} — ${esc(shop.legalName)}</strong><br>${esc(fullAddress(shop))}<br>
-Τηλ. <a href="${esc(telHref(shop.phone))}" style="color:#11141a;">${esc(shop.phone)}</a>${shop.mobile ? ` · <a href="${esc(telHref(shop.mobile))}" style="color:#11141a;">${esc(shop.mobile)}</a>` : ''}${shop.email ? ` · <a href="mailto:${esc(shop.email)}" style="color:#11141a;">${esc(shop.email)}</a>` : ''}
+Τηλ. <a href="${telHref(shop.phone)}" style="color:#11141a;">${esc(shop.phone)}</a>${shop.mobile ? ` · <a href="${telHref(shop.mobile)}" style="color:#11141a;">${esc(shop.mobile)}</a>` : ''}${shop.email ? ` · <a href="mailto:${esc(shop.email)}" style="color:#11141a;">${esc(shop.email)}</a>` : ''}
 </td></tr></table></td></tr></table></body></html>`;
 }
 

@@ -30,6 +30,28 @@ function check(name: string, ok: boolean, detail?: unknown) {
   if (!ok) failures++;
 }
 
+/**
+ * A NEW instance of src/lib/payments/viva.ts, which reads VIVA_ENV / VIVA_TEST_BASE_URL and keeps its token at import time.
+ * tsx runs these scripts as CommonJS, where import() with a query string returns the CACHED module, so the instance is
+ * loaded around the require cache instead (and the cached one put back, so nothing else picks up the new instance).
+ */
+async function freshViva(tag: string): Promise<typeof import('../src/lib/payments/viva')> {
+  if (typeof require !== 'undefined' && require.cache) {
+    const file = require.resolve('../src/lib/payments/viva');
+    const cached = require.cache[file];
+    delete require.cache[file];
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- a require() is the only way around the CommonJS cache
+      return require(file);
+    } finally {
+      if (cached) require.cache[file] = cached;
+      else delete require.cache[file];
+    }
+  }
+  const specifier = `../src/lib/payments/viva.ts?${tag}`; // ESM: the query string alone makes a new instance
+  return import(specifier);
+}
+
 // ---- network mock -------------------------------------------------------------------------------------------------
 
 type Call = { url: string; method: string; headers: Record<string, string>; body: string | null };
@@ -160,8 +182,7 @@ async function main() {
   check('demo redirect is https://demo.vivapayments.com/web/checkout?ref=<code>&lang=el', first.redirectUrl === `https://demo.vivapayments.com/web/checkout?ref=${first.ref}&lang=el`, first.redirectUrl);
   // viva.ts reads VIVA_ENV at import time, so the live branch is loaded as a separate module instance
   process.env.VIVA_ENV = 'live';
-  const liveSpecifier = '../src/lib/payments/viva.ts?live=1'; // not a literal: the query string only exists to get a fresh module
-  const liveViva: typeof viva = await import(liveSpecifier);
+  const liveViva = await freshViva('live=1');
   process.env.VIVA_ENV = 'demo';
   calls.length = 0;
   const liveOrder = await liveViva.vivaCreateOrder({ amountCents: 1234, orderNumber: 'OC-TEST-5', email: 'b@example.com', fullName: 'A B', phone: '6900000000' });
@@ -565,8 +586,7 @@ async function main() {
   process.env.VIVA_ENV = 'demo';
   process.env.VIVA_TEST_BASE_URL = TB;
   // read at import time: a fresh module instance per environment (non-literal specifiers, as for the live case above)
-  const demoTbSpecifier = '../src/lib/payments/viva.ts?tb=demo';
-  const demoTb: typeof viva = await import(demoTbSpecifier);
+  const demoTb = await freshViva('tb=demo');
   calls.length = 0;
   canned.orderBody = '{"orderCode":9515982136485101}';
   const demoTbOrder = await demoTb.vivaCreateOrder({ amountCents: 1234, orderNumber: 'OC-TEST-TB1', email: 'b@example.com', fullName: 'A B', phone: '6900000000' });
@@ -575,8 +595,7 @@ async function main() {
   check('demo + test base: the redirect is built on the test host', demoTbOrder.redirectUrl === `http://127.0.0.1:9999/web/checkout?ref=${demoTbOrder.orderCode}&lang=el`, demoTbOrder.redirectUrl);
 
   process.env.VIVA_ENV = 'live';
-  const liveTbSpecifier = '../src/lib/payments/viva.ts?tb=live';
-  const liveTb: typeof viva = await import(liveTbSpecifier);
+  const liveTb = await freshViva('tb=live');
   process.env.VIVA_ENV = savedEnvO.env;
   calls.length = 0;
   canned.orderBody = '{"orderCode":9515982136485102}';
@@ -705,8 +724,7 @@ async function main() {
 
   console.log('F. A rejected token is refreshed once');
   // a fresh module instance starts with no cached token; the call is made through it
-  const freshSpecifierF = '../src/lib/payments/viva.ts?fresh401';
-  const freshF: typeof viva = await import(freshSpecifierF);
+  const freshF = await freshViva('fresh401');
   const orderParamsF = { amountCents: 1234, orderNumber: 'OC-TEST-F1', email: 'b@example.com', fullName: 'A B', phone: '6900000000' };
   calls.length = 0;
   canned.orderQueue.push(401);

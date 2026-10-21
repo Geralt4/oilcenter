@@ -30,7 +30,7 @@ export default async function RegisterPage({ searchParams }: { searchParams: Pro
           ]}
         >
           <label className="flex cursor-pointer items-start gap-2.5 text-sm text-ink-700">
-            <input type="checkbox" name="acceptTerms" className="mt-0.5 h-[1.125rem] w-[1.125rem] shrink-0 cursor-pointer accent-ink-900" />
+            <input type="checkbox" name="acceptTerms" required className="mt-0.5 h-[1.125rem] w-[1.125rem] shrink-0 cursor-pointer accent-ink-900" />
             <span>Αποδέχομαι τους <Link href="/terms" target="_blank" className="font-semibold text-petrol-500 underline underline-offset-2">όρους χρήσης</Link> και την <Link href="/privacy" target="_blank" className="font-semibold text-petrol-500 underline underline-offset-2">πολιτική απορρήτου</Link>.</span>
           </label>
         </ActionForm>

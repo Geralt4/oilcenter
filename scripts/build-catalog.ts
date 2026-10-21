@@ -295,7 +295,7 @@ async function main() {
       for (const pack of packs.length ? packs : ['']) {
         const label = pack || 'Τεμάχιο';
         if (variantByLabel.has(label)) continue;
-        const ml = pack && !/\d\s*g$/i.test(pack) ? parseVolumeMl(pack) : null;
+        const ml = pack ? parseVolumeMl(pack) : null;
         variantByLabel.set(label, { label, volumeMl: ml, image: url, source: l });
       }
     }

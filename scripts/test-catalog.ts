@@ -66,6 +66,21 @@ async function main() {
   const onPage = await listProducts({ viscosity: busiest.grade, perPage: 500 });
   check('on a viscosity page the category counts add up to that page', onPage.facets.categories.reduce((n, c) => n + c.count, 0) === onPage.products.filter((p) => p.categoryId !== null).length);
 
+  console.log('Price filter');
+  // a product whose sizes straddle a range without one inside it (1 L at 5 €, 5 L at 50 €) must not match 10–20 €
+  const straddler = everything.products.find((p) => {
+    const prices = p.variants.filter((v) => v.priced).map((v) => v.priceCents).sort((a, b) => a - b);
+    return prices.some((x, i) => i > 0 && x - prices[i - 1] > 200);
+  });
+  if (straddler) {
+    const prices = straddler.variants.filter((v) => v.priced).map((v) => v.priceCents).sort((a, b) => a - b);
+    const gap = prices.findIndex((x, i) => i > 0 && x - prices[i - 1] > 200);
+    const [low, high] = [prices[gap - 1] + 50, prices[gap] - 50];
+    const between = await listProducts({ minPriceCents: low, maxPriceCents: high, perPage: 500 });
+    check('the price filter does not list a product with no size inside the range', !between.products.some((p) => p.id === straddler.id), { product: straddler.slug, low, high });
+    check('…and every product it lists has a size inside it', between.products.every((p) => p.variants.some((v) => v.priced && v.priceCents >= low && v.priceCents <= high)));
+  } else check('(a product with a price gap exists in the catalogue)', false);
+
   console.log('Search by code');
   // give one size a manufacturer code and a barcode the way the owner would (Admin → Skroutz never touches products.search_text)
   const target = everything.products.find((p) => p.variants.length > 1) ?? everything.products[0];

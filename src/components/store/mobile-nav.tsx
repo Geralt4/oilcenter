@@ -69,7 +69,9 @@ export function MobileNav({ tree, brands, shop, customerName }: Props) {
               </button>
             </div>
 
-            <nav className="flex-1 overflow-y-auto px-2 py-3">
+            {/* The menu also closes itself on navigation (it is bound to the pathname), but a link to the page already
+                open — «Όλα τα προϊόντα» from /products?q=… — changes no pathname, so any link click closes it here. */}
+            <nav onClick={(e) => (e.target as Element).closest('a') && setOpen(false)} className="flex-1 overflow-y-auto px-2 py-3">
               <Link href="/products" className="mb-2 flex h-12 items-center justify-center rounded-xl bg-ink-900 font-semibold text-white">
                 Όλα τα προϊόντα
               </Link>

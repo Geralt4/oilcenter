@@ -10,7 +10,8 @@ import { backupsDir, backupsSupported, writeSnapshot } from '@/lib/backup';
  *
  *   DATA_DIR/backups/shop-YYYY-MM-DD.db.gz          local snapshot (src/lib/backup.ts)
  *   B2: shop-YYYY-MM-DD.db.gz.enc                   encrypted full-database copy, 14 newest kept
- *   B2: uploads-YYYY-MM-DD.tar.gz.enc               product photos + safety data sheets, 4 newest kept
+ *   B2: shop-YYYY-MM-DD-HHMMSS.db.gz.enc            snapshot taken at boot / «backup now», 7 newest kept
+ *   B2: uploads-YYYY-MM-DD.tar.gz.enc               product photos + safety data sheets, newest copy of 14 days kept
  *
  * Encryption: AES-256-GCM (OpenSSL, via node:crypto), random 96-bit nonce per file. File layout:
  *
@@ -138,9 +139,31 @@ export function expiredVersions<T extends { fileName: string; uploadTimestamp: n
     .slice(keep);
 }
 
+/**
+ * Keep the newest version of the newest `keepNames` file names in one family; returns the versions to delete. Every boot
+ * re-uploads the day's archive under the same name, so counting versions instead of names would let a few deploys push
+ * the older days out of the retention window.
+ */
+export function expiredPerName<T extends { fileName: string; uploadTimestamp: number }>(versions: T[], prefix: string, keepNames: number): T[] {
+  const kept = new Set<string>();
+  const doomed: T[] = [];
+  for (const v of versions.filter((v) => v.fileName.startsWith(prefix) && v.fileName.endsWith('.enc')).sort((a, b) => b.uploadTimestamp - a.uploadTimestamp)) {
+    if (!kept.has(v.fileName) && kept.size < keepNames) kept.add(v.fileName);
+    else doomed.push(v);
+  }
+  return doomed;
+}
+
+/** What pruneRemote deletes. Pure, so it is tested. Boot snapshots (shop-YYYY-MM-DD-HHMMSS) never count against the daily copies. */
+export function expiredBackups<T extends { fileName: string; uploadTimestamp: number }>(versions: T[]): T[] {
+  const daily = versions.filter((v) => /^shop-\d{4}-\d{2}-\d{2}\.db\.gz\.enc$/.test(v.fileName));
+  const boot = versions.filter((v) => /^shop-\d{4}-\d{2}-\d{2}-\d{6}\.db\.gz\.enc$/.test(v.fileName));
+  return [...expiredVersions(daily, 'shop-', KEEP_DB), ...expiredVersions(boot, 'shop-', KEEP_BOOT_DB), ...expiredPerName(versions, 'uploads-', KEEP_UPLOADS)];
+}
+
 async function pruneRemote(auth: B2Auth, bucketId: string): Promise<void> {
   const versions = await b2ListVersions(auth, bucketId, '');
-  const doomed = [...expiredVersions(versions, 'shop-', KEEP_DB), ...expiredVersions(versions, 'uploads-', KEEP_UPLOADS)];
+  const doomed = expiredBackups(versions);
   for (const v of doomed) await b2Call(auth, 'b2_delete_file_version', { fileName: v.fileName, fileId: v.fileId });
 }
 
@@ -204,7 +227,9 @@ async function packUploads(): Promise<{ name: string; file: string } | null> {
 }
 
 const KEEP_DB = 14;
-// Kept equal to the database count: a database snapshot without its matching uploads archive is not a
+// snapshots written at boot / «backup now» (same count as the local copies kept in pushSnapshotNow)
+const KEEP_BOOT_DB = 7;
+// Days kept equal to the database count: a database snapshot without its matching uploads archive is not a
 // complete recovery set (photos and SDS files live only on the volume).
 const KEEP_UPLOADS = 14;
 

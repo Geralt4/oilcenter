@@ -50,8 +50,9 @@ export function discountFor(coupon: AppliedCoupon | null | undefined, subtotalCe
 
 /** Courier price by weight, before any free-shipping rule. */
 export function courierRateCents(weightGrams: number, cfg: ShippingConfig): number {
-  const kg = Math.max(0, weightGrams) / 1000;
-  const extraKg = Math.max(0, Math.ceil(kg - cfg.baseWeightKg));
+  // in whole grams: «2,2 kg − 1,2 kg» in floating point is 1.0000000000000002 and would be charged as 2 extra kilos
+  const extraGrams = Math.max(0, weightGrams) - Math.round(cfg.baseWeightKg * 1000);
+  const extraKg = Math.max(0, Math.ceil(extraGrams / 1000));
   return cfg.baseCents + extraKg * cfg.perExtraKgCents;
 }
 
@@ -115,17 +116,22 @@ export const SHIPPING_LABELS: Record<ShippingMethod, string> = {
   pickup: 'Παραλαβή από το κατάστημα',
 };
 
+/** Smallest amount the card gateways accept (Viva 0,30 €, Stripe 0,50 €): below it a card checkout can never be paid. */
+export const CARD_MIN_CENTS = 50;
+
 /** Which payment methods make sense for a delivery method, given what the owner has switched on. */
 export function availablePaymentMethods(
   shippingMethod: ShippingMethod,
   // bank account details are deliberately not shipped to the browser, so they are not required here
   payments: Omit<PaymentsConfig, 'bankAccounts'>,
   cardProviderConfigured: boolean,
+  /** the order total without a COD fee (what a card would be charged); omitted = not known yet */
+  cardTotalCents?: number,
 ): PaymentMethod[] {
   const out: PaymentMethod[] = [];
   if (shippingMethod === 'courier' && payments.cod) out.push('cod');
   if (shippingMethod === 'pickup' && payments.payInStore) out.push('pay_in_store');
-  if (payments.card && cardProviderConfigured) out.push('card');
+  if (payments.card && cardProviderConfigured && (cardTotalCents === undefined || cardTotalCents >= CARD_MIN_CENTS)) out.push('card');
   if (payments.bankTransfer) out.push('bank_transfer');
   return out;
 }

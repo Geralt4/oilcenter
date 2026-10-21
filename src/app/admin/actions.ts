@@ -239,6 +239,9 @@ export async function changeAdminPassword(_prev: AdminFormState, fd: FormData): 
   const next = String(fd.get('newPassword') ?? '');
   if (next.length < 10) return { ok: false, message: 'Ο νέος κωδικός πρέπει να έχει τουλάχιστον 10 χαρακτήρες.' };
   if (next !== String(fd.get('newPasswordRepeat') ?? '')) return { ok: false, message: 'Οι δύο νέοι κωδικοί δεν είναι ίδιοι.' };
+  // the current-password check is a password check like the login: a stolen session must not be able to guess it freely
+  const limited = await rateLimit(`admin-password:${await clientIp()}:${me.id}`, 5, 15 * 60 * 1000);
+  if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
   const [row] = await db.select().from(adminUsers).where(eq(adminUsers.id, me.id));
   if (!row || !(await verifyPassword(String(fd.get('currentPassword') ?? ''), row.passwordHash))) return { ok: false, message: 'Ο τρέχων κωδικός δεν είναι σωστός.' };
   // Bump the session version so other sessions are signed out; re-issue this one so the admin stays logged in here.
@@ -305,7 +308,10 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
     }
   } else if (status !== order.status) {
     if (order.status === 'cancelled') return { ok: false, message: 'Μια ακυρωμένη παραγγελία δεν επανέρχεται (το απόθεμα έχει ήδη αποδεσμευτεί). Δημιουργήστε νέα.' };
-    await db.update(orders).set({ status }).where(eq(orders.id, id));
+    // only from the status read above: the automatic release may have cancelled (and restocked) the order since, and a
+    // write without this condition would bring it back with its stock already returned
+    const moved = await db.update(orders).set({ status }).where(and(eq(orders.id, id), eq(orders.status, order.status))).returning({ id: orders.id });
+    if (moved.length === 0) return { ok: false, message: staleMessage };
     await addOrderEvent(id, 'status', `Κατάσταση: ${ORDER_STATUS_LABELS[order.status]} → ${ORDER_STATUS_LABELS[status]}.`, actor);
   }
 
@@ -363,6 +369,7 @@ const VariantInput = z.object({
   price: z.string().trim(),
   compareAt: z.string().trim().optional(),
   stock: z.number().int().min(0).max(100000),
+  loadedStock: z.number().int().min(0).max(100000).optional(),
   trackStock: z.boolean(),
   availability: z.enum(AVAILABILITY).optional(),
   weightGrams: z.number().int().min(0).max(100000),
@@ -417,6 +424,9 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   }
   const priced = variantRows.map((v) => ({ ...v, priceCents: parsePriceToCents(v.price), compareAtCents: v.compareAt ? parsePriceToCents(v.compareAt) : null }));
   if (priced.some((v) => v.priceCents === null || v.priceCents <= 0 || v.priceCents > MAX_PRICE_CENTS)) return { ok: false, message: 'Κάθε συσκευασία χρειάζεται έγκυρη τιμή (π.χ. 12,90· για χιλιάδες γράψτε 1250 ή 1.250,00).' };
+  // an unreadable «Αρχική €» is refused like the price itself, never quietly saved as "no previous price"
+  const badCompare = priced.find((v) => v.compareAt && (v.compareAtCents === null || v.compareAtCents <= 0 || v.compareAtCents > MAX_PRICE_CENTS));
+  if (badCompare) return { ok: false, message: `Η αρχική τιμή «${badCompare.compareAt}» (${badCompare.label}) δεν διαβάζεται (π.χ. 14,90· για χιλιάδες 1250 ή 1.250,00). Αφήστε την κενή αν δεν υπάρχει.` };
   const badBarcode = priced.find((v) => v.barcode && !isValidGtin(v.barcode));
   if (badBarcode) return { ok: false, message: `Το barcode «${badBarcode.barcode}» (${badBarcode.label}) δεν είναι έγκυρο: χρειάζονται 8, 12 ή 13 ψηφία — πιθανότατα ένα ψηφίο είναι λάθος.` };
 
@@ -551,16 +561,22 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
       // one new photo and one size still on the main photo (of several): the photo is that size's
       const onMain = priced.flatMap((v, i) => (v.imageUrl && ownImages.has(v.imageUrl) ? [] : [i]));
       const lone = priced.length >= 2 && uploads.length === 1 && onMain.length === 1 ? onMain[0] : null;
-      const before = new Map((await tx.select({ id: variants.id, priceCents: variants.priceCents }).from(variants).where(eq(variants.productId, pid))).map((v) => [v.id, v.priceCents]));
+      const stored = await tx.select({ id: variants.id, priceCents: variants.priceCents, trackStock: variants.trackStock }).from(variants).where(eq(variants.productId, pid));
+      const before = new Map(stored.map((v) => [v.id, v.priceCents]));
+      const trackedNow = new Set(stored.filter((v) => v.trackStock).map((v) => v.id));
       await tx.delete(variants).where(keep.length ? and(eq(variants.productId, pid), notInArray(variants.id, keep)) : eq(variants.productId, pid));
 
       for (const [sort, v] of priced.entries()) {
         const row = {
-          productId: pid, label: v.label, volumeMl: /\d\s*g$/i.test(v.label) ? null : parseVolumeMl(v.label), priceCents: v.priceCents!, compareAtCents: v.compareAtCents,
+          productId: pid, label: v.label, volumeMl: parseVolumeMl(v.label), priceCents: v.priceCents!, compareAtCents: v.compareAtCents,
           stock: v.stock, trackStock: v.trackStock, availability: v.availability ?? 'in_stock', weightGrams: v.weightGrams, barcode: v.barcode ? normalizeGtin(v.barcode) : null, mpn: v.mpn || null, imageUrl: sort === lone ? uploads[0] : v.imageUrl && ownImages.has(v.imageUrl) ? v.imageUrl : null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
           sku: skus[sort],
         };
-        if (v.id) await tx.update(variants).set(row).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));
+        // Counted stock moves while the page is open (orders reserve, cancellations restock): apply only what the owner
+        // changed in the form on top of the stock as it is NOW, instead of writing back the number the page was loaded with.
+        const keepsCounting = v.id && v.trackStock && v.loadedStock !== undefined && trackedNow.has(v.id);
+        if (v.id && keepsCounting) await tx.update(variants).set({ ...row, stock: sql`MAX(${variants.stock} + ${v.stock - v.loadedStock!}, 0)` }).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));
+        else if (v.id) await tx.update(variants).set(row).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));
         else await tx.insert(variants).values(row);
         const was = v.id ? before.get(v.id) : undefined;
         if (v.id && was !== undefined && was !== row.priceCents) await tx.insert(priceChanges).values({ variantId: v.id, oldCents: was, newCents: row.priceCents, source: 'product' });
@@ -609,6 +625,15 @@ export async function deleteProduct(fd: FormData): Promise<void> {
 
 async function removeUpload(url: string) {
   if (!url.startsWith('/media/')) return; // seeded images in /public/catalog are part of the repo
+  // Still shown somewhere: past orders keep the photo they were placed with (order_items keeps the link), and one data
+  // sheet can be linked from several products. Such a file stays; only a file nothing points at any more is deleted.
+  const [used] = await db.all<{ n: number }>(sql`
+    SELECT 1 AS n FROM order_items WHERE image_url = ${url}
+    UNION ALL SELECT 1 FROM product_images WHERE url = ${url}
+    UNION ALL SELECT 1 FROM variants WHERE image_url = ${url}
+    UNION ALL SELECT 1 FROM products WHERE json_extract(hazard, '$.sdsUrl') = ${url}
+    LIMIT 1`);
+  if (used) return;
   const root = path.resolve(process.env.DATA_DIR || './data', 'uploads');
   const file = path.resolve(root, url.slice('/media/'.length));
   if (file.startsWith(root + path.sep)) await unlink(file).catch(() => undefined);
@@ -638,7 +663,7 @@ export type PriceUpdateResult = {
   ok: boolean;
   message: string;
   /** rows as they now stand in the database, so the editor can reset its baseline */
-  saved: Array<{ id: number; priceCents: number; previousCents: number | null; changedAt: number | null; verified: boolean; availability: Availability }>;
+  saved: Array<{ id: number; priceCents: number; previousCents: number | null; previousVerified?: boolean; changedAt: number | null; verified: boolean; availability: Availability }>;
   /** ids whose price could not be read (left untouched) */
   failed: number[];
 };
@@ -668,10 +693,11 @@ export async function updatePrices(input: PriceUpdate[]): Promise<PriceUpdateRes
       // availability travels with the price because this is the screen the owner lives in: "ran out of the 4 L" is one click here
       const availability = update.availability ?? v.availability;
       if (cents !== v.priceCents) {
-        // typing a new price is itself a confirmation
-        await tx.update(variants).set({ priceCents: cents, priceVerified: true, availability }).where(eq(variants.id, v.id));
+        // typing a new price is itself a confirmation; an undo says what the confirmation was before
+        const verified = update.verified ?? true;
+        await tx.update(variants).set({ priceCents: cents, priceVerified: verified, availability }).where(eq(variants.id, v.id));
         await tx.insert(priceChanges).values({ variantId: v.id, oldCents: v.priceCents, newCents: cents, source: 'editor', createdAt: now });
-        saved.push({ id: v.id, priceCents: cents, previousCents: v.priceCents, changedAt: now.getTime(), verified: true, availability });
+        saved.push({ id: v.id, priceCents: cents, previousCents: v.priceCents, previousVerified: v.priceVerified, changedAt: now.getTime(), verified, availability });
       } else if ((update.verified !== undefined && update.verified !== v.priceVerified) || availability !== v.availability) {
         const verified = update.verified ?? v.priceVerified;
         await tx.update(variants).set({ priceVerified: verified, availability }).where(eq(variants.id, v.id));
@@ -762,11 +788,15 @@ export async function saveCategory(_prev: AdminFormState, fd: FormData): Promise
   if (!name) return { ok: false, message: 'Συμπληρώστε όνομα.' };
   const parentId = int(fd, 'parentId') || null;
   if (id && parentId === id) return { ok: false, message: 'Μια κατηγορία δεν μπορεί να είναι γονέας του εαυτού της.' };
-  if (id && parentId) {
-    // a loop (A under B, B under A) leaves neither of them reachable from the menu: walk up from the new parent and refuse if it meets this category
-    const parents = new Map((await db.select({ id: categories.id, parentId: categories.parentId }).from(categories)).map((c) => [c.id, c.parentId]));
-    for (let p: number | null | undefined = parentId, steps = 0; p && steps < 100; p = parents.get(p), steps++) {
-      if (p === id) return { ok: false, message: 'Η κατηγορία που επιλέξατε ως γονέα βρίσκεται μέσα σε αυτή την κατηγορία.' };
+  // Two levels only (the admin list and the shop menu show no deeper): a subcategory under a subcategory, or a cycle,
+  // would vanish from both.
+  if (parentId) {
+    const [parent] = await db.select({ parentId: categories.parentId }).from(categories).where(eq(categories.id, parentId));
+    if (!parent) return { ok: false, message: 'Η κατηγορία-γονέας δεν υπάρχει πια. Ανανεώστε τη σελίδα.' };
+    if (parent.parentId !== null) return { ok: false, message: 'Η κατηγορία-γονέας είναι ήδη υποκατηγορία. Επιλέξτε κύρια κατηγορία.' };
+    if (id) {
+      const [child] = await db.select({ id: categories.id }).from(categories).where(eq(categories.parentId, id)).limit(1);
+      if (child) return { ok: false, message: 'Η κατηγορία έχει υποκατηγορίες, άρα δεν μπορεί να γίνει υποκατηγορία η ίδια. Μετακινήστε πρώτα τις υποκατηγορίες της.' };
     }
   }
   // on an existing category an empty slug box means "leave the address as it is" (see saveProduct)
@@ -1057,7 +1087,8 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
   };
   const vatRaw = str(fd, 'vatRate');
   const vatRate = int(fd, 'vatRate', current.tax.vatRate);
-  if (vatRaw && (!/^\d{1,2}([.,]\d+)?$/.test(vatRaw) || vatRate > 50)) problems.push(`ΦΠΑ: «${vatRaw}» δεν είναι ποσοστό`);
+  // whole percentages only (orders store the rate as an integer): «13,5» is refused, never quietly saved as 14
+  if (vatRaw && (!/^\d{1,2}([.,]0+)?$/.test(vatRaw) || vatRate > 50)) problems.push(`ΦΠΑ: «${vatRaw}» δεν είναι ακέραιο ποσοστό`);
   if (problems.length) return { ok: false, message: `Δεν αποθηκεύτηκε τίποτα. ${problems.slice(0, 3).join(' · ')}${problems.length > 3 ? ` · και ${problems.length - 3} ακόμη` : ''}.` };
 
   await saveSettingsGroup('shop', shop);
@@ -1187,14 +1218,22 @@ export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promi
         const patch: { barcode?: string; mpn?: string } = {};
         const ean = col.ean >= 0 ? normalizeGtin(cells[col.ean] ?? '') : '';
         if (ean) {
-          if (!isValidGtin(ean) || (owner.has(ean) && owner.get(ean) !== current.id)) rejected.push(sku);
-          else patch.barcode = ean;
+          // a rejected row is left alone entirely, so it is not reported as both updated and rejected
+          if (!isValidGtin(ean) || (owner.has(ean) && owner.get(ean) !== current.id)) {
+            rejected.push(sku);
+            continue;
+          }
+          patch.barcode = ean;
         }
         const mpn = col.mpn >= 0 ? (cells[col.mpn] ?? '').slice(0, 80) : '';
         if (mpn) patch.mpn = mpn;
         if (!patch.barcode && !patch.mpn) continue;
         await tx.update(variants).set(patch).where(eq(variants.id, current.id));
-        if (patch.barcode) owner.set(patch.barcode, current.id);
+        if (patch.barcode) {
+          // the pack's previous barcode is free again: a later row of the same file may give it to another pack
+          for (const [code, id] of owner) if (id === current.id) owner.delete(code);
+          owner.set(patch.barcode, current.id);
+        }
         updated++;
       }
     });

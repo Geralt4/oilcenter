@@ -13,6 +13,8 @@ export type VariantRow = {
   price: string;
   compareAt: string;
   stock: number;
+  /** the stock when the page was loaded: the save applies only the owner's change, so units sold meanwhile stay sold */
+  loadedStock?: number;
   trackStock: boolean;
   availability: Availability;
   weightGrams: number;

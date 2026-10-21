@@ -5,6 +5,7 @@
  * left, a price read ten times too small, a product that stops answering to «λαδι» after it is saved.
  */
 import { readFileSync, rmSync } from 'node:fs';
+import path from 'node:path';
 import { cloneDatabase } from './test-db';
 
 let dir = '';
@@ -90,6 +91,18 @@ async function main() {
   const twice = plan('sku;price\nA-1;13,00\nA-1;14,00\n');
   check('a code listed twice: one change, the last line wins, measured from the original price', twice.changes.length === 1 && twice.changes[0].newCents === 1400 && twice.changes[0].oldCents === 1290, twice.changes);
   check('a file without sku/price columns is refused', planPriceImport('code;amount\nA-1;5\n', shop()).error !== undefined);
+  // B-2 was exported at 7 (exported_stock); by the upload orders have taken 3, so the shop holds 4
+  const later = () => new Map([...shop()].map(([sku, v]) => [sku, sku === 'B-2' ? { ...v, stock: 4 } : v]));
+  const planLater = (text: string) => {
+    const p = planPriceImport(text, later());
+    if (p.error !== undefined) throw new Error(p.error);
+    return p;
+  };
+  check('an exported file uploaded later leaves the stock alone when its cell was not edited', planLater('sku;price;stock;exported_stock\nB-2;45,00;7;7\n').changes.length === 0);
+  const editedStock = planLater('sku;price;stock;exported_stock\nB-2;45,00;9;7\n');
+  check('…and an edited cell (+2) moves today\'s stock by the same amount: 4 → 6', editedStock.changes.length === 1 && editedStock.changes[0].patch.stock === 6, editedStock.changes);
+  const handMade = planLater('sku;price;stock\nB-2;45,00;9\n');
+  check('a file without exported_stock still sets the number typed', handMade.changes.length === 1 && handMade.changes[0].patch.stock === 9, handMade.changes);
 
   console.log('Price list: the real catalogue, exported and uploaded back');
   const rows = await db.select({ v: variants, productName: products.name, brandName: brands.name }).from(variants).innerJoin(products, eq(variants.productId, products.id)).leftJoin(brands, eq(products.brandId, brands.id)).orderBy(asc(variants.id));
@@ -587,6 +600,46 @@ async function main() {
     const fine = await move(low.id, top.id);
     check('moving it under an ancestor is still allowed', fine.ok === true, fine);
     await db.delete(categories).where(inArray(categories.id, [top.id, mid.id, low.id]));
+  }
+
+  console.log('Second pass');
+  {
+    const { saveProduct, imageAction } = await import('../src/app/admin/actions');
+    const { orderItems, productImages, variants } = await import('../src/lib/db/schema');
+    // saveProduct ends with redirect(), which throws: that is its success
+    const runProduct = async (fd: FormData) => saveProduct(null, fd).catch((err: unknown) => (String((err as { digest?: string })?.digest ?? err).startsWith('NEXT_REDIRECT') ? { ok: true as const, message: 'redirect' } : Promise.reject(err)));
+    const [p2] = await db.select().from(products).limit(1);
+    const sizes = await db.select().from(variants).where(eq(variants.productId, p2.id));
+    const [first] = sizes;
+    await db.update(variants).set({ trackStock: true, stock: 10 }).where(eq(variants.id, first.id));
+    const rowsAt = (stockOf: (id: number) => number, loaded: number) =>
+      JSON.stringify(sizes.map((v) => ({ id: v.id, label: v.label, sku: v.sku, price: (v.priceCents / 100).toFixed(2).replace('.', ','), compareAt: '', stock: v.id === first.id ? stockOf(v.id) : v.stock, loadedStock: v.id === first.id ? loaded : v.stock, trackStock: v.id === first.id ? true : v.trackStock, availability: v.availability, weightGrams: v.weightGrams, barcode: v.barcode ?? '', mpn: v.mpn ?? '', imageUrl: v.imageUrl ?? '', isActive: v.isActive, priceVerified: v.priceVerified })));
+    const productForm = (variantsJson: string) => form({ id: String(p2.id), name: p2.name, variants: variantsJson, isActive: 'on' });
+    const stockOfFirst = async () => (await db.select({ s: variants.stock }).from(variants).where(eq(variants.id, first.id)))[0].s;
+    // the page was loaded at 10; an order then took 3
+    await db.update(variants).set({ stock: 7 }).where(eq(variants.id, first.id));
+    await runProduct(productForm(rowsAt(() => 10, 10)));
+    check('a product save that did not touch the stock keeps the units sold meanwhile', (await stockOfFirst()) === 7, await stockOfFirst());
+    await runProduct(productForm(rowsAt(() => 12, 10)));
+    check('…and the owner\'s +2 is added to the stock as it is now', (await stockOfFirst()) === 9, await stockOfFirst());
+    const unreadable = await runProduct(form({ id: String(p2.id), name: p2.name, isActive: 'on', variants: rowsAt(() => 9, 9).replace('"compareAt":""', '"compareAt":"abc"') }));
+    check('an unreadable «Αρχική €» is refused instead of being dropped', unreadable?.ok === false && (unreadable.message ?? '').includes('αρχική τιμή'), unreadable);
+
+    // a photo that a past order still shows stays on disk when it is removed from the product
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs');
+    process.env.DATA_DIR = dir;
+    mkdirSync(path.join(dir, 'uploads', 'products'), { recursive: true });
+    const keptUrl = '/media/products/second-pass-kept.webp';
+    const goneUrl = '/media/products/second-pass-gone.webp';
+    for (const url of [keptUrl, goneUrl]) writeFileSync(path.join(dir, 'uploads', url.slice('/media/'.length)), 'x');
+    const [kept] = await db.insert(productImages).values({ productId: p2.id, url: keptUrl, alt: 'x', sort: 99 }).returning();
+    const [gone] = await db.insert(productImages).values({ productId: p2.id, url: goneUrl, alt: 'x', sort: 98 }).returning();
+    await db.insert(orderItems).values({ orderId: createdOrderIds[0], productId: p2.id, variantId: first.id, name: 'x', variantLabel: 'x', sku: 'x', imageUrl: keptUrl, unitPriceCents: 100, quantity: 1, lineTotalCents: 100, weightGrams: 0 });
+    await imageAction(form({ imageId: String(kept.id), op: 'delete' }));
+    await imageAction(form({ imageId: String(gone.id), op: 'delete' }));
+    check('a deleted photo that a past order shows stays on disk', existsSync(path.join(dir, 'uploads', 'products', 'second-pass-kept.webp')));
+    check('…while one that nothing shows any more is removed', !existsSync(path.join(dir, 'uploads', 'products', 'second-pass-gone.webp')));
+    delete process.env.DATA_DIR;
   }
 
   console.log('Cleanup');

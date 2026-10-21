@@ -72,6 +72,21 @@ async function main() {
   check('cancel restocks', (await cancelOrder(first.order.id, 'test')) === true && (await stock()) === 2, await stock());
   check('second cancel does nothing (no double restock)', (await cancelOrder(first.order.id, 'test')) === false && (await stock()) === 2, await stock());
 
+  console.log('Stock counting switched after an order');
+  await db.update(variants).set({ trackStock: false, stock: 0 }).where(eq(variants.id, variant.id));
+  const untrackedOrder = await createOrder({ ...base, lines: [{ variantId: variant.id, quantity: 2 }] }, settings, opts);
+  if (!untrackedOrder.ok) throw new Error(`order while untracked not created: ${untrackedOrder.message}`);
+  await db.update(variants).set({ trackStock: true, stock: 5 }).where(eq(variants.id, variant.id));
+  await cancelOrder(untrackedOrder.order.id, 'test');
+  check('an order placed while stock was not counted returns nothing when counting was switched on since', (await stock()) === 5, await stock());
+  const trackedOrder = await createOrder({ ...base, lines: [{ variantId: variant.id, quantity: 2 }] }, settings, opts);
+  if (!trackedOrder.ok) throw new Error(`order while tracked not created: ${trackedOrder.message}`);
+  check('(the counted order reserved its 2 units)', (await stock()) === 3, await stock());
+  await db.update(variants).set({ trackStock: false }).where(eq(variants.id, variant.id));
+  await cancelOrder(trackedOrder.order.id, 'test');
+  check('an order that reserved stock gives it back even when counting was switched off since', (await stock()) === 5, await stock());
+  await db.update(variants).set({ trackStock: true, stock: 2 }).where(eq(variants.id, variant.id));
+
   console.log('Coupons');
   await db.update(coupons).set({ isActive: true, minSubtotalCents: 1000, maxUses: 1, usedCount: 0 }).where(eq(coupons.code, 'WELCOME5'));
   const withCoupon = await createOrder({ ...base, paymentMethod: 'bank_transfer', couponCode: 'welcome5', lines: [{ variantId: variant.id, quantity: 2 }] }, settings, opts);
@@ -82,16 +97,11 @@ async function main() {
   const exhausted = await createOrder({ ...base, couponCode: 'WELCOME5', lines: [{ variantId: variant.id, quantity: 1 }] }, settings, opts);
   check('exhausted coupon is refused', !exhausted.ok && exhausted.reason === 'coupon', exhausted);
   check('…without consuming stock', (await stock()) === 5, await stock());
-  if (withCoupon.ok) {
-    await cancelOrder(withCoupon.order.id, 'test');
-    const back = (await db.select().from(coupons).where(eq(coupons.code, 'WELCOME5')))[0].usedCount;
-    check('cancelling the order gives the coupon use back', back === 0, back);
-    await cancelOrder(withCoupon.order.id, 'test');
-    check('…once only (a second cancel does not go below zero)', (await db.select().from(coupons).where(eq(coupons.code, 'WELCOME5')))[0].usedCount === 0);
-    const again = await createOrder({ ...base, paymentMethod: 'bank_transfer', couponCode: 'WELCOME5', lines: [{ variantId: variant.id, quantity: 2 }] }, settings, opts);
-    check('…and the code works again', again.ok, again);
-    if (again.ok) await cancelOrder(again.order.id, 'test');
-  }
+  if (withCoupon.ok) await cancelOrder(withCoupon.order.id, 'test');
+  const couponUses = (await db.select().from(coupons).where(eq(coupons.code, 'WELCOME5')))[0].usedCount;
+  check('cancelling the order gives the coupon use back', couponUses === 0, couponUses);
+  check('…and a cancelled order cannot give it back twice', (await cancelOrder(withCoupon.ok ? withCoupon.order.id : 0, 'test')) === false && (await db.select().from(coupons).where(eq(coupons.code, 'WELCOME5')))[0].usedCount === 0);
+  await db.update(variants).set({ stock: 5 }).where(eq(variants.id, variant.id));
 
   console.log('Method guards');
   const codPickup = await createOrder({ ...base, shippingMethod: 'pickup', paymentMethod: 'cod', lines: [{ variantId: variant.id, quantity: 1 }] }, settings, opts);
@@ -133,6 +143,8 @@ async function main() {
   check('≤ 2 kg → 3,90', courierRateCents(2000, s) === 390);
   check('2,1 kg → 4,80 (rounds up to the next kg)', courierRateCents(2100, s) === 480, courierRateCents(2100, s));
   check('20 kg drum → 20,10', courierRateCents(20000, s) === 390 + 18 * 90, courierRateCents(20000, s));
+  const decimalBase = { ...s, baseWeightKg: 1.2 };
+  check('a decimal base weight does not add a phantom kilo (2,2 kg over 1,2 kg = 1 extra kg)', courierRateCents(2200, decimalBase) === s.baseCents + s.perExtraKgCents, courierRateCents(2200, decimalBase));
   const heavy = computeTotals({ subtotalCents: 10000, weightGrams: 19000, shippingMethod: 'courier', paymentMethod: null, shipping: s, vatRate: 24 });
   check('free shipping is NOT granted above the weight cap', !heavy.freeShipping && heavy.shippingCents > 0, heavy);
   const light = computeTotals({ subtotalCents: 6000, weightGrams: 5000, shippingMethod: 'courier', paymentMethod: null, shipping: s, vatRate: 24 });
@@ -424,6 +436,20 @@ async function main() {
     check('an old card order with no checkout is cancelled', (await row(oB.id)).status === 'cancelled', (await row(oB.id)).status);
     check('…its stock is restored', (await stock()) === stockBeforeRelease + 1, [await stock(), stockBeforeRelease]);
     check('the release reports at least that order', released >= 1, released);
+    // the release selects first and cancels afterwards: what changes in between must still stop the cancel
+    const oC = await newCardOrder();
+    await db.update(orders).set({ paymentFlag: 'review' }).where(eq(orders.id, oC.id));
+    check('a release cancel does not touch an order flagged after it was selected', (await cancelOrder(oC.id, 'system', undefined, { requireUnpaid: true })) === false && (await row(oC.id)).status === 'pending');
+    const oD = await newCardOrder();
+    await recordPaymentAttempt(oD.id, { provider: 'viva', ref: 'rel-D' });
+    check('…nor one whose buyer opened a new checkout in the meantime', (await cancelOrder(oD.id, 'system', undefined, { requireUnpaid: true, noAttemptSince: new Date(Date.now() - 60_000) })) === false && (await row(oD.id)).status === 'pending');
+
+    console.log('  Card minimum');
+    const { CARD_MIN_CENTS } = await import('../src/lib/pricing');
+    await db.update(coupons).set({ isActive: true, type: 'fixed', value: 100000, minSubtotalCents: 0, maxUses: null }).where(eq(coupons.code, 'WELCOME5'));
+    const free = await createOrder({ ...base, shippingMethod: 'pickup', paymentMethod: 'card', couponCode: 'WELCOME5', lines: [{ variantId: variant.id, quantity: 1 }] }, settings, cardOpts);
+    check(`a card order below ${CARD_MIN_CENTS} cents (a coupon covers it all) is refused before stock is reserved`, !free.ok && free.reason === 'invalid_method', free);
+    await db.update(coupons).set({ isActive: false }).where(eq(coupons.code, 'WELCOME5'));
 
     console.log('  Double payment');
     const o7 = await newCardOrder();

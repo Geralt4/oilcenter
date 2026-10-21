@@ -51,6 +51,8 @@ export async function stripeRetrieveSession(sessionId: string) {
   const session = await stripe().checkout.sessions.retrieve(sessionId);
   return {
     paid: session.payment_status === 'paid',
+    /** the buyer finished the checkout but the money is still on its way (SEPA Debit and other delayed methods) */
+    processing: session.status === 'complete' && session.payment_status === 'unpaid',
     amountCents: session.amount_total ?? 0,
     orderId: Number(session.metadata?.orderId ?? 0),
     paymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent?.id ?? null),
