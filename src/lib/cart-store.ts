@@ -156,3 +156,16 @@ export const useWishlist = create<WishlistState>()(
     { name: 'oilcenter-wishlist', version: 1, storage: createJSONStorage(browserStorage) },
   ),
 );
+
+// ─── Several tabs ────────────────────────────────────────────────────────────
+/*
+ * Each tab keeps its own copy of the stores and writes all of it back on every change: a tab that has not heard about
+ * the other's additions would save its stale list over them (A added in one tab, B in another → only B survives).
+ * The browser tells the OTHER tabs when localStorage changes; re-reading it keeps every tab current before it writes.
+ */
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key === 'oilcenter-cart') void useCart.persist.rehydrate();
+    else if (event.key === 'oilcenter-wishlist') void useWishlist.persist.rehydrate();
+  });
+}

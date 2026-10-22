@@ -270,6 +270,57 @@ async function main() {
     await db.delete(products).where(eq(products.id, pp.id));
   }
 
+  console.log('Cart and favourites across browser tabs');
+  {
+    // Two tabs of one browser: the same localStorage, a separate copy of the store in each, and the browser's `storage` event
+    // delivered to the OTHER tab after a write (it is never sent to the tab that wrote).
+    const shared = new Map<string, string>();
+    const listeners: Array<{ tab: number; fn: (event: { key: string | null }) => void }> = [];
+    let loading = 0;
+    const g = globalThis as unknown as { window?: unknown };
+    g.window = {
+      localStorage: { getItem: (k: string) => shared.get(k) ?? null, setItem: (k: string, v: string) => void shared.set(k, v), removeItem: (k: string) => void shared.delete(k) },
+      addEventListener: (type: string, fn: (event: { key: string | null }) => void) => { if (type === 'storage') listeners.push({ tab: loading, fn }); },
+      removeEventListener: () => undefined,
+    };
+    const loadTab = (tab: number) => {
+      loading = tab;
+      const file = require.resolve('../src/lib/cart-store');
+      delete require.cache[file];
+      // a second copy of the module is the point: it plays the other tab
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      return require('../src/lib/cart-store') as typeof import('../src/lib/cart-store');
+    };
+    const deliver = (toTab: number, key: string) => listeners.filter((l) => l.tab === toTab).forEach((l) => l.fn({ key }));
+    const tab1 = loadTab(1);
+    const tab2 = loadTab(2);
+    const snapshot = (name: string) => ({ productId: 1, slug: name, name, brandName: null, variantLabel: '1L', imageUrl: null, unitPriceCents: 1000, weightGrams: 1000, maxQuantity: null });
+    const persisted = (key: string) => JSON.parse(shared.get(key) ?? '{"state":{}}').state;
+
+    tab1.useCart.getState().add(11, snapshot('a'), 1);
+    deliver(2, 'oilcenter-cart');
+    tab2.useCart.getState().add(22, snapshot('b'), 1);
+    deliver(1, 'oilcenter-cart');
+    const lines = (persisted('oilcenter-cart').lines ?? []).map((l: { variantId: number }) => l.variantId).sort();
+    check('product A added in one tab and B in the other: both are in the saved cart', lines.join() === '11,22', lines);
+    check('…and both tabs show both', tab1.useCart.getState().lines.length === 2 && tab2.useCart.getState().lines.length === 2, [tab1.useCart.getState().lines.length, tab2.useCart.getState().lines.length]);
+
+    tab1.useWishlist.getState().toggle(101);
+    deliver(2, 'oilcenter-wishlist');
+    tab2.useWishlist.getState().toggle(202);
+    deliver(1, 'oilcenter-wishlist');
+    const ids = [...(persisted('oilcenter-wishlist').ids ?? [])].sort();
+    check('favourites added in two tabs are both kept', ids.join() === '101,202', ids);
+
+    // a write to some other key is none of the cart\'s business
+    tab1.useCart.getState().clear();
+    deliver(2, 'something-else');
+    check('an unrelated storage event changes nothing in the other tab', tab2.useCart.getState().lines.length === 2, tab2.useCart.getState().lines.length);
+    deliver(2, 'oilcenter-cart');
+    check('the cart emptied in one tab is empty in the other after the event', tab2.useCart.getState().lines.length === 0, tab2.useCart.getState().lines.length);
+    delete g.window;
+  }
+
   console.log('Pack sizes');
   const ml = (label: string) => parseVolumeMl(label);
   check('«5 λίτρα» and «4 Λίτρα» read as litres', ml('5 λίτρα') === 5000 && ml('4 Λίτρα') === 4000);

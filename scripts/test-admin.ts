@@ -686,6 +686,44 @@ async function main() {
     check('…and its payment change is not written either', deadAfter.paymentStatus === 'pending' && deadAfter.status === 'cancelled', [deadAfter.paymentStatus, deadAfter.status]);
   }
 
+  console.log('Renamed brands and categories in the product search');
+  {
+    const { brands: brandTable, categories: categoryTable, products: productTable } = await import('../src/lib/db/schema');
+    const { saveBrand, saveCategory, deleteTaxon } = await import('../src/app/admin/actions');
+    const { listProducts } = await import('../src/lib/catalog');
+    const [probe] = await db
+      .select({ id: productTable.id, brandId: productTable.brandId, categoryId: productTable.categoryId })
+      .from(productTable)
+      .innerJoin(variants, eq(variants.productId, productTable.id))
+      .where(eq(productTable.isActive, true))
+      .limit(1);
+    const [brand] = await db.select().from(brandTable).where(eq(brandTable.id, probe.brandId!));
+    const [category] = await db.select().from(categoryTable).where(eq(categoryTable.id, probe.categoryId!));
+    const finds = async (q: string) => (await listProducts({ q, perPage: 1000 })).products.some((p) => p.id === probe.id);
+    const brandForm = (name: string) => form({ id: String(brand.id), name, slug: '', country: brand.country ?? '', description: brand.description ?? '', sort: String(brand.sort) });
+    await saveBrand(null, brandForm('Ζυξβραντ'));
+    check('after a brand is renamed the product is found under the NEW name', await finds('ζυξβραντ'));
+    await saveBrand(null, brandForm('Ζυξαλλο'));
+    check('…and renamed again, no longer under the previous name', !(await finds('ζυξβραντ')) && (await finds('ζυξαλλο')));
+    await saveBrand(null, brandForm(brand.name));
+    check('renaming it back finds the product under the original name again', await finds(brand.name));
+
+    const categoryForm = (name: string) => form({ id: String(category.id), name, slug: '', parentId: category.parentId ? String(category.parentId) : '', icon: category.icon ?? '', description: category.description ?? '', sort: String(category.sort), isActive: 'on' });
+    await saveCategory(null, categoryForm('Ζυξκατηγορια'));
+    check('after a category is renamed the product is found under the NEW name', await finds('ζυξκατηγορια'));
+    await saveCategory(null, categoryForm(category.name));
+
+    // a brand that is deleted stops matching its products
+    const { rebuildSearchTexts } = await import('../src/lib/search-text');
+    const [temp] = await db.insert(brandTable).values({ name: 'Ζυξδιαγραφη', slug: 'test-zyx-delete' }).returning();
+    await db.update(productTable).set({ brandId: temp.id }).where(eq(productTable.id, probe.id));
+    await rebuildSearchTexts({ brandId: temp.id });
+    check('a product found under its brand\'s name…', await finds('ζυξδιαγραφη'));
+    await deleteTaxon(form({ id: String(temp.id), kind: 'brand' }));
+    check('…stops being found under it once the brand is deleted', !(await finds('ζυξδιαγραφη')));
+    await db.update(productTable).set({ brandId: brand.id }).where(eq(productTable.id, probe.id));
+  }
+
   console.log('Category tree (saveCategory)');
   {
     const { categories } = await import('../src/lib/db/schema');

@@ -23,6 +23,7 @@ import { describePriceImport, MAX_PRICE_CENTS, parseCsv, planPriceImport } from 
 import { clientIp, loginBudgets, rateLimit } from '@/lib/rate-limit';
 import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours, type ShopSettings } from '@/lib/settings';
 import { buildSearchText } from '@/lib/search-keywords';
+import { rebuildSearchTexts } from '@/lib/search-text';
 import { getSettings, saveSettingsGroup } from '@/lib/settings.server';
 import { claimUpload, finishUpload, moveClaimed, readStagedText, releaseUpload } from '@/lib/uploads';
 import { normalizeText, parseAthensDate, parsePriceToCents, parseVolumeMl, slugify } from '@/lib/utils';
@@ -774,12 +775,15 @@ export async function saveBrand(_prev: AdminFormState, fd: FormData): Promise<Ad
   // on an existing brand an empty slug box means "leave the address as it is" (see saveProduct)
   const [storedBrand] = id ? await db.select({ slug: brands.slug }).from(brands).where(eq(brands.id, id)) : [];
   const values = { name, slug: slugify(str(fd, 'slug') || storedBrand?.slug || name), country: str(fd, 'country') || null, description: str(fd, 'description') || null, isFeatured: bool(fd, 'isFeatured'), sort: int(fd, 'sort') };
+  const [storedName] = id ? await db.select({ name: brands.name }).from(brands).where(eq(brands.id, id)) : [];
   try {
     if (id) await db.update(brands).set(values).where(eq(brands.id, id));
     else await db.insert(brands).values(values);
   } catch {
     return { ok: false, message: 'Υπάρχει ήδη μάρκα με αυτό το slug.' };
   }
+  // the brand's name is part of what its products are found by
+  if (id && storedName && storedName.name !== name) await rebuildSearchTexts({ brandId: id });
   revalidatePath('/admin/brands');
   return { ok: true, message: 'Αποθηκεύτηκε.' };
 }
@@ -803,7 +807,7 @@ export async function saveCategory(_prev: AdminFormState, fd: FormData): Promise
     }
   }
   // on an existing category an empty slug box means "leave the address as it is" (see saveProduct)
-  const [storedCategory] = id ? await db.select({ slug: categories.slug }).from(categories).where(eq(categories.id, id)) : [];
+  const [storedCategory] = id ? await db.select({ slug: categories.slug, name: categories.name }).from(categories).where(eq(categories.id, id)) : [];
   const values = { name, slug: slugify(str(fd, 'slug') || storedCategory?.slug || name), parentId, icon: str(fd, 'icon') || null, description: str(fd, 'description') || null, isActive: bool(fd, 'isActive'), sort: int(fd, 'sort') };
   try {
     if (id) await db.update(categories).set(values).where(eq(categories.id, id));
@@ -811,6 +815,7 @@ export async function saveCategory(_prev: AdminFormState, fd: FormData): Promise
   } catch {
     return { ok: false, message: 'Υπάρχει ήδη κατηγορία με αυτό το slug.' };
   }
+  if (id && storedCategory && storedCategory.name !== name) await rebuildSearchTexts({ categoryId: id });
   revalidatePath('/admin/categories');
   return { ok: true, message: 'Αποθηκεύτηκε.' };
 }
@@ -819,14 +824,19 @@ export async function deleteTaxon(fd: FormData): Promise<void> {
   await requireAdmin();
   const id = int(fd, 'id');
   if (str(fd, 'kind') === 'brand') {
+    const affected = (await db.select({ id: products.id }).from(products).where(eq(products.brandId, id))).map((p) => p.id);
     await db.update(products).set({ brandId: null }).where(eq(products.brandId, id));
     await db.delete(brands).where(eq(brands.id, id));
+    // the deleted brand's name must stop finding the products that carried it
+    await rebuildSearchTexts({ productIds: affected });
     await forgetTarget('brand', id);
     revalidatePath('/admin/brands');
   } else {
+    const affected = (await db.select({ id: products.id }).from(products).where(eq(products.categoryId, id))).map((p) => p.id);
     await db.update(products).set({ categoryId: null }).where(eq(products.categoryId, id));
     await db.update(categories).set({ parentId: null }).where(eq(categories.parentId, id));
     await db.delete(categories).where(eq(categories.id, id));
+    await rebuildSearchTexts({ productIds: affected });
     await forgetTarget('category', id);
     revalidatePath('/admin/categories');
   }

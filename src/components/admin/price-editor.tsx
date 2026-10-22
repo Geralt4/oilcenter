@@ -255,9 +255,12 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
             ...o,
             ...Object.fromEntries(result.saved.map((s) => [s.id, { ...o[s.id], priceCents: s.priceCents, verified: s.verified, availability: s.availability, ...(s.changedAt !== null ? { previousCents: s.previousCents, changedAt: s.changedAt } : {}) }])),
           }));
-          setDrafts((d) => Object.fromEntries(Object.entries(d).filter(([id]) => !done.has(Number(id)))));
-          setVerifiedDrafts((d) => Object.fromEntries(Object.entries(d).filter(([id]) => !done.has(Number(id)))));
-          setAvailabilityDrafts((d) => Object.fromEntries(Object.entries(d).filter(([id]) => !done.has(Number(id)))) as Record<number, Availability>);
+          // A draft is dropped only when it IS what the server confirmed. Whatever was typed after the request left differs from it
+          // and stays as an unsaved change, instead of silently snapping back to the saved value.
+          const confirmed = new Map(result.saved.map((s) => [s.id, s]));
+          setDrafts((d) => Object.fromEntries(Object.entries(d).filter(([id, text]) => confirmed.get(Number(id))?.priceCents !== parsePriceToCents(text))));
+          setVerifiedDrafts((d) => Object.fromEntries(Object.entries(d).filter(([id, value]) => confirmed.get(Number(id))?.verified !== value)));
+          setAvailabilityDrafts((d) => Object.fromEntries(Object.entries(d).filter(([id, value]) => confirmed.get(Number(id))?.availability !== value)) as Record<number, Availability>);
           setFailed(result.failed);
           setSavedIds([...done]);
           // undo puts back the price AND whether it was confirmed: undoing a typo on a placeholder must not publish the placeholder
