@@ -116,13 +116,13 @@ const CodeLine = memo(function CodeLine({ row, draft, problem, justSaved, onDraf
 });
 
 export function CodesEditor({ rows: serverRows }: { rows: CodeRow[] }) {
-  // What the server confirmed on save, kept only until the page has been re-read. `base` is what the server row held when the
-  // save was made: while the row still equals it the page has not caught up and the saved values are shown; once it has changed
-  // — to the saved values, or to something newer such as a CSV import — the server's row wins and the override is ignored.
-  const [overrides, setOverrides] = useState<Record<number, { barcode: string; mpn: string; base: { barcode: string; mpn: string } }>>({});
+  // What the server confirmed on save, kept only until the page has been re-read. `base` is the row object the save was made
+  // against, and the override applies only to that exact object. A re-read (after the save, or after a CSV import) brings new
+  // row objects, so the server's row wins from then on — even when an import brings a code back to what it was before the save.
+  const [overrides, setOverrides] = useState<Record<number, { barcode: string; mpn: string; base: CodeRow }>>({});
   const rows = useMemo(() => serverRows.map((r) => {
     const o = overrides[r.id];
-    return o && o.base.barcode === r.barcode && o.base.mpn === r.mpn ? { ...r, barcode: o.barcode, mpn: o.mpn } : r;
+    return o && o.base === r ? { ...r, barcode: o.barcode, mpn: o.mpn } : r;
   }), [serverRows, overrides]);
 
   const [query, setQuery] = useState('');
@@ -205,7 +205,7 @@ export function CodesEditor({ rows: serverRows }: { rows: CodeRow[] }) {
         const result = await updateCodes(payload);
         const done = new Set(result.saved.map((s) => s.id));
         const serverById = new Map(serverRows.map((r) => [r.id, r]));
-        setOverrides((o) => ({ ...o, ...Object.fromEntries(result.saved.flatMap((s) => { const server = serverById.get(s.id); return server ? [[s.id, { barcode: s.barcode, mpn: s.mpn, base: { barcode: server.barcode, mpn: server.mpn } }]] : []; })) }));
+        setOverrides((o) => ({ ...o, ...Object.fromEntries(result.saved.flatMap((s) => { const server = serverById.get(s.id); return server ? [[s.id, { barcode: s.barcode, mpn: s.mpn, base: server }]] : []; })) }));
         // a field is dropped from the drafts only when it IS what was saved: text typed after the request left stays
         const confirmed = new Map(result.saved.map((s) => [s.id, s]));
         setDrafts((d) => Object.fromEntries(Object.entries(d).flatMap(([id, draft]) => {
