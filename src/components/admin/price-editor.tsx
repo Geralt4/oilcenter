@@ -159,19 +159,20 @@ const PriceLine = memo(function PriceLine({ row, draft, verifiedDraft, availabil
 });
 
 type Props = { rows: PriceRow[]; initialQuery?: string; initialBrand?: string; initialOnlyUnverified?: boolean; initialOnlyWaiting?: boolean };
-type Override = Partial<Pick<PriceRow, 'priceCents' | 'verified' | 'availability' | 'previousCents' | 'changedAt'>>;
+type Override = Partial<Pick<PriceRow, 'priceCents' | 'verified' | 'availability' | 'previousCents' | 'changedAt'>> & { base: PriceRow };
 
 export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand = '', initialOnlyUnverified = false, initialOnlyWaiting = false }: Props) {
   // What the server confirmed on save. The page re-renders with the same values a moment later; until then these keep the boxes from flashing the old price.
+  // `base` is the row object the save was made against, and the override applies only to that exact object: the first re-read
+  // (after the save, or after a CSV import) ends it, even when a later import brings a value back to what it was before the save.
   const [overrides, setOverrides] = useState<Record<number, Override>>({});
   const rows = useMemo(
     () =>
       serverRows.map((r) => {
         const o = overrides[r.id];
         if (!o) return r;
-        // once the server row has caught up — or moved on, e.g. after a CSV import — it wins
-        const caughtUp = o.changedAt != null ? (r.changedAt ?? 0) >= o.changedAt : r.verified === o.verified && (o.availability === undefined || r.availability === o.availability);
-        return caughtUp ? r : { ...r, ...o };
+        const { base, ...saved } = o;
+        return base === r ? { ...r, ...saved } : r;
       }),
     [serverRows, overrides],
   );
@@ -251,9 +252,10 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
         try {
           const result = await updatePrices(payload);
           const done = new Set(result.saved.map((s) => s.id));
+          const serverById = new Map(serverRows.map((r) => [r.id, r]));
           setOverrides((o) => ({
             ...o,
-            ...Object.fromEntries(result.saved.map((s) => [s.id, { ...o[s.id], priceCents: s.priceCents, verified: s.verified, availability: s.availability, ...(s.changedAt !== null ? { previousCents: s.previousCents, changedAt: s.changedAt } : {}) }])),
+            ...Object.fromEntries(result.saved.flatMap((s) => { const base = serverById.get(s.id); return base ? [[s.id, { ...o[s.id], base, priceCents: s.priceCents, verified: s.verified, availability: s.availability, ...(s.changedAt !== null ? { previousCents: s.previousCents, changedAt: s.changedAt } : {}) }]] : []; })),
           }));
           // A draft is dropped only when it IS what the server confirmed. Whatever was typed after the request left differs from it
           // and stays as an unsaved change, instead of silently snapping back to the saved value.
@@ -271,7 +273,7 @@ export function PriceEditor({ rows: serverRows, initialQuery = '', initialBrand 
         }
       });
     },
-    [],
+    [serverRows],
   );
 
   const save = useCallback(() => {
