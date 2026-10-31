@@ -143,6 +143,11 @@ export const variants = sqliteTable(
     mpn: text('mpn'),
     imageUrl: text('image_url'),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    /**
+     * Set when the owner removed a size that has price history or past orders: the row is kept (history stays attached) but is
+     * never listed, sold or exported again. Always together with isActive = false. A size without history is deleted outright.
+     */
+    archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
     /** false until the shop owner has confirmed the price (seed data ships with placeholders) */
     priceVerified: integer('price_verified', { mode: 'boolean' }).notNull().default(false),
     sort: integer('sort').notNull().default(0),

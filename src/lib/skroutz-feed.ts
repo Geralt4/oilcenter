@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, isNull } from 'drizzle-orm';
 import type { Availability } from '@/lib/availability';
 import { BASE_TYPE_LABELS } from '@/lib/catalog';
 import { db } from '@/lib/db';
@@ -124,7 +124,7 @@ export function feedName(brand: string, name: string, label: string): string {
 export async function buildSkroutzFeed(settings: ShopSettings, now: Date = new Date()): Promise<SkroutzFeed> {
   const [productRows, variantRows, imageRows, brandRows, categoryRows, saleCtx] = await Promise.all([
     db.select().from(products),
-    db.select().from(variants).orderBy(asc(variants.productId), asc(variants.sort), asc(variants.volumeMl)),
+    db.select().from(variants).where(isNull(variants.archivedAt)).orderBy(asc(variants.productId), asc(variants.sort), asc(variants.volumeMl)),
     db.select().from(productImages).orderBy(asc(productImages.sort), asc(productImages.id)),
     db.select().from(brands),
     db.select().from(categories),

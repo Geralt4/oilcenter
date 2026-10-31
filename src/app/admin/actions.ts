@@ -4,14 +4,14 @@ import { unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq, inArray, isNull, lt, ne, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { AVAILABILITY, type Availability } from '@/lib/availability';
 import { hashPassword, randomToken, verifyPassword } from '@/lib/auth/password';
 import { newTotpSecret, totpStep } from '@/lib/auth/totp';
 import { createSession, createSudoSession, destroySession, destroySudoSession, getAdmin, hasSudoSession, requireAdmin, revokeAllSessions } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, sales, unmatchedPayments, variants, type BaseType, type OrderStatus, type PaymentStatus } from '@/lib/db/schema';
+import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orderItems, orders, priceChanges, productImages, products, sales, unmatchedPayments, variants, type BaseType, type OrderStatus, type PaymentStatus } from '@/lib/db/schema';
 import { orderStatusMail, sendMail } from '@/lib/email';
 import { forgetTarget } from '@/lib/discount-cleanup';
 import { cleanIds, hasTargets, type Targets } from '@/lib/discounts';
@@ -485,6 +485,19 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   } catch (err) {
     return { ok: false, message: err instanceof z.ZodError ? (err.issues[0]?.message ?? 'Μη έγκυρες συσκευασίες') : 'Μη έγκυρες συσκευασίες.' };
   }
+  // A saved size is removed only when the form names it here (the trash button). One that is merely missing from the form was
+  // added from another tab or by another administrator, and is left alone.
+  let removedIds: number[];
+  try {
+    removedIds = z.array(z.number().int().positive()).max(60).parse(JSON.parse(str(fd, 'removedVariantIds') || '[]'));
+  } catch {
+    return { ok: false, message: 'Η σελίδα είναι παλιά ή άκυρη: ανανεώστε τη και δοκιμάστε ξανά.' };
+  }
+  // The stock of a saved size is always applied as the owner's change on top of what is there now, which needs the figure the
+  // page was loaded with. The editor always sends it; a request without it did not come from the current form.
+  if (variantRows.some((v) => v.id !== undefined && v.loadedStock === undefined)) {
+    return { ok: false, message: 'Η σελίδα είναι παλιά: ανανεώστε τη και κάντε ξανά τις αλλαγές.' };
+  }
   const priced = variantRows.map((v) => ({ ...v, priceCents: parsePriceToCents(v.price), compareAtCents: v.compareAt ? parsePriceToCents(v.compareAt) : null }));
   if (priced.some((v) => v.priceCents === null || v.priceCents <= 0 || v.priceCents > MAX_PRICE_CENTS)) return { ok: false, message: 'Κάθε συσκευασία χρειάζεται έγκυρη τιμή (π.χ. 12,90· για χιλιάδες γράψτε 1250 ή 1.250,00).' };
   // an unreadable «Αρχική €» is refused like the price itself, never quietly saved as "no previous price"
@@ -624,10 +637,31 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
       // one new photo and one size still on the main photo (of several): the photo is that size's
       const onMain = priced.flatMap((v, i) => (v.imageUrl && ownImages.has(v.imageUrl) ? [] : [i]));
       const lone = priced.length >= 2 && uploads.length === 1 && onMain.length === 1 ? onMain[0] : null;
-      const stored = await tx.select({ id: variants.id, priceCents: variants.priceCents, trackStock: variants.trackStock }).from(variants).where(eq(variants.productId, pid));
+      // archived sizes (below) are gone as far as this form is concerned
+      const stored = await tx.select({ id: variants.id, priceCents: variants.priceCents, trackStock: variants.trackStock }).from(variants).where(and(eq(variants.productId, pid), isNull(variants.archivedAt)));
       const before = new Map(stored.map((v) => [v.id, v.priceCents]));
       const trackedNow = new Set(stored.filter((v) => v.trackStock).map((v) => v.id));
-      await tx.delete(variants).where(keep.length ? and(eq(variants.productId, pid), notInArray(variants.id, keep)) : eq(variants.productId, pid));
+
+      // Only sizes the owner removed on purpose, of this product, and not sent back in the form. Before the writes below, so a new
+      // size in the same save can take over the code of the one removed.
+      const stillThere = new Set(keep);
+      const removing = removedIds.filter((rid) => !stillThere.has(rid) && before.has(rid));
+      if (removing.length) {
+        // A size with price history or past orders is hidden instead of deleted, so its history stays. Its codes are freed: a size
+        // added again later (the same SKU, the same barcode) must not be blocked by the hidden one.
+        const withHistory = new Set([
+          ...(await tx.select({ id: priceChanges.variantId }).from(priceChanges).where(inArray(priceChanges.variantId, removing))).map((r) => r.id),
+          ...(await tx.select({ id: orderItems.variantId }).from(orderItems).where(inArray(orderItems.variantId, removing))).flatMap((r) => (r.id === null ? [] : [r.id])),
+        ]);
+        const archive = removing.filter((rid) => withHistory.has(rid));
+        const drop = removing.filter((rid) => !withHistory.has(rid));
+        if (drop.length) await tx.delete(variants).where(and(eq(variants.productId, pid), inArray(variants.id, drop)));
+        if (archive.length) {
+          await tx.update(variants)
+            .set({ isActive: false, archivedAt: new Date(), sku: sql`${variants.sku} || '~archived-' || ${variants.id}`, barcode: null, mpn: null })
+            .where(and(eq(variants.productId, pid), inArray(variants.id, archive)));
+        }
+      }
 
       for (const [sort, v] of priced.entries()) {
         const row = {
@@ -635,11 +669,14 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
           stock: v.stock, trackStock: v.trackStock, availability: v.availability ?? 'in_stock', weightGrams: v.weightGrams, barcode: v.barcode ? normalizeGtin(v.barcode) : null, mpn: v.mpn || null, imageUrl: sort === lone ? uploads[0] : v.imageUrl && ownImages.has(v.imageUrl) ? v.imageUrl : null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
           sku: skus[sort],
         };
-        // Counted stock moves while the page is open (orders reserve, cancellations restock): apply only what the owner
-        // changed in the form on top of the stock as it is NOW, instead of writing back the number the page was loaded with.
-        const keepsCounting = v.id && v.trackStock && v.loadedStock !== undefined && trackedNow.has(v.id);
-        if (v.id && keepsCounting) await tx.update(variants).set({ ...row, stock: sql`MAX(${variants.stock} + ${v.stock - v.loadedStock!}, 0)` }).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));
-        else if (v.id) await tx.update(variants).set(row).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));
+        // Counted stock moves while the page is open (orders reserve, cancellations restock): for a saved size apply only what the
+        // owner changed in the form on top of the stock as it is NOW, instead of writing back the number the page was loaded with.
+        // The one exception is a size whose counting is being switched ON: the number typed is then a fresh count, and a size that
+        // was not counting could not have been moved by orders. (A saved size always has loadedStock, checked above.)
+        const startsCounting = v.trackStock && !(v.id !== undefined && trackedNow.has(v.id));
+        const mine = v.id !== undefined ? and(eq(variants.id, v.id), eq(variants.productId, pid), isNull(variants.archivedAt)) : undefined;
+        if (v.id !== undefined && !startsCounting) await tx.update(variants).set({ ...row, stock: sql`MAX(${variants.stock} + ${v.stock - v.loadedStock!}, 0)` }).where(mine);
+        else if (v.id !== undefined) await tx.update(variants).set(row).where(mine);
         else await tx.insert(variants).values(row);
         const was = v.id ? before.get(v.id) : undefined;
         if (v.id && was !== undefined && was !== row.priceCents) await tx.insert(priceChanges).values({ variantId: v.id, oldCents: was, newCents: row.priceCents, source: 'product' });
@@ -662,6 +699,8 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     throw err;
   }
 
+  // sizes kept from elsewhere (or hidden just now) change which pack labels the product is found by
+  await rebuildSearchTexts({ productIds: [productId] });
   // the data sheet that was replaced or removed is no longer linked from anywhere
   if (previousSdsUrl && previousSdsUrl !== hazard?.sdsUrl) await removeUpload(previousSdsUrl);
   revalidatePath('/admin/products');

@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import { asc } from 'drizzle-orm';
+import { asc, isNull } from 'drizzle-orm';
 import { Plus, TriangleAlert } from 'lucide-react';
 import { PageHeader, td, th } from '@/components/admin/ui';
 import { buttonClass } from '@/components/ui/button';
@@ -19,7 +19,7 @@ export default async function AdminProductsPage({ searchParams }: { searchParams
   const sp = await searchParams;
   const [productRows, variantRows, imageRows, brandRows, categoryRows] = await Promise.all([
     db.select().from(products).orderBy(asc(products.name)),
-    db.select().from(variants).orderBy(asc(variants.sort)),
+    db.select().from(variants).where(isNull(variants.archivedAt)).orderBy(asc(variants.sort)),
     db.select().from(productImages).orderBy(asc(productImages.sort)),
     db.select().from(brands).orderBy(asc(brands.name)),
     db.select().from(categories),

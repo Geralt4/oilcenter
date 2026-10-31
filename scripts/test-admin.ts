@@ -845,6 +845,122 @@ async function main() {
     delete process.env.DATA_DIR;
   }
 
+  console.log('Product sizes: removal and stock');
+  {
+    const { saveProduct } = await import('../src/app/admin/actions');
+    const { orderItems, priceChanges } = await import('../src/lib/db/schema');
+    const { buildSkroutzFeed } = await import('../src/lib/skroutz-feed');
+    const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
+    const { getProductBySlug, resolveCartLines } = await import('../src/lib/catalog');
+    const { and, isNull, ne } = await import('drizzle-orm');
+    const runProduct = async (fd: FormData) => saveProduct(null, fd).catch((err: unknown) => (String((err as { digest?: string })?.digest ?? err).startsWith('NEXT_REDIRECT') ? { ok: true as const, message: 'redirect' } : Promise.reject(err)));
+    const feedSettings = structuredClone(DEFAULT_SETTINGS);
+    // a product that the shop and the feed really list, so "gone from the feed" means something
+    const [feedItem] = (await buildSkroutzFeed(feedSettings)).items;
+    const [prod] = await db.select().from(products).where(eq(products.id, feedItem.productId));
+    type Size = typeof variants.$inferSelect;
+    const rowOf = (v: Size, over: Record<string, unknown> = {}) => ({
+      id: v.id, label: v.label, sku: v.sku, price: (v.priceCents / 100).toFixed(2).replace('.', ','), compareAt: '', stock: v.stock, loadedStock: v.stock, trackStock: v.trackStock,
+      availability: v.availability, weightGrams: v.weightGrams, barcode: v.barcode ?? '', mpn: v.mpn ?? '', imageUrl: v.imageUrl ?? '', isActive: v.isActive, priceVerified: v.priceVerified, ...over,
+    });
+    const newRow = (label: string, sku: string) => ({ label, sku, price: '9,90', compareAt: '', stock: 0, trackStock: false, availability: 'in_stock', weightGrams: 0, barcode: '', mpn: '', imageUrl: '', isActive: true, priceVerified: true });
+    const allSizes = () => db.select().from(variants).where(eq(variants.productId, prod.id)).orderBy(asc(variants.sort), asc(variants.id));
+    const shownRows = async () => (await allSizes()).filter((v) => !v.archivedAt).map((v) => rowOf(v));
+    const sizeBySku = async (sku: string) => (await db.select().from(variants).where(eq(variants.sku, sku)))[0];
+    const save = (rows: object[], removed: number[] = []) =>
+      runProduct(form({ id: String(prod.id), name: prod.name, isActive: 'on', brandId: String(prod.brandId ?? ''), categoryId: String(prod.categoryId ?? ''), variants: JSON.stringify(rows), removedVariantIds: JSON.stringify(removed) }));
+    const feedNow = () => buildSkroutzFeed(feedSettings);
+
+    // two sizes are added through the form: one will get price history, the other none
+    const baseline = (await allSizes()).length;
+    let saved = await save([...(await shownRows()), newRow('TEST A 1L', 'T-SIZE-A'), newRow('TEST B 2L', 'T-SIZE-B')]);
+    const sizeA = await sizeBySku('T-SIZE-A');
+    const sizeB = await sizeBySku('T-SIZE-B');
+    check('two sizes are added through the form', saved?.ok === true && !!sizeA && !!sizeB && (await allSizes()).length === baseline + 2, saved);
+    await db.insert(priceChanges).values({ variantId: sizeA.id, oldCents: 100, newCents: 200, source: 'editor' });
+
+    // a stale form: built now, and a size is added from elsewhere before it is submitted
+    const staleRows = await shownRows();
+    const [sizeC] = await db.insert(variants).values({ productId: prod.id, sku: 'T-SIZE-C', label: 'TEST C 4L', priceCents: 1990, stock: 5, trackStock: false, isActive: true, priceVerified: true, sort: 50 }).returning();
+    saved = await save(staleRows);
+    const cAfter = await sizeBySku('T-SIZE-C');
+    check('a stale form that lacks a size added later keeps that size, untouched', saved?.ok === true && !!cAfter && cAfter.priceCents === 1990 && cAfter.stock === 5 && cAfter.isActive && !cAfter.archivedAt && cAfter.sort === 50, cAfter);
+    check('…and the size added elsewhere is sold and in the feed', (await feedNow()).items.some((i) => i.variantId === sizeC.id));
+
+    // explicit removal: A has price history, B has none
+    const beforeRemoval = await shownRows();
+    saved = await save(beforeRemoval.filter((r) => r.id !== sizeA.id && r.id !== sizeB.id), [sizeA.id, sizeB.id]);
+    const aAfter = (await db.select().from(variants).where(eq(variants.id, sizeA.id)))[0];
+    const bAfter = (await db.select().from(variants).where(eq(variants.id, sizeB.id)))[0];
+    check('a removed size with price history is hidden, not deleted', saved?.ok === true && !!aAfter && aAfter.isActive === false && aAfter.archivedAt !== null, aAfter);
+    check('…its price history survives', (await db.select().from(priceChanges).where(eq(priceChanges.variantId, sizeA.id))).length === 1);
+    check('…and its codes are freed for reuse', aAfter?.sku.startsWith('T-SIZE-A~archived-') === true && aAfter.barcode === null && aAfter.mpn === null, aAfter?.sku);
+    check('a removed size without any history is deleted', bAfter === undefined);
+    check('removing sizes did not touch the one added elsewhere', (await sizeBySku('T-SIZE-C'))?.stock === 5);
+    const text = (await db.select({ t: products.searchText }).from(products).where(eq(products.id, prod.id)))[0].t;
+    check('the product is no longer found by the hidden size, and still by the kept one', !text.includes(normalizeText('TEST A 1L')) && text.includes(normalizeText('TEST C 4L')), text.slice(-120));
+
+    // a size with only past orders is hidden too
+    saved = await save([...(await shownRows()), newRow('TEST D 5L', 'T-SIZE-D')]);
+    const sizeD = await sizeBySku('T-SIZE-D');
+    await db.insert(orderItems).values({ orderId: createdOrderIds[0], productId: prod.id, variantId: sizeD.id, name: 'x', variantLabel: 'x', sku: 'T-SIZE-D', imageUrl: null, unitPriceCents: 100, quantity: 1, lineTotalCents: 100, weightGrams: 0 });
+    saved = await save((await shownRows()).filter((r) => r.id !== sizeD.id), [sizeD.id]);
+    const dAfter = (await db.select().from(variants).where(eq(variants.id, sizeD.id)))[0];
+    check('a removed size that past orders mention is hidden, not deleted', saved?.ok === true && !!dAfter && dAfter.archivedAt !== null && dAfter.isActive === false, dAfter);
+
+    // hidden means: not orderable, not in the feed, not in the shop
+    const cart = await resolveCartLines([{ variantId: sizeA.id, quantity: 1 }]);
+    check('a hidden size is refused by the cart', cart.length === 1 && cart[0].issue === 'unavailable' && cart[0].quantity === 0, cart);
+    const feed = await feedNow();
+    check('a hidden size is missing from the feed and from its diagnostics', !feed.items.some((i) => i.variantId === sizeA.id) && !feed.leftOut.some((i) => i.variantId === sizeA.id));
+    const shop = await getProductBySlug(prod.slug);
+    check('a hidden size is missing from the product page', !!shop && !shop.variants.some((v) => v.id === sizeA.id) && shop.variants.some((v) => v.id === sizeC.id));
+    const priceCsv = await (await import('../src/app/admin/(panel)/prices/export/route')).GET().then((r) => r.text());
+    check('a hidden size is missing from the price list export', !priceCsv.includes('T-SIZE-A') && priceCsv.includes('T-SIZE-C'));
+
+    // a stale form that still lists the hidden size cannot bring it back
+    saved = await save([...(await shownRows()), rowOf(aAfter, { isActive: true, sku: 'T-SIZE-A' })]);
+    const aStill = (await db.select().from(variants).where(eq(variants.id, sizeA.id)))[0];
+    check('a stale form cannot reactivate a hidden size', saved?.ok === true && aStill.isActive === false && aStill.archivedAt !== null, aStill);
+
+    // the same code can be used again, also in the very save that removes the old size
+    const sizeE0 = await (async () => { await save([...(await shownRows()), newRow('TEST E 1L', 'T-SIZE-E')]); return sizeBySku('T-SIZE-E'); })();
+    await db.insert(priceChanges).values({ variantId: sizeE0.id, oldCents: 100, newCents: 300, source: 'editor' });
+    saved = await save([...(await shownRows()).filter((r) => r.id !== sizeE0.id), newRow('TEST E 1L', 'T-SIZE-E')], [sizeE0.id]);
+    const eNew = await sizeBySku('T-SIZE-E');
+    check('a size added in the same save can take over the code of the one removed', saved?.ok === true && !!eNew && eNew.id !== sizeE0.id, saved);
+    saved = await save([...(await shownRows()), newRow('TEST A 1L', 'T-SIZE-A')]);
+    check('…and a hidden size does not block adding it again later', saved?.ok === true && (await sizeBySku('T-SIZE-A'))?.id !== sizeA.id, saved);
+
+    // an id that belongs to another product, or a broken list, removes nothing
+    const [foreign] = await db.select().from(variants).where(ne(variants.productId, prod.id)).limit(1);
+    saved = await save(await shownRows(), [foreign.id]);
+    check('an id of another product in the removal list is ignored', saved?.ok === true && (await db.select().from(variants).where(and(eq(variants.id, foreign.id), isNull(variants.archivedAt)))).length === 1);
+    const garbage = await runProduct(form({ id: String(prod.id), name: prod.name, isActive: 'on', variants: JSON.stringify(await shownRows()), removedVariantIds: 'not json' }));
+    check('a broken removal list is refused', garbage?.ok === false, garbage);
+
+    // stock. The size is counted and the page was loaded at 10; an order then took 3
+    const sizeOf = async (id: number) => (await db.select().from(variants).where(eq(variants.id, id)))[0];
+    const saveOne = (id: number, over: Record<string, unknown>) => sizeOf(id).then((v) => save([rowOf(v, over)]));
+    await db.update(variants).set({ trackStock: true, stock: 10 }).where(eq(variants.id, sizeC.id));
+    await db.update(variants).set({ stock: 7 }).where(eq(variants.id, sizeC.id));
+    await saveOne(sizeC.id, { stock: 12, loadedStock: 10 });
+    check('counting stays on: the owner\'s +2 is added to what is there now', (await sizeOf(sizeC.id)).stock === 9, (await sizeOf(sizeC.id)).stock);
+    // counting is switched off while an order takes 2 from a page loaded at 9
+    await db.update(variants).set({ stock: 7 }).where(eq(variants.id, sizeC.id));
+    await saveOne(sizeC.id, { stock: 9, loadedStock: 9, trackStock: false });
+    const off = await sizeOf(sizeC.id);
+    check('counting switched off keeps the units sold while the page was open', off.trackStock === false && off.stock === 7, off);
+    // counting is switched on again: the typed number is a fresh count
+    await saveOne(sizeC.id, { stock: 20, loadedStock: 7, trackStock: true });
+    const on = await sizeOf(sizeC.id);
+    check('counting switched on writes the number typed as the new count', on.trackStock === true && on.stock === 20, on);
+    // a saved size without the figure the page was loaded with is not from the current form
+    const stale = await sizeOf(sizeC.id).then((v) => save([rowOf(v, { stock: 1, loadedStock: undefined })]));
+    check('a saved size without loadedStock is refused, stock untouched', stale?.ok === false && (await sizeOf(sizeC.id)).stock === 20, stale);
+    await db.delete(priceChanges).where(eq(priceChanges.variantId, sizeA.id));
+  }
+
   console.log('Login limits (customers and admin)');
   {
     const { customers } = await import('../src/lib/db/schema');

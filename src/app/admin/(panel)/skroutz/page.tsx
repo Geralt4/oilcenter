@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, isNull } from 'drizzle-orm';
 import { Download, ExternalLink, TriangleAlert } from 'lucide-react';
 import { importCodesCsv, saveSkroutzSettings } from '@/app/admin/actions';
 import { AdminForm } from '@/components/admin/admin-form';
@@ -36,6 +36,7 @@ export default async function AdminSkroutzPage() {
       .from(variants)
       .innerJoin(products, eq(variants.productId, products.id))
       .leftJoin(brands, eq(products.brandId, brands.id))
+      .where(isNull(variants.archivedAt))
       .orderBy(asc(brands.name), asc(products.name), asc(variants.sort)),
   ]);
 

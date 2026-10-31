@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, isNull } from 'drizzle-orm';
 import { db } from '../src/lib/db';
 import { brands, categories, products, variants } from '../src/lib/db/schema';
 import { buildSearchText, extraKeywords } from '../src/lib/search-keywords';
@@ -29,7 +29,7 @@ export async function applySearchKeywords(): Promise<string> {
     .leftJoin(brands, eq(products.brandId, brands.id))
     .leftJoin(categories, eq(products.categoryId, categories.id));
   const labels = new Map<number, string[]>();
-  for (const v of await db.select({ productId: variants.productId, label: variants.label }).from(variants).orderBy(asc(variants.sort))) labels.set(v.productId, [...(labels.get(v.productId) ?? []), v.label]);
+  for (const v of await db.select({ productId: variants.productId, label: variants.label }).from(variants).where(isNull(variants.archivedAt)).orderBy(asc(variants.sort))) labels.set(v.productId, [...(labels.get(v.productId) ?? []), v.label]);
 
   let filled = 0;
   let rebuilt = 0;

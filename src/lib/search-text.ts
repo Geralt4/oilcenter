@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { brands, categories, products, variants } from '@/lib/db/schema';
 import { buildSearchText } from '@/lib/search-keywords';
@@ -18,7 +18,7 @@ export async function rebuildSearchTexts(scope: { brandId?: number; categoryId?:
     .where(scope.productIds ? inArray(products.id, scope.productIds) : scope.brandId !== undefined ? eq(products.brandId, scope.brandId) : scope.categoryId !== undefined ? eq(products.categoryId, scope.categoryId) : undefined);
   if (rows.length === 0) return 0;
   const labels = new Map<number, string[]>();
-  for (const v of await db.select({ productId: variants.productId, label: variants.label }).from(variants).where(inArray(variants.productId, rows.map((r) => r.id))).orderBy(asc(variants.sort))) {
+  for (const v of await db.select({ productId: variants.productId, label: variants.label }).from(variants).where(and(inArray(variants.productId, rows.map((r) => r.id)), isNull(variants.archivedAt))).orderBy(asc(variants.sort))) {
     labels.set(v.productId, [...(labels.get(v.productId) ?? []), v.label]);
   }
   let changed = 0;

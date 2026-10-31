@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { asc, desc, eq, max } from 'drizzle-orm';
+import { asc, desc, eq, isNull, max } from 'drizzle-orm';
 import { Download } from 'lucide-react';
 import { importPricesCsv } from '@/app/admin/actions';
 import { AdminForm } from '@/components/admin/admin-form';
@@ -26,6 +26,7 @@ export default async function AdminPricesPage({ searchParams }: { searchParams: 
       .from(variants)
       .innerJoin(products, eq(variants.productId, products.id))
       .leftJoin(brands, eq(products.brandId, brands.id))
+      .where(isNull(variants.archivedAt))
       .orderBy(asc(brands.name), asc(products.name), asc(variants.sort)),
     db.select({ variantId: priceChanges.variantId, oldCents: priceChanges.oldCents, createdAt: priceChanges.createdAt }).from(priceChanges).innerJoin(newest, eq(priceChanges.id, newest.id)),
     db

@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, isNull } from 'drizzle-orm';
 import { getAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { brands, products, variants } from '@/lib/db/schema';
@@ -13,6 +13,7 @@ export async function GET() {
     .from(variants)
     .innerJoin(products, eq(variants.productId, products.id))
     .leftJoin(brands, eq(products.brandId, brands.id))
+    .where(isNull(variants.archivedAt))
     .orderBy(asc(brands.name), asc(products.name), asc(variants.sort));
 
   const csv = buildPriceCsv(rows.map(({ v, productName, brandName }) => ({ sku: v.sku, brand: brandName, product: productName, pack: v.label, priceCents: v.priceCents, stock: v.stock, trackStock: v.trackStock, priceVerified: v.priceVerified, availability: v.availability })));
