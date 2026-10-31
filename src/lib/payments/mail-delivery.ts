@@ -1,4 +1,4 @@
-import { and, eq, isNull, lt, or } from 'drizzle-orm';
+import { and, eq, gte, isNotNull, isNull, lt, lte, or, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { mailOutbox, orders, unmatchedPayments } from '@/lib/db/schema';
 import { orderConfirmationMail, orderPaidNotificationMail, paymentAlertMail, sendMail, unmatchedPaymentMail } from '@/lib/email';
@@ -10,10 +10,20 @@ import { getSettings } from '@/lib/settings.server';
  *
  * At-least-once: a crash after the mail left but before the row is marked sent sends it once more. A row is claimed with one
  * conditional UPDATE, so the browser return, the webhook and the periodic sweep cannot all send the same mail.
+ *
+ * A failed attempt waits before the next one (back-off): 1, 5, 15 and 60 minutes, then every hour. A mail is given up at the
+ * 27th failure: 23.4 hours of waiting after the first, plus up to 10 minutes per wait because a due retry is picked up by the
+ * next sweep. So a mail outage or a rejected sender has about a day to be fixed before a confirmation or an alert is dropped.
+ * Settle calls and the sweep both honour the wait, so a burst of gateway retries cannot use up the attempts.
  */
 
-const MAX_ATTEMPTS = 8;
+const MAX_ATTEMPTS = 27;
 const CLAIM_TTL_MS = 10 * 60 * 1000;
+const BACKOFF_MINUTES = [1, 5, 15, 60];
+/** how long to wait after the `attempts`-th failed attempt (1-based) */
+export const retryDelayMs = (attempts: number) => (BACKOFF_MINUTES[attempts - 1] ?? 60) * 60 * 1000;
+/** the dashboard counts mails given up within this many days */
+export const GIVEN_UP_WINDOW_DAYS = 30;
 
 const PROBLEMS: Partial<Record<PaymentOutcome, string>> = {
   amount_mismatch: 'Το ποσό που εισπράχθηκε δεν ταιριάζει με το σύνολο της παραγγελίας. Η παραγγελία δεν σημειώθηκε ως πληρωμένη.',
@@ -56,7 +66,15 @@ async function deliverRow(id: number): Promise<boolean> {
   const [row] = await db
     .update(mailOutbox)
     .set({ claimedAt: now })
-    .where(and(eq(mailOutbox.id, id), isNull(mailOutbox.sentAt), isNull(mailOutbox.givenUpAt), or(isNull(mailOutbox.claimedAt), lt(mailOutbox.claimedAt, new Date(now.getTime() - CLAIM_TTL_MS)))))
+    .where(
+      and(
+        eq(mailOutbox.id, id),
+        isNull(mailOutbox.sentAt),
+        isNull(mailOutbox.givenUpAt),
+        or(isNull(mailOutbox.nextAttemptAt), lte(mailOutbox.nextAttemptAt, now)),
+        or(isNull(mailOutbox.claimedAt), lt(mailOutbox.claimedAt, new Date(now.getTime() - CLAIM_TTL_MS))),
+      ),
+    )
     .returning();
   if (!row) return false;
 
@@ -79,7 +97,13 @@ async function deliverRow(id: number): Promise<boolean> {
   const final = attempts >= MAX_ATTEMPTS;
   await db
     .update(mailOutbox)
-    .set({ attempts, claimedAt: null, lastError: error ?? 'not sent (see the mail log)', givenUpAt: final ? new Date() : null })
+    .set({
+      attempts,
+      claimedAt: null,
+      lastError: error ?? 'not sent (see the mail log)',
+      givenUpAt: final ? new Date() : null,
+      nextAttemptAt: final ? null : new Date(Date.now() + retryDelayMs(attempts)),
+    })
     .where(eq(mailOutbox.id, id));
   // the timeline says it at the first failure and again when the shop stops trying; the attempts in between stay quiet
   if (row.orderId && result.failureEvent && (attempts === 1 || final)) {
@@ -92,7 +116,8 @@ async function deliverRow(id: number): Promise<boolean> {
 /** Sends the pending mails (of one order, of one unmatched payment, or all of them). Never throws. Returns how many went out. */
 export async function deliverPendingMail(filter: { orderId?: number; unmatchedId?: number } = {}): Promise<number> {
   try {
-    const stale = new Date(Date.now() - CLAIM_TTL_MS);
+    const now = new Date();
+    const stale = new Date(now.getTime() - CLAIM_TTL_MS);
     const pending = await db
       .select({ id: mailOutbox.id })
       .from(mailOutbox)
@@ -100,6 +125,7 @@ export async function deliverPendingMail(filter: { orderId?: number; unmatchedId
         and(
           isNull(mailOutbox.sentAt),
           isNull(mailOutbox.givenUpAt),
+          or(isNull(mailOutbox.nextAttemptAt), lte(mailOutbox.nextAttemptAt, now)),
           or(isNull(mailOutbox.claimedAt), lt(mailOutbox.claimedAt, stale)),
           filter.orderId !== undefined ? eq(mailOutbox.orderId, filter.orderId) : undefined,
           filter.unmatchedId !== undefined ? eq(mailOutbox.unmatchedId, filter.unmatchedId) : undefined,
@@ -120,4 +146,11 @@ export async function deliverPendingMail(filter: { orderId?: number; unmatchedId
     console.error('[mail] delivery of queued mail failed', err);
     return 0;
   }
+}
+
+/** How many payment mails were given up in the last GIVEN_UP_WINDOW_DAYS days (shown on the admin dashboard checklist). */
+export async function countGivenUpMails(): Promise<number> {
+  const since = new Date(Date.now() - GIVEN_UP_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const [row] = await db.select({ n: count() }).from(mailOutbox).where(and(isNotNull(mailOutbox.givenUpAt), gte(mailOutbox.givenUpAt, since)));
+  return row?.n ?? 0;
 }

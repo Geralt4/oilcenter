@@ -361,6 +361,8 @@ export const mailOutbox = sqliteTable(
     /** set while one process is sending it; a claim older than 10 minutes is taken as abandoned */
     claimedAt: integer('claimed_at', { mode: 'timestamp_ms' }),
     sentAt: integer('sent_at', { mode: 'timestamp_ms' }),
+    /** after a failed attempt: not before this moment (back-off, see payments/mail-delivery.ts); NULL = due now */
+    nextAttemptAt: integer('next_attempt_at', { mode: 'timestamp_ms' }),
     attempts: integer('attempts').notNull().default(0),
     lastError: text('last_error'),
     givenUpAt: integer('given_up_at', { mode: 'timestamp_ms' }),

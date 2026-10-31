@@ -141,6 +141,13 @@
       "when": 1793453074413,
       "tag": "0019_chemical_bloodstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1793457020234,
+      "tag": "0020_lethal_annihilus",
+      "breakpoints": true
     }
   ]
 }

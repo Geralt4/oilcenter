@@ -980,6 +980,7 @@ async function main() {
     console.log('  Payment mails survive a crash (mail queue)');
     {
       const { mailOutbox, orderEvents } = await import('../src/lib/db/schema');
+      const { countGivenUpMails, retryDelayMs } = await import('../src/lib/payments/mail-delivery');
       const { settleCardPayment } = await import('../src/lib/payments/settle');
       const { recordPayment } = await import('../src/lib/orders');
       const eventsOf = (orderId: number) => db.select().from(orderEvents).where(eq(orderEvents.orderId, orderId));
@@ -1022,12 +1023,19 @@ async function main() {
         check('with the mail service down both mails stay queued, one failed attempt each', down.length === 2 && down.every((r) => r.sentAt === null && r.attempts === 1 && r.givenUpAt === null), down);
         const failures = (await eventsOf(q2.id)).filter((e) => e.message.startsWith('ΑΠΟΤΥΧΙΑ αποστολής'));
         check('…and the timeline says so once per mail, with "will retry"', failures.length === 2 && failures.every((e) => e.message.includes('Θα ξαναδοκιμαστεί')), failures.map((e) => e.message));
+        // back-off: the first retry is due in about a minute, and asking again before that spends no attempt
+        const waits = down.map((r) => (r.nextAttemptAt ? r.nextAttemptAt.getTime() - Date.now() : -1));
+        check('…the first retry is due in about a minute', waits.every((w) => w > 50_000 && w <= 61_000), waits);
+        await deliverPendingMail({ orderId: q2.id });
+        await deliverPendingMail();
+        check('…asking again at once (a gateway retry, the sweep) spends no attempt', (await queued(q2.id)).every((r) => r.attempts === 1), (await queued(q2.id)).map((r) => r.attempts));
       } finally {
         globalThis.fetch = realFetch;
         if (savedKey === undefined) delete process.env.RESEND_API_KEY;
         else process.env.RESEND_API_KEY = savedKey;
       }
-      check('the sweep (all pending mail) sends them once the service is back', (await deliverPendingMail()) >= 2);
+      await db.update(mailOutbox).set({ nextAttemptAt: new Date(Date.now() - 1000) }).where(eq(mailOutbox.orderId, q2.id)); // a minute later
+      check('the sweep (all pending mail) sends them once the service is back and the wait is over', (await deliverPendingMail()) >= 2);
       const sent2 = await queued(q2.id);
       check('…and both are marked sent, after the one failed attempt', sent2.length === 2 && sent2.every((r) => r.sentAt !== null && r.attempts === 1), sent2);
 
@@ -1039,22 +1047,39 @@ async function main() {
       await Promise.all([deliverPendingMail({ orderId: q3.id }), deliverPendingMail({ orderId: q3.id })]);
       check('two concurrent senders write each mail once', filesNow().filter((f) => !before3.has(f)).length === 2, filesNow().filter((f) => !before3.has(f)));
 
-      // (d) a mail that can never be sent is given up after 8 tries
+      // (d) a mail that can never be sent: back-off 1, 5, 15, 60 minutes then hourly, given up at the 27th failure (about a day)
       const q4 = await newCard();
       await recordPaymentAttempt(q4.id, { provider: 'viva', ref: 'R-Q4' });
       await recordPayment(q4.id, { provider: 'viva', ref: 'T-Q4', amountCents: q4.totalCents + 1, attemptRef: 'R-Q4' });
       process.env.RESEND_API_KEY = 're_test_dummy';
       globalThis.fetch = (async () => new Response('down', { status: 500 })) as typeof fetch;
+      const delaysMin: number[] = [];
+      let waitedMs = 0;
       try {
-        for (let i = 0; i < 9; i++) await deliverPendingMail({ orderId: q4.id });
+        for (let i = 0; i < 40; i++) {
+          // time passes: make the row due, then let the sweep try it
+          await db.update(mailOutbox).set({ nextAttemptAt: new Date(Date.now() - 1000) }).where(eq(mailOutbox.orderId, q4.id));
+          await deliverPendingMail({ orderId: q4.id });
+          const [r] = await queued(q4.id);
+          if (r.givenUpAt) break;
+          const wait = r.nextAttemptAt ? r.nextAttemptAt.getTime() - Date.now() : -1;
+          delaysMin.push(Math.round(wait / 60_000));
+          waitedMs += wait;
+        }
       } finally {
         globalThis.fetch = realFetch;
         if (savedKey === undefined) delete process.env.RESEND_API_KEY;
         else process.env.RESEND_API_KEY = savedKey;
       }
       const gone = await queued(q4.id);
-      check('after 8 failed tries the alert is given up, not retried forever', gone.length === 1 && gone[0].attempts === 8 && gone[0].givenUpAt !== null, gone);
+      check('a mail that can never be sent is given up at the 27th failure, not retried forever', gone.length === 1 && gone[0].attempts === 27 && gone[0].givenUpAt !== null, gone);
+      check('…the waits between attempts are 1, 5, 15, 60 minutes and then hourly', delaysMin.length === 26 && [1, 5, 15, 60].every((m, i) => delaysMin[i] === m) && delaysMin.slice(3).every((m) => m === 60), delaysMin);
+      check('…which covers about a day (23 hours of waiting)', waitedMs / 3_600_000 > 23 && waitedMs / 3_600_000 < 23.5 && retryDelayMs(1) === 60_000 && retryDelayMs(4) === 3_600_000 && retryDelayMs(99) === 3_600_000, waitedMs / 3_600_000);
       check('…and the timeline says it will not be retried', (await eventsOf(q4.id)).some((e) => e.message.includes('Δεν θα ξαναδοκιμαστεί')));
+      check('the given-up mail is counted for the dashboard', (await countGivenUpMails()) >= 1);
+      const before = await countGivenUpMails();
+      await db.update(mailOutbox).set({ givenUpAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000) }).where(eq(mailOutbox.orderId, q4.id));
+      check('…and one given up more than 30 days ago is not', (await countGivenUpMails()) === before - 1, [before, await countGivenUpMails()]);
     }
 
     console.log('  A deleted and recreated coupon');
