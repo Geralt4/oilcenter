@@ -958,6 +958,25 @@ async function main() {
     // a saved size without the figure the page was loaded with is not from the current form
     const stale = await sizeOf(sizeC.id).then((v) => save([rowOf(v, { stock: 1, loadedStock: undefined })]));
     check('a saved size without loadedStock is refused, stock untouched', stale?.ok === false && (await sizeOf(sizeC.id)).stock === 20, stale);
+
+    // the quick editors (prices, Skroutz codes) skip a hidden size from a stale page; the rest of the batch still saves
+    const { updateCodes, updatePrices } = await import('../src/app/admin/actions');
+    const { isValidGtin } = await import('../src/lib/gtin');
+    const hiddenA = await sizeOf(sizeA.id);
+    const priceRowsBefore = (await db.select().from(priceChanges).where(eq(priceChanges.variantId, sizeA.id))).length;
+    const prices = await updatePrices([{ id: sizeA.id, price: '55,00' }, { id: sizeC.id, price: '19,95' }]);
+    const hiddenAfterPrice = await sizeOf(sizeA.id);
+    check('a stale price edit on a hidden size changes nothing', hiddenAfterPrice.priceCents === hiddenA.priceCents && (await db.select().from(priceChanges).where(eq(priceChanges.variantId, sizeA.id))).length === priceRowsBefore, hiddenAfterPrice.priceCents);
+    check('…the rest of the batch is saved, and the message says one row was skipped', prices.ok && (await sizeOf(sizeC.id)).priceCents === 1995 && prices.saved.length === 1 && prices.message.includes('αγνοήθηκε'), prices);
+    const code = '4006381333931';
+    check('(the barcode used below is a valid EAN-13)', isValidGtin(code));
+    const codes = await updateCodes([{ id: sizeA.id, barcode: code, mpn: 'T-MPN-A' }, { id: sizeC.id, barcode: '', mpn: 'T-MPN-C' }]);
+    const hiddenAfterCode = await sizeOf(sizeA.id);
+    check('a stale barcode write on a hidden size changes nothing', hiddenAfterCode.barcode === null && hiddenAfterCode.mpn === null, hiddenAfterCode);
+    check('…the rest of the batch is saved, and the message says one row was skipped', codes.ok && (await sizeOf(sizeC.id)).mpn === 'T-MPN-C' && codes.saved.length === 1 && codes.message.includes('αγνοήθηκε'), codes);
+    const readded = await sizeBySku('T-SIZE-A');
+    saved = await save([...(await shownRows()).map((r) => (r.id === readded.id ? { ...r, barcode: code } : r))]);
+    check('the size added again can take that barcode', saved?.ok === true && (await sizeOf(readded.id)).barcode === code, await sizeOf(readded.id));
     await db.delete(priceChanges).where(eq(priceChanges.variantId, sizeA.id));
   }
 

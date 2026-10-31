@@ -779,7 +779,10 @@ export async function updatePrices(input: PriceUpdate[]): Promise<PriceUpdateRes
   if (!parsed.success) return { ok: false, message: 'Δεν υπάρχουν αλλαγές προς αποθήκευση.', saved: [], failed: [] };
 
   const wanted = new Map(parsed.data.map((u) => [u.id, u]));
-  const rows = await db.select().from(variants).where(inArray(variants.id, [...wanted.keys()]));
+  // a size that was removed (archived) after this page was loaded is skipped; the rest of the batch still saves
+  const rows = await db.select().from(variants).where(and(inArray(variants.id, [...wanted.keys()]), isNull(variants.archivedAt)));
+  const skipped = wanted.size - rows.length;
+  const skippedNote = skipped > 0 ? ` ${skipped === 1 ? 'Μία συσκευασία δεν υπάρχει πια και αγνοήθηκε' : `${skipped} συσκευασίες δεν υπάρχουν πια και αγνοήθηκαν`}.` : '';
   const saved: PriceUpdateResult['saved'] = [];
   const failed: number[] = [];
   const now = new Date();
@@ -810,8 +813,8 @@ export async function updatePrices(input: PriceUpdate[]): Promise<PriceUpdateRes
 
   revalidatePath('/admin/prices');
   const count = saved.length === 1 ? 'Αποθηκεύτηκε 1 αλλαγή' : `Αποθηκεύτηκαν ${saved.length} αλλαγές`;
-  if (failed.length) return { ok: false, message: `${count}. ${failed.length === 1 ? 'Μία τιμή δεν είναι έγκυρη' : `${failed.length} τιμές δεν είναι έγκυρες`} (σημειωμένες με κόκκινο).`, saved, failed };
-  return { ok: true, message: saved.length ? `${count}. ${saved.length === 1 ? 'Ισχύει' : 'Ισχύουν'} ήδη στο κατάστημα.` : 'Καμία αλλαγή.', saved, failed };
+  if (failed.length) return { ok: false, message: `${count}. ${failed.length === 1 ? 'Μία τιμή δεν είναι έγκυρη' : `${failed.length} τιμές δεν είναι έγκυρες`} (σημειωμένες με κόκκινο).${skippedNote}`, saved, failed };
+  return { ok: true, message: `${saved.length ? `${count}. ${saved.length === 1 ? 'Ισχύει' : 'Ισχύουν'} ήδη στο κατάστημα.` : 'Καμία αλλαγή.'}${skippedNote}`, saved, failed };
 }
 
 /**
@@ -1244,8 +1247,11 @@ export async function updateCodes(input: CodeUpdate[]): Promise<CodeUpdateResult
   const parsed = CodeUpdates.safeParse(input);
   if (!parsed.success) return { ok: false, message: 'Δεν υπάρχουν αλλαγές προς αποθήκευση.', saved: [], failed: [] };
 
-  const all = await db.select({ id: variants.id, barcode: variants.barcode }).from(variants);
+  // archived sizes are not editable: an id from a stale page is skipped, the rest of the batch still saves
+  const all = await db.select({ id: variants.id, barcode: variants.barcode }).from(variants).where(isNull(variants.archivedAt));
   const known = new Set(all.map((v) => v.id));
+  const skipped = new Set(parsed.data.map((u) => u.id)).size - parsed.data.filter((u) => known.has(u.id)).length;
+  const skippedNote = skipped > 0 ? ` ${skipped === 1 ? 'Μία συσκευασία δεν υπάρχει πια και αγνοήθηκε' : `${skipped} συσκευασίες δεν υπάρχουν πια και αγνοήθηκαν`}.` : '';
   // every pack size has its own barcode: the same one twice means the same bottle was scanned twice
   const owner = new Map(all.flatMap((v) => (v.barcode ? [[v.barcode, v.id] as const] : [])));
   const saved: CodeUpdate[] = [];
@@ -1263,7 +1269,7 @@ export async function updateCodes(input: CodeUpdate[]): Promise<CodeUpdateResult
         failed.push({ id: u.id, reason: 'duplicate' });
         continue;
       }
-      await tx.update(variants).set({ barcode: barcode || null, mpn: u.mpn || null }).where(eq(variants.id, u.id));
+      await tx.update(variants).set({ barcode: barcode || null, mpn: u.mpn || null }).where(and(eq(variants.id, u.id), isNull(variants.archivedAt)));
       for (const [code, id] of owner) if (id === u.id) owner.delete(code);
       if (barcode) owner.set(barcode, u.id);
       saved.push({ id: u.id, barcode, mpn: u.mpn });
@@ -1272,8 +1278,8 @@ export async function updateCodes(input: CodeUpdate[]): Promise<CodeUpdateResult
 
   revalidatePath('/admin/skroutz');
   const count = saved.length === 1 ? 'Αποθηκεύτηκε 1 συσκευασία' : `Αποθηκεύτηκαν ${saved.length} συσκευασίες`;
-  if (failed.length) return { ok: false, message: `${count}. ${failed.length === 1 ? 'Ένα barcode δεν έγινε δεκτό' : `${failed.length} barcodes δεν έγιναν δεκτά`} (σημειωμένα με κόκκινο).`, saved, failed };
-  return { ok: true, message: saved.length ? `${count}.` : 'Καμία αλλαγή.', saved, failed };
+  if (failed.length) return { ok: false, message: `${count}. ${failed.length === 1 ? 'Ένα barcode δεν έγινε δεκτό' : `${failed.length} barcodes δεν έγιναν δεκτά`} (σημειωμένα με κόκκινο).${skippedNote}`, saved, failed };
+  return { ok: true, message: `${saved.length ? `${count}.` : 'Καμία αλλαγή.'}${skippedNote}`, saved, failed };
 }
 
 /** CSV columns: sku;ean;mpn (either of the last two may be missing) — for a list sent by a distributor. Empty cells change nothing. */
