@@ -394,8 +394,9 @@ export async function markOrderPaid(orderId: number, info: PaymentInfo): Promise
 }
 
 /** Puts reserved stock and the coupon use back. Safe to call once per order: guarded by the status transition. */
-export async function cancelOrder(orderId: number, actor: string, reason?: string, opts: { requireUnpaid?: boolean; noAttemptSince?: Date } = {}): Promise<boolean> {
-  return db.transaction(async (tx) => {
+export async function cancelOrder(orderId: number, actor: string, reason?: string, opts: { requireUnpaid?: boolean; noAttemptSince?: Date } = {}, exec?: Executor): Promise<boolean> {
+  // exec: the transaction of a caller that has more to write with it (the order editor); alone, cancelling opens its own
+  const run = async (tx: Executor): Promise<boolean> => {
     const flipped = await tx
       .update(orders)
       .set({ status: 'cancelled' })
@@ -443,7 +444,8 @@ export async function cancelOrder(orderId: number, actor: string, reason?: strin
     }
     await tx.insert(orderEvents).values({ orderId, type: 'status', message: `Η παραγγελία ακυρώθηκε${reason ? `: ${reason}` : ''}. Το απόθεμα επανήλθε.`, actor });
     return true;
-  });
+  };
+  return exec ? run(exec) : db.transaction(run);
 }
 
 /**

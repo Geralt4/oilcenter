@@ -320,6 +320,69 @@ async function main() {
   check('cancelling together with refunded is accepted', r10?.ok === true && cancelRefundAfter.status === 'cancelled' && cancelRefundAfter.paymentStatus === 'refunded', [r10, cancelRefundAfter.status, cancelRefundAfter.paymentStatus]);
   check('…and leaves no review flag', cancelRefundAfter.paymentFlag === null, cancelRefundAfter.paymentFlag);
 
+  console.log('Order editor: stale tabs and one transaction');
+  {
+    // the form the order page sends, with the «loaded…» copies of what it showed
+    const pageForm = (order: { id: number; status: string; paymentStatus: string; trackingCarrier?: string | null; trackingNumber?: string | null; adminNotes?: string | null }, asked: Record<string, string> = {}) =>
+      form({
+        id: String(order.id),
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        loadedStatus: order.status,
+        loadedPayment: order.paymentStatus,
+        loadedTrackingCarrier: order.trackingCarrier ?? '',
+        loadedTrackingNumber: order.trackingNumber ?? '',
+        loadedAdminNotes: order.adminNotes ?? '',
+        trackingCarrier: order.trackingCarrier ?? '',
+        trackingNumber: order.trackingNumber ?? '',
+        adminNotes: order.adminNotes ?? '',
+        ...asked,
+      });
+    const o = await makeOrder({ paymentMethod: 'cod', status: 'confirmed', paymentStatus: 'pending' });
+    const tabA = pageForm(await orderNow(o.id), { trackingNumber: 'AAA-111' });
+    const tabB = pageForm(await orderNow(o.id), { trackingNumber: 'BBB-222', trackingCarrier: 'ACS' });
+    const rB = await updateOrder(null, tabB);
+    check('tab B saves a tracking number', rB?.ok === true && (await orderNow(o.id)).trackingNumber === 'BBB-222' && (await orderNow(o.id)).trackingCarrier === 'ACS', rB);
+    const rA = await updateOrder(null, tabA);
+    check('tab A, opened before B saved, is refused as stale', rA?.ok === false && String(rA.message).includes('άλλαξε στο μεταξύ'), rA);
+    check('…and does not overwrite B', (await orderNow(o.id)).trackingNumber === 'BBB-222', (await orderNow(o.id)).trackingNumber);
+
+    const tabC = pageForm(await orderNow(o.id), { adminNotes: 'σημείωση C' });
+    const tabD = pageForm(await orderNow(o.id), { adminNotes: 'σημείωση D' });
+    await updateOrder(null, tabD);
+    const rC = await updateOrder(null, tabC);
+    check('the same for notes: the stale tab is refused and D stays', rC?.ok === false && (await orderNow(o.id)).adminNotes === 'σημείωση D', [rC, (await orderNow(o.id)).adminNotes]);
+
+    // a stale tab that does not touch tracking or notes still works: it only applies what it changed
+    const tabE = pageForm({ ...(await orderNow(o.id)), trackingNumber: '', trackingCarrier: '', adminNotes: '' }, { status: 'shipped' });
+    const rE = await updateOrder(null, tabE);
+    const afterE = await orderNow(o.id);
+    check('a stale tab that only changes the status succeeds', rE?.ok === true && afterE.status === 'shipped', rE);
+    check('…and leaves the tracking and notes saved meanwhile alone', afterE.trackingNumber === 'BBB-222' && afterE.adminNotes === 'σημείωση D', [afterE.trackingNumber, afterE.adminNotes]);
+
+    // nothing is half-saved: a payment change in the same save is undone when the tracking step finds the row has moved
+    const o2 = await makeOrder({ paymentMethod: 'cod', status: 'confirmed', paymentStatus: 'pending', trackingNumber: 'NEW-1' });
+    const staleTab = pageForm({ ...(await orderNow(o2.id)), trackingNumber: 'OLD-0' }, { paymentStatus: 'paid', trackingNumber: 'MINE-9' });
+    const events2Before = (await eventsNow(o2.id)).length;
+    const rRoll = await updateOrder(null, staleTab);
+    const o2After = await orderNow(o2.id);
+    check('a save whose tracking step is stale is refused', rRoll?.ok === false, rRoll);
+    check('…and its payment change is rolled back with it', o2After.paymentStatus === 'pending' && o2After.paidAt === null && o2After.trackingNumber === 'NEW-1', [o2After.paymentStatus, o2After.trackingNumber]);
+    check('…and leaves no event behind', (await eventsNow(o2.id)).length === events2Before, await eventsNow(o2.id));
+
+    // browsers send line breaks as CRLF: an unchanged note must not look stale, and a changed one saves
+    const o3 = await makeOrder({ paymentMethod: 'cod', status: 'confirmed', paymentStatus: 'pending', adminNotes: 'γραμμή 1\nγραμμή 2' });
+    const crlf = pageForm({ ...(await orderNow(o3.id)) }, { loadedAdminNotes: 'γραμμή 1\r\nγραμμή 2', adminNotes: 'γραμμή 1\r\nγραμμή 2\r\nγραμμή 3' });
+    const rCr = await updateOrder(null, crlf);
+    check('a note with line breaks saves from a CRLF form', rCr?.ok === true && (await orderNow(o3.id)).adminNotes?.includes('γραμμή 3') === true, rCr);
+
+    // cancelling through the editor still restocks and flags, in the same transaction
+    const o4 = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-TXN', paymentProvider: 'viva' });
+    const rCancel = await updateOrder(null, pageForm(await orderNow(o4.id), { status: 'cancelled' }));
+    const o4After = await orderNow(o4.id);
+    check('cancelling a paid order from the editor still works as one save', rCancel?.ok === true && o4After.status === 'cancelled' && o4After.paymentFlag === 'review', [rCancel, o4After.status, o4After.paymentFlag]);
+  }
+
   console.log('Payment review and unmatched payments (admin actions)');
   const flagged = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-5', paymentProvider: 'viva', paymentFlag: 'review' });
   const eventsFlaggedBefore = (await eventsNow(flagged.id)).length;

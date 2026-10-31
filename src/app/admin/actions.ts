@@ -4,7 +4,7 @@ import { unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq, inArray, isNull, lt, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, ne, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { AVAILABILITY, type Availability } from '@/lib/availability';
 import { hashPassword, randomToken, verifyPassword } from '@/lib/auth/password';
@@ -257,6 +257,9 @@ export async function changeAdminPassword(_prev: AdminFormState, fd: FormData): 
 const STATUSES = Object.keys(ORDER_STATUS_LABELS) as OrderStatus[];
 const PAYMENT_STATUSES = Object.keys(PAYMENT_STATUS_LABELS) as PaymentStatus[];
 
+/** Thrown inside the order editor's transaction when the order moved on since the page was loaded: rolls everything back. */
+class StaleOrder extends Error {}
+
 export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   const admin = await requireAdmin();
   const id = int(fd, 'id');
@@ -299,47 +302,84 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
   // refused up front, before anything is written: a cancelled order does not come back (its stock is already released)
   if (status !== order.status && order.status === 'cancelled') return { ok: false, message: 'Μια ακυρωμένη παραγγελία δεν επανέρχεται (το απόθεμα έχει ήδη αποδεσμευτεί). Δημιουργήστε νέα.' };
 
-  // The payment is written first and only from the status that was read above: a payment that landed since (the webhook, the
-  // buyer's return) must not be overwritten by this save, and a refused save changes nothing else on the order.
-  if (payment !== order.paymentStatus) {
-    const written = await db
-      .update(orders)
-      .set({ paymentStatus: payment, paidAt: payment === 'paid' ? new Date() : payment === 'refunded' ? order.paidAt : null, ...(payment === 'refunded' ? { paymentFlag: null } : {}) })
-      .where(and(eq(orders.id, id), eq(orders.paymentStatus, order.paymentStatus)))
-      .returning({ id: orders.id });
-    if (written.length === 0) return { ok: false, message: staleMessage };
-    const message = {
-      paid: 'Σημειώθηκε ως εξοφλημένη.',
-      pending: 'Η ένδειξη εξόφλησης αφαιρέθηκε.',
-      failed: 'Σημειώθηκε ως αποτυχημένη πληρωμή.',
-      refunded: 'Σημειώθηκε ως επιστραφείσα (χειροκίνητη επιστροφή από τον πάροχο πληρωμών).',
-    }[payment];
-    await addOrderEvent(id, 'payment', message, actor);
-  }
-
-  if (status === 'cancelled' && order.status !== 'cancelled') {
-    await cancelOrder(id, actor); // restocks
-    // Cancelling an order that ends up paid leaves money with the shop: put it on the owner's list until it is refunded. Where
-    // the payment ends up: what this form asks for when it changes it, otherwise what the row holds NOW (read again here, so a
-    // payment that landed after the order was loaded still counts). Someone who un-pays a hand-marked order and cancels it
-    // together has not taken any money, so no refund alarm. The millisecond between the two reads cannot be driven from outside.
-    const [now] = await db.select({ paymentStatus: orders.paymentStatus }).from(orders).where(eq(orders.id, id));
-    const finalPayment = payment !== order.paymentStatus ? payment : (now?.paymentStatus ?? order.paymentStatus);
-    if (finalPayment === 'paid') {
-      await flagForReview(id);
-      await addOrderEvent(id, 'payment', 'ΠΡΟΣΟΧΗ: ακυρώθηκε παραγγελία που είχε εξοφληθεί. Επιστρέψτε τα χρήματα στον πελάτη και σημειώστε «Επιστροφή χρημάτων».', actor);
+  // Tracking and notes follow the same rule as status and payment: only what the owner CHANGED from what the page showed is
+  // written, and only if the row still holds what the page showed. (Not a version number: every payment webhook would bump
+  // it and turn a harmless tracking-only save into an error.) A field the form does not carry is left alone; without the
+  // «loaded…» copies (older callers) the asked value is written as before.
+  const nl = (v: string) => v.replace(/\r\n/g, '\n'); // browsers send line breaks as CRLF, the row may hold either
+  const textGuards: SQL[] = [];
+  const textChanges: Partial<Pick<typeof orders.$inferInsert, 'trackingCarrier' | 'trackingNumber' | 'adminNotes'>> = {};
+  const watch = (field: 'trackingCarrier' | 'trackingNumber' | 'adminNotes') => {
+    if (!fd.has(field)) return;
+    const asked = str(fd, field) || null;
+    const loadedKey = `loaded${field[0].toUpperCase()}${field.slice(1)}`;
+    if (!fd.has(loadedKey)) {
+      textChanges[field] = asked;
+      return;
     }
-  } else if (status !== order.status) {
-    if (order.status === 'cancelled') return { ok: false, message: 'Μια ακυρωμένη παραγγελία δεν επανέρχεται (το απόθεμα έχει ήδη αποδεσμευτεί). Δημιουργήστε νέα.' };
-    // only from the status read above: the automatic release may have cancelled (and restocked) the order since, and a
-    // write without this condition would bring it back with its stock already returned
-    const moved = await db.update(orders).set({ status }).where(and(eq(orders.id, id), eq(orders.status, order.status))).returning({ id: orders.id });
-    if (moved.length === 0) return { ok: false, message: staleMessage };
-    await addOrderEvent(id, 'status', `Κατάσταση: ${ORDER_STATUS_LABELS[order.status]} → ${ORDER_STATUS_LABELS[status]}.`, actor);
-  }
+    const loaded = nl(String(fd.get(loadedKey) ?? '').trim()) || null;
+    if ((asked === null ? null : nl(asked)) === loaded) return; // not edited
+    textChanges[field] = asked;
+    textGuards.push(loaded === null ? isNull(orders[field]) : sql`replace(${orders[field]}, char(13) || char(10), char(10)) = ${loaded}`);
+  };
+  watch('trackingCarrier');
+  watch('trackingNumber');
+  watch('adminNotes');
 
-  await db.update(orders).set({ trackingCarrier, trackingNumber, adminNotes: str(fd, 'adminNotes') || null }).where(eq(orders.id, id));
-  if (trackingNumber && trackingNumber !== order.trackingNumber) await addOrderEvent(id, 'shipping', `Αριθμός αποστολής: ${trackingNumber}${trackingCarrier ? ` (${trackingCarrier})` : ''}.`, actor);
+  // Everything that is written goes in ONE transaction: a refusal half-way (the order moved on while this was saved) undoes
+  // what was written before it, instead of leaving a payment changed and a status not.
+  try {
+    await db.transaction(async (tx) => {
+      // The payment is written first and only from the status that was read above: a payment that landed since (the webhook, the
+      // buyer's return) must not be overwritten by this save, and a refused save changes nothing else on the order.
+      if (payment !== order.paymentStatus) {
+        const written = await tx
+          .update(orders)
+          .set({ paymentStatus: payment, paidAt: payment === 'paid' ? new Date() : payment === 'refunded' ? order.paidAt : null, ...(payment === 'refunded' ? { paymentFlag: null } : {}) })
+          .where(and(eq(orders.id, id), eq(orders.paymentStatus, order.paymentStatus)))
+          .returning({ id: orders.id });
+        if (written.length === 0) throw new StaleOrder();
+        const message = {
+          paid: 'Σημειώθηκε ως εξοφλημένη.',
+          pending: 'Η ένδειξη εξόφλησης αφαιρέθηκε.',
+          failed: 'Σημειώθηκε ως αποτυχημένη πληρωμή.',
+          refunded: 'Σημειώθηκε ως επιστραφείσα (χειροκίνητη επιστροφή από τον πάροχο πληρωμών).',
+        }[payment];
+        await addOrderEvent(id, 'payment', message, actor, tx);
+      }
+
+      if (status === 'cancelled' && order.status !== 'cancelled') {
+        await cancelOrder(id, actor, undefined, {}, tx); // restocks
+        // Cancelling an order that ends up paid leaves money with the shop: put it on the owner's list until it is refunded. Where
+        // the payment ends up: what this form asks for when it changes it, otherwise what the row holds NOW (read again here, so a
+        // payment that landed after the order was loaded still counts). Someone who un-pays a hand-marked order and cancels it
+        // together has not taken any money, so no refund alarm. The millisecond between the two reads cannot be driven from outside.
+        const [now] = await tx.select({ paymentStatus: orders.paymentStatus }).from(orders).where(eq(orders.id, id));
+        const finalPayment = payment !== order.paymentStatus ? payment : (now?.paymentStatus ?? order.paymentStatus);
+        if (finalPayment === 'paid') {
+          await flagForReview(id, tx);
+          await addOrderEvent(id, 'payment', 'ΠΡΟΣΟΧΗ: ακυρώθηκε παραγγελία που είχε εξοφληθεί. Επιστρέψτε τα χρήματα στον πελάτη και σημειώστε «Επιστροφή χρημάτων».', actor, tx);
+        }
+      } else if (status !== order.status) {
+        // only from the status read above: the automatic release may have cancelled (and restocked) the order since, and a
+        // write without this condition would bring it back with its stock already returned
+        const moved = await tx.update(orders).set({ status }).where(and(eq(orders.id, id), eq(orders.status, order.status))).returning({ id: orders.id });
+        if (moved.length === 0) throw new StaleOrder();
+        await addOrderEvent(id, 'status', `Κατάσταση: ${ORDER_STATUS_LABELS[order.status]} → ${ORDER_STATUS_LABELS[status]}.`, actor, tx);
+      }
+
+      if (Object.keys(textChanges).length > 0) {
+        const saved = await tx.update(orders).set(textChanges).where(and(eq(orders.id, id), ...textGuards)).returning({ id: orders.id });
+        if (saved.length === 0) throw new StaleOrder();
+      }
+      if (trackingNumber && trackingNumber !== order.trackingNumber && 'trackingNumber' in textChanges) {
+        await addOrderEvent(id, 'shipping', `Αριθμός αποστολής: ${trackingNumber}${trackingCarrier ? ` (${trackingCarrier})` : ''}.`, actor, tx);
+      }
+    });
+  } catch (err) {
+    if (err instanceof StaleOrder) return { ok: false, message: staleMessage };
+    throw err;
+  }
 
   if (notify && status !== order.status) {
     const [full, settings] = await Promise.all([getOrderByNumber(order.number), getSettings()]);
