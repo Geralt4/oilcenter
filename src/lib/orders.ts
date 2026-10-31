@@ -287,99 +287,99 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
   // 'already_paid'.
   return db.transaction(async (tx) => {
     const outcome = await (async (): Promise<PaymentOutcome> => {
-    const [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
-    if (!order) return 'unknown_order';
-    if (order.paymentStatus === 'paid' || order.paymentStatus === 'refunded') {
-      // The same payment arrives twice (browser return + webhook, or a replayed return URL) with the same reference. A
-      // DIFFERENT reference on a paid order is a second charge: the buyer paid on two checkouts, or paid online after the
-      // owner had already marked the order paid by hand (no stored reference). Only gateways that identify the checkout
-      // (attemptRef) can say; a payment replayed after a refund changes nothing.
-      const second = Boolean(info.attemptRef) && info.ref !== order.paymentTransactionId;
-      if (!second) return 'already_paid';
-      if (order.paymentTransactionId === null) {
-        // The owner marked this order paid by hand (the usual reason: the webhook failed and the money showed up in the
-        // gateway). The payment that now arrives is most likely that very money, so it is attached to the order, not
-        // called a second charge. It is still put on the owner's list, with neutral wording, because a buyer who ALSO paid
-        // another way (cash, phone) would have paid twice and nothing here can tell the two apart.
-        const attached = await tx
-          .update(orders)
-          .set({ paymentProvider: info.provider, paymentTransactionId: info.ref })
-          .where(and(eq(orders.id, orderId), isNull(orders.paymentTransactionId)))
-          .returning({ id: orders.id });
-        if (attached.length === 0) return 'already_paid';
-        await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'processing', 'failed', 'mismatch'], tx);
+      const [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
+      if (!order) return 'unknown_order';
+      if (order.paymentStatus === 'paid' || order.paymentStatus === 'refunded') {
+        // The same payment arrives twice (browser return + webhook, or a replayed return URL) with the same reference. A
+        // DIFFERENT reference on a paid order is a second charge: the buyer paid on two checkouts, or paid online after the
+        // owner had already marked the order paid by hand (no stored reference). Only gateways that identify the checkout
+        // (attemptRef) can say; a payment replayed after a refund changes nothing.
+        const second = Boolean(info.attemptRef) && info.ref !== order.paymentTransactionId;
+        if (!second) return 'already_paid';
+        if (order.paymentTransactionId === null) {
+          // The owner marked this order paid by hand (the usual reason: the webhook failed and the money showed up in the
+          // gateway). The payment that now arrives is most likely that very money, so it is attached to the order, not
+          // called a second charge. It is still put on the owner's list, with neutral wording, because a buyer who ALSO paid
+          // another way (cash, phone) would have paid twice and nothing here can tell the two apart.
+          const attached = await tx
+            .update(orders)
+            .set({ paymentProvider: info.provider, paymentTransactionId: info.ref })
+            .where(and(eq(orders.id, orderId), isNull(orders.paymentTransactionId)))
+            .returning({ id: orders.id });
+          if (attached.length === 0) return 'already_paid';
+          await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'processing', 'failed', 'mismatch'], tx);
+          await flagForReview(orderId, tx);
+          const refunded = order.paymentStatus === 'refunded';
+          await addOrderEvent(
+            orderId,
+            'payment',
+            refunded
+              ? `ΠΡΟΣΟΧΗ: ήρθε η πληρωμή ${info.provider} (αναφορά ${info.ref}, ${formatPrice(info.amountCents)}) για παραγγελία που είχε σημειωθεί χειροκίνητα ως εξοφλημένη και μετά ως επιστραφείσα. Ελέγξτε στον πάροχο πληρωμών αν αυτή η πληρωμή έχει ήδη επιστραφεί· αν όχι, επιστρέψτε την. Μετά πατήστε «Το χειρίστηκα».`
+              : `Η πληρωμή ${info.provider} (αναφορά ${info.ref}, ${formatPrice(info.amountCents)}) αντιστοιχίστηκε σε παραγγελία που είχε σημειωθεί εξοφλημένη χειροκίνητα. Αν είχατε εισπράξει και με άλλον τρόπο (μετρητά, τηλέφωνο), επιστρέψτε το ένα από τα δύο· αλλιώς δεν χρειάζεται ενέργεια. Πατήστε «Το χειρίστηκα» όταν το ελέγξετε.`,
+            'system',
+            tx,
+          );
+          return refunded ? 'paid_after_refund' : 'paid_after_manual';
+        }
+        if (!(await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'processing', 'failed'], tx))) return 'already_flagged';
         await flagForReview(orderId, tx);
-        const refunded = order.paymentStatus === 'refunded';
         await addOrderEvent(
           orderId,
           'payment',
-          refunded
-            ? `ΠΡΟΣΟΧΗ: ήρθε η πληρωμή ${info.provider} (αναφορά ${info.ref}, ${formatPrice(info.amountCents)}) για παραγγελία που είχε σημειωθεί χειροκίνητα ως εξοφλημένη και μετά ως επιστραφείσα. Ελέγξτε στον πάροχο πληρωμών αν αυτή η πληρωμή έχει ήδη επιστραφεί· αν όχι, επιστρέψτε την. Μετά πατήστε «Το χειρίστηκα».`
-            : `Η πληρωμή ${info.provider} (αναφορά ${info.ref}, ${formatPrice(info.amountCents)}) αντιστοιχίστηκε σε παραγγελία που είχε σημειωθεί εξοφλημένη χειροκίνητα. Αν είχατε εισπράξει και με άλλον τρόπο (μετρητά, τηλέφωνο), επιστρέψτε το ένα από τα δύο· αλλιώς δεν χρειάζεται ενέργεια. Πατήστε «Το χειρίστηκα» όταν το ελέγξετε.`,
+          `ΠΡΟΣΟΧΗ: δεύτερη πληρωμή για την ίδια παραγγελία (${info.provider}, αναφορά ${info.ref}, ${formatPrice(info.amountCents)}). Η παραγγελία είχε ήδη πληρωθεί${order.paymentTransactionId ? ` (αναφορά ${order.paymentTransactionId})` : ' (σημειωμένη χειροκίνητα)'}. Επιστρέψτε τα χρήματα της δεύτερης πληρωμής στον πάροχο πληρωμών και πατήστε «Το χειρίστηκα» (όχι «Επιστροφή χρημάτων», που αφορά ολόκληρη την παραγγελία).`,
           'system',
           tx,
         );
-        return refunded ? 'paid_after_refund' : 'paid_after_manual';
+        return 'duplicate_payment';
       }
-      if (!(await claimAttemptStatus(orderId, info.provider, info.attemptRef!, 'paid', info.ref, ['created', 'processing', 'failed'], tx))) return 'already_flagged';
-      await flagForReview(orderId, tx);
-      await addOrderEvent(
-        orderId,
-        'payment',
-        `ΠΡΟΣΟΧΗ: δεύτερη πληρωμή για την ίδια παραγγελία (${info.provider}, αναφορά ${info.ref}, ${formatPrice(info.amountCents)}). Η παραγγελία είχε ήδη πληρωθεί${order.paymentTransactionId ? ` (αναφορά ${order.paymentTransactionId})` : ' (σημειωμένη χειροκίνητα)'}. Επιστρέψτε τα χρήματα της δεύτερης πληρωμής στον πάροχο πληρωμών και πατήστε «Το χειρίστηκα» (όχι «Επιστροφή χρημάτων», που αφορά ολόκληρη την παραγγελία).`,
-        'system',
-        tx,
-      );
-      return 'duplicate_payment';
-    }
 
-    const currency = info.currency ? info.currency.toUpperCase() : null;
-    const problem: PaymentOutcome | null = currency && currency !== 'EUR' ? 'currency_mismatch' : info.amountCents !== order.totalCents ? 'amount_mismatch' : null;
-    if (problem) {
-      // the browser return and the webhook both report the same wrong payment: only the first one raises the alarm
-      if (info.attemptRef && !(await claimAttemptStatus(orderId, info.provider, info.attemptRef, 'mismatch', info.ref, ['created', 'processing', 'failed'], tx))) return 'already_flagged';
-      await flagForReview(orderId, tx);
-      await addOrderEvent(
-        orderId,
-        'payment',
-        problem === 'currency_mismatch'
-          ? `ΠΡΟΣΟΧΗ: η πληρωμή έγινε σε νόμισμα ${currency} αντί για EUR. Αναφορά ${info.provider}: ${info.ref}`
-          : `ΠΡΟΣΟΧΗ: το ποσό που εισπράχθηκε (${formatPrice(info.amountCents)}) διαφέρει από το σύνολο της παραγγελίας (${formatPrice(order.totalCents)}). Αναφορά ${info.provider}: ${info.ref}`,
-        'system',
-        tx,
-      );
-      return problem;
-    }
+      const currency = info.currency ? info.currency.toUpperCase() : null;
+      const problem: PaymentOutcome | null = currency && currency !== 'EUR' ? 'currency_mismatch' : info.amountCents !== order.totalCents ? 'amount_mismatch' : null;
+      if (problem) {
+        // the browser return and the webhook both report the same wrong payment: only the first one raises the alarm
+        if (info.attemptRef && !(await claimAttemptStatus(orderId, info.provider, info.attemptRef, 'mismatch', info.ref, ['created', 'processing', 'failed'], tx))) return 'already_flagged';
+        await flagForReview(orderId, tx);
+        await addOrderEvent(
+          orderId,
+          'payment',
+          problem === 'currency_mismatch'
+            ? `ΠΡΟΣΟΧΗ: η πληρωμή έγινε σε νόμισμα ${currency} αντί για EUR. Αναφορά ${info.provider}: ${info.ref}`
+            : `ΠΡΟΣΟΧΗ: το ποσό που εισπράχθηκε (${formatPrice(info.amountCents)}) διαφέρει από το σύνολο της παραγγελίας (${formatPrice(order.totalCents)}). Αναφορά ${info.provider}: ${info.ref}`,
+          'system',
+          tx,
+        );
+        return problem;
+      }
 
-    // The status is decided in SQL from what the row holds right now, never from the copy read above. A cancelled order
-    // (e.g. the 2 h release of unpaid card orders) keeps its status: the money is recorded as received so nobody forgets it,
-    // but the order is not revived, its stock is already back on the shelf.
-    const updated = await tx
-      .update(orders)
-      .set({
-        paymentStatus: 'paid',
-        paidAt: new Date(),
-        paymentProvider: info.provider,
-        paymentTransactionId: info.ref,
-        status: sql`CASE WHEN ${orders.status} = 'pending' THEN 'confirmed' ELSE ${orders.status} END`,
-      })
-      .where(and(eq(orders.id, orderId), sql`${orders.paymentStatus} NOT IN ('paid', 'refunded')`))
-      .returning({ status: orders.status });
-    if (updated.length === 0) return 'already_paid';
-    if (info.attemptRef) await setAttemptStatus(info.provider, info.attemptRef, 'paid', info.ref, undefined, tx);
-    if (updated[0].status === 'cancelled') {
-      await flagForReview(orderId, tx);
-      await addOrderEvent(
-        orderId,
-        'payment',
-        `ΠΡΟΣΟΧΗ: η πληρωμή (${info.provider}, αναφορά ${info.ref}, ${formatPrice(info.amountCents)}) ήρθε αφού η παραγγελία είχε ακυρωθεί και το απόθεμα είχε επανέλθει. Επιστρέψτε τα χρήματα από τον πάροχο πληρωμών (ή επικοινωνήστε με τον πελάτη) και σημειώστε «Επιστροφή χρημάτων».`,
-        'system',
-        tx,
-      );
-      return 'late_cancelled';
-    }
-    await addOrderEvent(orderId, 'payment', `Η πληρωμή με κάρτα ολοκληρώθηκε (${info.provider}, αναφορά ${info.ref}).`, 'system', tx);
-    return 'paid';
+      // The status is decided in SQL from what the row holds right now, never from the copy read above. A cancelled order
+      // (e.g. the 2 h release of unpaid card orders) keeps its status: the money is recorded as received so nobody forgets it,
+      // but the order is not revived, its stock is already back on the shelf.
+      const updated = await tx
+        .update(orders)
+        .set({
+          paymentStatus: 'paid',
+          paidAt: new Date(),
+          paymentProvider: info.provider,
+          paymentTransactionId: info.ref,
+          status: sql`CASE WHEN ${orders.status} = 'pending' THEN 'confirmed' ELSE ${orders.status} END`,
+        })
+        .where(and(eq(orders.id, orderId), sql`${orders.paymentStatus} NOT IN ('paid', 'refunded')`))
+        .returning({ status: orders.status });
+      if (updated.length === 0) return 'already_paid';
+      if (info.attemptRef) await setAttemptStatus(info.provider, info.attemptRef, 'paid', info.ref, undefined, tx);
+      if (updated[0].status === 'cancelled') {
+        await flagForReview(orderId, tx);
+        await addOrderEvent(
+          orderId,
+          'payment',
+          `ΠΡΟΣΟΧΗ: η πληρωμή (${info.provider}, αναφορά ${info.ref}, ${formatPrice(info.amountCents)}) ήρθε αφού η παραγγελία είχε ακυρωθεί και το απόθεμα είχε επανέλθει. Επιστρέψτε τα χρήματα από τον πάροχο πληρωμών (ή επικοινωνήστε με τον πελάτη) και σημειώστε «Επιστροφή χρημάτων».`,
+          'system',
+          tx,
+        );
+        return 'late_cancelled';
+      }
+      await addOrderEvent(orderId, 'payment', `Η πληρωμή με κάρτα ολοκληρώθηκε (${info.provider}, αναφορά ${info.ref}).`, 'system', tx);
+      return 'paid';
     })();
     // the mails this outcome leads to are saved with the payment itself (sent afterwards by settleCardPayment, and retried
     // by the periodic sweep): a crash between the commit and the send can no longer lose them
