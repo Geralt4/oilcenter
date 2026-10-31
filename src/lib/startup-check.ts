@@ -13,8 +13,12 @@ import { invalidWebhookIps } from '@/lib/payments/viva';
  * Mail goes through Resend (it wins over SMTP, see src/lib/email.ts) but MAIL_FROM is unset or blank, so the sender is
  * Resend's shared test address. Same trimming as email.ts; that file is not imported here because it pulls in the database.
  */
+export function resendConfigured(): boolean {
+  return Boolean(process.env.RESEND_API_KEY?.trim());
+}
+
 export function resendWithoutSender(): boolean {
-  return Boolean(process.env.RESEND_API_KEY?.trim()) && !process.env.MAIL_FROM?.trim();
+  return resendConfigured() && !process.env.MAIL_FROM?.trim();
 }
 
 /** Settings that do not stop the boot but will hurt once ordering is open. Logged by src/instrumentation.ts. */
