@@ -10,8 +10,8 @@ import { db } from '@/lib/db';
  * take the last slot, and SQLite serialises the writes.
  *
  * Fixed windows allow a burst of up to 2× the limit around a window boundary; that is the deliberate
- * trade for a single atomic statement. Every caller here uses windows of 30 minutes or less, and the
- * attempt budget is low enough that the boundary burst is not meaningful.
+ * trade for a single atomic statement. Every caller here uses windows of 60 minutes or less (the longest is the
+ * failed-password counter below), and the attempt budget is low enough that the boundary burst is not meaningful.
  *
  * Keys are hashed before storage: the table never contains an IP address or an e-mail address.
  */
