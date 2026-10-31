@@ -926,6 +926,35 @@ async function main() {
       await deliver('checkout.session.completed', { ...orphan, id: 'cs_orphan_2', payment_status: 'unpaid', payment_intent: 'pi_orphan_2' });
       await deliver('checkout.session.async_payment_failed', { ...orphan, id: 'cs_orphan_3', payment_status: 'unpaid', payment_intent: 'pi_orphan_3' });
       check('an unpaid or failed session with no order records nothing', (await db.select().from(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe'))).length === 1);
+
+      await db.delete(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe')); // the rows above are done with
+      // the buyer's browser coming back from Stripe: same helper, and the buyer is sent to the «needs the shop» page
+      const { GET: stripeReturn } = await import('../src/app/api/payments/stripe/return/route');
+      const sessions = stripe().checkout.sessions as unknown as { retrieve: (id: string) => Promise<unknown> };
+      const realRetrieve = sessions.retrieve;
+      const answers: Record<string, Record<string, unknown>> = {
+        cs_orphan_ret: { id: 'cs_orphan_ret', payment_status: 'paid', status: 'complete', client_reference_id: 'OC-NOPE-2', amount_total: 2550, currency: 'eur', payment_intent: 'pi_orphan_ret' },
+        cs_orphan_unpaid: { id: 'cs_orphan_unpaid', payment_status: 'unpaid', status: 'open', client_reference_id: 'OC-NOPE-3', amount_total: 2550, currency: 'eur', payment_intent: null },
+      };
+      sessions.retrieve = async (id: string) => answers[id];
+      try {
+        const beforeRet = new Set(filesNow());
+        const ret = await stripeReturn(new Request('http://localhost/api/payments/stripe/return?session_id=cs_orphan_ret'));
+        check('the RETURN of a paid checkout with no order goes to the order-status page, not home', ret.headers.get('location')?.endsWith('/order-status?payment=review') === true, ret.headers.get('location'));
+        const retRows = await db.select().from(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe'));
+        check('…the payment is kept in unmatched_payments (EUR, the order reference, the amount)', retRows.length === 1 && retRows[0].transactionId === 'pi_orphan_ret' && retRows[0].amountCents === 2550 && retRows[0].currency === 'EUR' && retRows[0].merchantTrns === 'OC-NOPE-2', retRows);
+        const retMails = filesNow().filter((f) => !beforeRet.has(f));
+        check('…and the owner is mailed once', retMails.length === 1 && retMails[0].includes('oilcenterthess@gmail.com'), retMails);
+        await stripeReturn(new Request('http://localhost/api/payments/stripe/return?session_id=cs_orphan_ret'));
+        check('…coming back again adds no second row and no second mail', (await db.select().from(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe'))).length === 1 && filesNow().filter((f) => !beforeRet.has(f)).length === 1);
+        const retUnpaid = await stripeReturn(new Request('http://localhost/api/payments/stripe/return?session_id=cs_orphan_unpaid'));
+        check('an UNPAID checkout with no order goes home and records nothing', retUnpaid.headers.get('location')?.endsWith('/') === true && !retUnpaid.headers.get('location')?.includes('order-status') && (await db.select().from(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe'))).length === 1, retUnpaid.headers.get('location'));
+        // the webhook for the same payment finds the row the return made: still one row, one mail
+        await deliver('checkout.session.completed', { ...answers.cs_orphan_ret });
+        check('the webhook for the same payment adds nothing either', (await db.select().from(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe'))).length === 1 && filesNow().filter((f) => !beforeRet.has(f)).length === 1);
+      } finally {
+        sessions.retrieve = realRetrieve;
+      }
       await db.delete(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe'));
     }
 
