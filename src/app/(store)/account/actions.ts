@@ -9,7 +9,7 @@ import { createSession, destroySession, getCustomer, requireCustomer, revokeAllS
 import { db } from '@/lib/db';
 import { customers } from '@/lib/db/schema';
 import { passwordResetMail, sendMail } from '@/lib/email';
-import { clientIp, loginBudgets, rateLimit } from '@/lib/rate-limit';
+import { accountFailuresBlocked, clientIp, loginBudgets, rateLimit, recordAccountFailure } from '@/lib/rate-limit';
 import { getSettings } from '@/lib/settings.server';
 import { accountsAvailable, canOrderNow } from '@/lib/catalogue-mode';
 
@@ -50,7 +50,11 @@ export async function registerCustomer(_prev: FormState, formData: FormData): Pr
   if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.' };
 
   const [existing] = await db.select({ id: customers.id }).from(customers).where(eq(customers.email, parsed.data.email));
-  if (existing) return { ok: false, message: 'Υπάρχει ήδη λογαριασμός με αυτό το e-mail.', fieldErrors: { email: 'Συνδεθείτε ή κάντε επαναφορά κωδικού.' } };
+  if (existing) {
+    // the same work as a new registration, so the time to answer does not tell the two cases apart (the message still does: see the Notion Fix list)
+    await hashPassword(parsed.data.password);
+    return { ok: false, message: 'Υπάρχει ήδη λογαριασμός με αυτό το e-mail.', fieldErrors: { email: 'Συνδεθείτε ή κάντε επαναφορά κωδικού.' } };
+  }
 
   const [created] = await db
     .insert(customers)
@@ -69,21 +73,25 @@ export async function loginCustomer(_prev: FormState, formData: FormData): Promi
   const parsed = z.object({ email, password: z.string().min(1).max(200) }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { ok: false, message: 'Συμπληρώστε e-mail και κωδικό.' };
 
-  // Two budgets: per-IP+email stops hammering one account; the IP-wide pool stops password spraying
-  // — a few tries against MANY e-mails — which the per-account key alone would never catch.
+  // Limits that do not depend on knowing whose account it is: per address+e-mail stops one machine hammering one account, the
+  // address-wide pool stops password spraying (a few tries against MANY e-mails). Neither can be used to lock somebody else out:
+  // they only count the visitor's own address. The account-wide ceiling below counts failures only.
+  const tooMany = (retryAfterSec: number): FormState => ({ ok: false, message: `Πολλές αποτυχημένες προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(retryAfterSec / 60)} λεπτά.` });
   const ip = await clientIp();
   const perAccount = await rateLimit(`login:${ip}:${parsed.data.email}`, 8, 15 * 60 * 1000);
-  if (!perAccount.ok) return { ok: false, message: `Πολλές αποτυχημένες προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(perAccount.retryAfterSec / 60)} λεπτά.` };
+  if (!perAccount.ok) return tooMany(perAccount.retryAfterSec);
   const limited = await loginBudgets('login', 20, 15 * 60 * 1000);
-  if (!limited.ok) return { ok: false, message: `Πολλές αποτυχημένες προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
-  // Independent of source IP: rotating addresses cannot exceed this per account.
-  const perEmail = await rateLimit(`login:account:${parsed.data.email}`, 12, 15 * 60 * 1000);
-  if (!perEmail.ok) return { ok: false, message: `Πολλές αποτυχημένες προσπάθειες για αυτόν τον λογαριασμό. Δοκιμάστε ξανά σε ${Math.ceil(perEmail.retryAfterSec / 60)} λεπτά.` };
+  if (!limited.ok) return tooMany(limited.retryAfterSec);
+  const blocked = await accountFailuresBlocked('login', parsed.data.email);
+  if (!blocked.ok) return tooMany(blocked.retryAfterSec); // the same answer as the limits above, whether or not the account exists
 
   const [customer] = await db.select().from(customers).where(eq(customers.email, parsed.data.email));
   // Hash even when the account does not exist, so response time does not reveal which e-mails are registered.
   const valid = await verifyPassword(parsed.data.password, customer?.passwordHash ?? 'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAA');
-  if (!customer || !valid) return { ok: false, message: 'Λάθος e-mail ή κωδικός.' };
+  if (!customer || !valid) {
+    await recordAccountFailure('login', parsed.data.email);
+    return { ok: false, message: 'Λάθος e-mail ή κωδικός.' };
+  }
 
   await createSession('customer', customer.id, customer.tokenVersion);
   redirect(safeNext(formData.get('next')));

@@ -20,7 +20,7 @@ import { isValidGtin, normalizeGtin } from '@/lib/gtin';
 import { addOrderEvent, cancelOrder, flagForReview, getOrderByNumber, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/orders';
 import { applyPriceChanges } from '@/lib/price-apply';
 import { describePriceImport, MAX_PRICE_CENTS, parseCsv, planPriceImport } from '@/lib/price-csv';
-import { clientIp, loginBudgets, rateLimit } from '@/lib/rate-limit';
+import { accountFailuresBlocked, clientIp, loginBudgets, peekLimit, rateLimit, recordAccountFailure } from '@/lib/rate-limit';
 import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours, type ShopSettings } from '@/lib/settings';
 import { buildSearchText } from '@/lib/search-keywords';
 import { rebuildSearchTexts } from '@/lib/search-text';
@@ -66,15 +66,17 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
   if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
   const perAccount = await rateLimit(`admin-login:${await clientIp()}:${email}`, 6, 15 * 60 * 1000);
   if (!perAccount.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(perAccount.retryAfterSec / 60)} λεπτά.` };
-  // Independent of the source IP: an attacker rotating addresses cannot exceed this per account.
-  const perEmail = await rateLimit(`admin-login:account:${email}`, 10, 15 * 60 * 1000);
-  if (!perEmail.ok) return { ok: false, message: `Πολλές προσπάθειες για αυτόν τον λογαριασμό. Δοκιμάστε ξανά σε ${Math.ceil(perEmail.retryAfterSec / 60)} λεπτά.` };
+  // Account-wide, failures only (see rate-limit.ts): many machines guessing at one account run into it, and it cannot be spent by
+  // someone who merely knows the e-mail address, so it cannot lock the owner out.
+  const blocked = await accountFailuresBlocked('admin-login', email);
+  if (!blocked.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(blocked.retryAfterSec / 60)} λεπτά.` };
 
   const [admin] = await db.select().from(adminUsers).where(eq(adminUsers.email, email));
   const valid = await verifyPassword(password, admin?.passwordHash ?? 'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAA');
   if (!admin || !valid) {
+    await recordAccountFailure('admin-login', email);
     // The e-mail the visitor typed, never the password. Kept to one line: log floods hunt for noise.
-    // At 6 tries/15 min/account this stays rare in normal use — 2+ logged failures in a window means
+    // At 6 tries/15 min per address this stays rare in normal use — 2+ logged failures in a window means
     // someone is knocking, and the platform log is where the owner (or an alert rule) will see it.
     const ip = await clientIp();
     console.warn(`[admin-login] FAILED attempt email=${JSON.stringify(email)} ip=${ip}`);
@@ -93,7 +95,14 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
     if (!attempted) return { ok: false, message: 'Συμπληρώστε τον 6ψήφιο κωδικό από την εφαρμογή επαλήθευσης.', fieldErrors: { totp: 'Υποχρεωτικό πεδίο' } };
     const totpLimited = await rateLimit(`admin-totp:${await clientIp()}:${email}`, 5, 15 * 60 * 1000);
     if (!totpLimited.ok) return { ok: false, message: `Πολλές προσπάθειες με κωδικό. Δοκιμάστε ξανά σε ${Math.ceil(totpLimited.retryAfterSec / 60)} λεπτά.` };
-    if (!(await consumeTotp(admin.id, admin.totpSecret, admin.email, attempted))) return { ok: false, message: 'Λάθος ή ήδη χρησιμοποιημένος κωδικός επαλήθευσης.' };
+    // Across all addresses, failed codes only, and only reachable with the right password, so nobody else can spend it: it keeps
+    // the 6-digit code from being guessed by many machines at once (the old account-wide key did that for every attempt).
+    const totpAccount = await peekLimit(`admin-totp-fail:account:${email}`, 10, 15 * 60 * 1000);
+    if (!totpAccount.ok) return { ok: false, message: `Πολλές προσπάθειες με κωδικό. Δοκιμάστε ξανά σε ${Math.ceil(totpAccount.retryAfterSec / 60)} λεπτά.` };
+    if (!(await consumeTotp(admin.id, admin.totpSecret, admin.email, attempted))) {
+      await rateLimit(`admin-totp-fail:account:${email}`, 10, 15 * 60 * 1000);
+      return { ok: false, message: 'Λάθος ή ήδη χρησιμοποιημένος κωδικός επαλήθευσης.' };
+    }
   }
 
   await db.update(adminUsers).set({ lastLoginAt: new Date() }).where(eq(adminUsers.id, admin.id));
