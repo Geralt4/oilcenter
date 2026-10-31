@@ -20,7 +20,7 @@ import { cn, formatDateTime } from '@/lib/utils';
 export const metadata = { title: 'Skroutz' };
 
 /** Reasons the owner can do something about come first; switched-off products are left out on purpose. */
-const REASON_ORDER: FeedExclusion[] = ['price_unconfirmed', 'unavailable', 'out_of_stock', 'no_brand', 'no_category', 'size_inactive', 'product_inactive'];
+const REASON_ORDER: FeedExclusion[] = ['price_unconfirmed', 'unavailable', 'out_of_stock', 'no_brand', 'no_category', 'no_image', 'size_inactive', 'product_inactive'];
 
 /** The only address the feed may be registered under at Skroutz (same value scripts/test-feed.ts checks against). */
 const CANONICAL_ORIGIN = 'https://www.oilcenter.gr';
@@ -137,7 +137,7 @@ export default async function AdminSkroutzPage() {
       </Card>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <Card title="Τι μένει εκτός αρχείου" description="Στο Skroutz φτάνουν μόνο συσκευασίες με επιβεβαιωμένη τιμή, ενεργές και διαθέσιμες.">
+        <Card title="Τι μένει εκτός αρχείου" description="Στο Skroutz φτάνουν μόνο συσκευασίες με επιβεβαιωμένη τιμή, ενεργές, διαθέσιμες και με φωτογραφία.">
           {leftOutByReason.length === 0 ? (
             <p className="text-sm text-ink-600">Τίποτα: όλες οι συσκευασίες είναι στο αρχείο.</p>
           ) : (
@@ -149,6 +149,7 @@ export default async function AdminSkroutzPage() {
                     <span className="tabular rounded-full bg-ink-100 px-2 py-0.5 text-xs">{g.list.length}</span>
                   </summary>
                   {g.reason === 'price_unconfirmed' && <p className="mt-2 text-sm text-ink-600">Γράψτε ή επιβεβαιώστε την τιμή στις <Link href="/admin/prices?filter=unverified" className="font-medium text-petrol-500 underline underline-offset-2">Τιμές</Link> και η συσκευασία μπαίνει στο αρχείο αμέσως.</p>}
+                  {g.reason === 'no_image' && <p className="mt-2 text-sm text-ink-600">Το Skroutz απαιτεί φωτογραφία. Ανεβάστε μία στο προϊόν (πατήστε στο όνομα) και η συσκευασία μπαίνει στο αρχείο αμέσως.</p>}
                   {g.reason === 'unavailable' && <p className="mt-2 text-sm text-ink-600">Μόλις ξαναέρθει, αλλάξτε τη διαθεσιμότητα στις <Link href="/admin/prices?filter=waiting" className="font-medium text-petrol-500 underline underline-offset-2">Τιμές</Link> και επιστρέφει και στο Skroutz.</p>}
                   <ul className="mt-2 space-y-1 text-sm text-ink-700">
                     {g.list.map((l) => (

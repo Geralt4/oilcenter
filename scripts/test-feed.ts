@@ -45,7 +45,7 @@ async function main() {
   const { products: productsTable, variants } = await import('../src/lib/db/schema');
   const { isValidGtin, normalizeGtin } = await import('../src/lib/gtin');
   const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
-  const { buildSkroutzFeed, feedName, getFeedLog, recordFeedFetch } = await import('../src/lib/skroutz-feed');
+  const { buildSkroutzFeed, FEED_EXCLUSION_LABELS, feedName, getFeedLog, recordFeedFetch } = await import('../src/lib/skroutz-feed');
 
   const settings = structuredClone(DEFAULT_SETTINGS);
 
@@ -146,6 +146,56 @@ async function main() {
   next = await buildSkroutzFeed(settings);
   check('a size marked «Μη διαθέσιμο» is left out', !next.items.some((i) => i.variantId === third.variantId) && next.leftOut.some((l) => l.variantId === third.variantId && l.reason === 'unavailable'));
   await db.update(variants).set({ availability: 'in_stock' }).where(gt(variants.id, 0));
+
+  console.log('Photos');
+  {
+    const { productImages } = await import('../src/lib/db/schema');
+    const { inArray } = await import('drizzle-orm');
+    const origin = 'https://www.oilcenter.gr';
+    const [donor] = await db.select().from(productsTable).where(eq(productsTable.id, target.productId));
+    const mkProduct = async (slug: string) => (await db.insert(productsTable).values({ slug, name: `Δοκιμή φωτογραφίας ${slug}`, searchText: slug, brandId: donor.brandId, categoryId: donor.categoryId, isActive: true }).returning())[0];
+    const mkSize = async (productId: number, sku: string, imageUrl: string | null) =>
+      (await db.insert(variants).values({ productId, sku, label: sku.slice(-2), priceCents: 1000, priceVerified: true, trackStock: false, availability: 'in_stock', imageUrl, isActive: true }).returning())[0];
+
+    const withGallery = await mkProduct('test-photo-gallery');
+    await db.insert(productImages).values([
+      { productId: withGallery.id, url: '/media/products/test-gallery.webp', sort: 0 },
+      { productId: withGallery.id, url: '/media/products/test-gallery-2.webp', sort: 1 },
+    ]);
+    const noOwn = await mkSize(withGallery.id, 'TEST-PHOTO-G1', null);
+    const blankOwn = await mkSize(withGallery.id, 'TEST-PHOTO-G2', '  ');
+    const ownPhoto = await mkSize(withGallery.id, 'TEST-PHOTO-G3', '/catalog/test-own.webp');
+    const bare = await mkProduct('test-photo-none');
+    const bareSizes = [await mkSize(bare.id, 'TEST-PHOTO-N1', null), await mkSize(bare.id, 'TEST-PHOTO-N2', ''), await mkSize(bare.id, 'TEST-PHOTO-N3', 'http://example.com/x.jpg')];
+
+    const photoFeed = await buildSkroutzFeed(settings);
+    const itemOf = (id: number) => photoFeed.items.find((i) => i.variantId === id);
+    check('a size without its own photo uses the product\'s first one (/media/ gets the site origin)', itemOf(noOwn.id)?.image === `${origin}/media/products/test-gallery.webp`, itemOf(noOwn.id)?.image);
+    check('…and a blank photo field counts as none', itemOf(blankOwn.id)?.image === `${origin}/media/products/test-gallery.webp`, itemOf(blankOwn.id)?.image);
+    check('a size with its own photo keeps it (/catalog/ gets the site origin)', itemOf(ownPhoto.id)?.image === `${origin}/catalog/test-own.webp`, itemOf(ownPhoto.id)?.image);
+    check('the other gallery photo travels as an extra, never twice', itemOf(noOwn.id)?.additionalImages.join() === `${origin}/media/products/test-gallery-2.webp`, itemOf(noOwn.id)?.additionalImages);
+    check('a product with no photos at all is left out entirely', bareSizes.every((s) => !itemOf(s.id)), bareSizes.map((s) => itemOf(s.id)?.image));
+    check('…each of its sizes is reported as «Χωρίς φωτογραφία» (the admin page lists these)', bareSizes.every((s) => photoFeed.leftOut.some((l) => l.variantId === s.id && l.reason === 'no_image')) && FEED_EXCLUSION_LABELS.no_image === 'Χωρίς φωτογραφία', photoFeed.leftOut.filter((l) => l.productId === bare.id));
+    check('an http:// photo is not sent (the size falls to the next rule, here: no photo)', photoFeed.leftOut.some((l) => l.variantId === bareSizes[2].id && l.reason === 'no_image'));
+    const allAfter = await db.select({ id: variants.id }).from(variants);
+    check('every size is still accounted for', photoFeed.items.length + photoFeed.leftOut.length === allAfter.length, { in: photoFeed.items.length, out: photoFeed.leftOut.length, all: allAfter.length });
+
+    const images = [...photoFeed.xml.matchAll(/<image>([\s\S]*?)<\/image>/g)].map((m) => m[1]);
+    const extraImages = [...photoFeed.xml.matchAll(/<additionalimage>([\s\S]*?)<\/additionalimage>/g)].map((m) => m[1]);
+    check('there is one <image> per item', images.length === photoFeed.items.length, { images: images.length, items: photoFeed.items.length });
+    check('no <image> is empty', images.every((u) => u.trim() !== ''));
+    check('every <image> and <additionalimage> is an absolute https address', [...images, ...extraImages].every((u) => u.startsWith('https://')), [...images, ...extraImages].find((u) => !u.startsWith('https://')));
+    check('the file is still well formed', wellFormed(photoFeed.xml) === null && products(photoFeed.xml).length === photoFeed.items.length, wellFormed(photoFeed.xml));
+    const photoFile = path.join(dir, 'photos.xml');
+    writeFileSync(photoFile, photoFeed.xml);
+    const photoLint = spawnSync('xmllint', ['--noout', photoFile], { encoding: 'utf8' });
+    if (!photoLint.error) check('xmllint agrees', photoLint.status === 0, photoLint.stderr.slice(0, 300));
+
+    const ids = [withGallery.id, bare.id];
+    await db.delete(productImages).where(inArray(productImages.productId, ids));
+    await db.delete(variants).where(inArray(variants.productId, ids));
+    await db.delete(productsTable).where(inArray(productsTable.id, ids));
+  }
 
   console.log('Codes and awkward text');
   await db.update(variants).set({ barcode: '4006381333931', mpn: 'AB-123' }).where(eq(variants.id, target.variantId));
