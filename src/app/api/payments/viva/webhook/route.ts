@@ -3,7 +3,7 @@ import { commerceEnabled } from '@/lib/commerce-flag';
 import { addOrderEvent } from '@/lib/orders';
 import { findOrderByPayment, setAttemptStatus } from '@/lib/payments/attempts';
 import { reportUnmatchedPayment, settleCardPayment } from '@/lib/payments/settle';
-import { vivaRetrieveTransaction, vivaWebhookIpAllowed, vivaWebhookVerificationKey } from '@/lib/payments/viva';
+import { vivaRetrieveTransaction, vivaTransactionIsOurs, vivaWebhookIpAllowed, vivaWebhookVerificationKey } from '@/lib/payments/viva';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 
 const EVENT_PAYMENT_CREATED = 1796;
@@ -53,10 +53,8 @@ export async function POST(request: Request) {
 
   try {
     const tx = await vivaRetrieveTransaction(transactionId);
-    // Money taken through another channel of the same Viva account (a payment link, a terminal) is reported here too: it
-    // is not ours. Only when Viva says which payment source it came through; an answer without one is treated as ours.
-    const mySource = process.env.VIVA_SOURCE_CODE;
-    if (tx.sourceCode && mySource && tx.sourceCode !== mySource) {
+    // Money taken through another channel of the same Viva account is reported here too: it is not ours.
+    if (!vivaTransactionIsOurs(tx)) {
       console.warn(`[viva] transaction ${transactionId} belongs to payment source ${tx.sourceCode}, not ours: ignored`);
       return NextResponse.json({ ok: true, ignored: true });
     }

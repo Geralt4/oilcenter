@@ -173,6 +173,16 @@ export async function vivaRetrieveTransaction(transactionId: string): Promise<Vi
   };
 }
 
+/**
+ * Money taken through another channel of the same Viva account (a payment link, a terminal) is readable with the same
+ * credentials: it is not ours. Only when Viva says which payment source it came through; an answer without one is treated as ours.
+ * Used by the webhook and by the buyer's return, so a crafted return URL cannot report someone else's payment either.
+ */
+export function vivaTransactionIsOurs(tx: Pick<VivaTransaction, 'sourceCode'>): boolean {
+  const mine = process.env.VIVA_SOURCE_CODE;
+  return !(tx.sourceCode && mine && tx.sourceCode !== mine);
+}
+
 /** Viva verifies a webhook URL with a GET that must echo back this key. Needs Merchant ID + API key (basic auth). */
 export async function vivaWebhookVerificationKey(): Promise<string> {
   const { VIVA_MERCHANT_ID, VIVA_API_KEY } = process.env;

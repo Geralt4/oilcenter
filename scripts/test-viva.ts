@@ -686,6 +686,24 @@ async function main() {
   await hook(1796, TX_C, RC2);
   check('C: no sourceCode in the answer is processed as ours: the order is paid', (await orderRow(oC2.id)).paymentStatus === 'paid');
 
+  // the buyer's return carries the same rule as the webhook
+  const RC3 = '9515982136488205';
+  const TX_C3 = '3fa85f64-5717-4562-b3fc-2c963f66a0e3';
+  const oC3 = await addOrder('OC-TEST-VIVA-C4', RC3, 1999);
+  await newAttempt(oC3.id, RC3);
+  const linesBeforeRet = outboxLines().length;
+  canned.txBody = txJson({ amount: 19.99, orderCode: RC3, merchantTrns: 'OC-TEST-VIVA-C4', extra: ',"sourceCode":"9999"' });
+  const retC9 = await ret(`t=${TX_C3}&s=${RC3}`);
+  check('C: the RETURN of a payment from source 9999 goes to the failed page', retC9.headers.get('location')?.endsWith('/order-status?payment=failed') === true, retC9.headers.get('location'));
+  check('C: ... the order stays unpaid', (await orderRow(oC3.id)).paymentStatus !== 'paid', (await orderRow(oC3.id)).paymentStatus);
+  const RC3_NONE = '9515982136488206';
+  canned.txBody = txJson({ amount: 19.99, orderCode: RC3_NONE, merchantTrns: 'OC-NOPE-C4', extra: ',"sourceCode":"9999"' });
+  await ret(`t=${TX_C3}&s=${RC3_NONE}`);
+  check('C: ... a foreign payment for a code with no order leaves no unmatched_payments row and no mail', (await unmatchedRows(RC3_NONE)).length === 0 && outboxLines().length === linesBeforeRet, [(await unmatchedRows(RC3_NONE)).length, outboxLines().length - linesBeforeRet]);
+  canned.txBody = txJson({ amount: 19.99, orderCode: RC3, merchantTrns: 'OC-TEST-VIVA-C4', extra: ',"sourceCode":"1234"' });
+  const retC1234 = await ret(`t=${TX_C3}&s=${RC3}`);
+  check("C: the RETURN of a source '1234' payment settles the order", retC1234.headers.get('location')?.includes('payment=success') === true && (await orderRow(oC3.id)).paymentStatus === 'paid', retC1234.headers.get('location'));
+
   console.log('D. Webhook verification key shapes');
   const savedKeyBody = canned.keyBody;
   canned.keyBody = '{"key":"abc"}';

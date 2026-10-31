@@ -3,7 +3,7 @@ import { commerceEnabled } from '@/lib/commerce-flag';
 import { siteUrl } from '@/lib/payments';
 import { findOrderByPayment } from '@/lib/payments/attempts';
 import { reportUnmatchedPayment, settleCardPayment } from '@/lib/payments/settle';
-import { vivaRetrieveTransaction } from '@/lib/payments/viva';
+import { vivaRetrieveTransaction, vivaTransactionIsOurs } from '@/lib/payments/viva';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 
 /**
@@ -35,6 +35,11 @@ export async function GET(request: Request) {
 
   try {
     const tx = await vivaRetrieveTransaction(transactionId);
+    // a transaction of another payment source of the same account is not ours (as in the webhook): not settled, not reported
+    if (!vivaTransactionIsOurs(tx)) {
+      console.warn(`[viva] return for transaction ${transactionId}: payment source ${tx.sourceCode} is not ours, ignored`);
+      return back('failed');
+    }
     if (tx.paid && tx.orderCode === orderCode) {
       // the checkout may be an older attempt (the buyer retried): the attempt table, then merchantTrns, find the order
       const order = await findOrderByPayment('viva', orderCode, tx.merchantTrns);
