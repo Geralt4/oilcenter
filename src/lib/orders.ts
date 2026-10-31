@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { coupons, orderEvents, orderItems, orders, variants, type Coupon, type Order, type OrderStatus } from '@/lib/db/schema';
 import { randomToken } from '@/lib/auth/password';
+import { enqueuePaymentMails } from '@/lib/payments/mail-queue';
 import { claimAttemptStatus, setAttemptStatus, type Executor } from '@/lib/payments/attempts';
 import { resolveCartLines, type ResolvedCartLine } from '@/lib/catalog';
 import { commerceEnabled } from '@/lib/commerce-flag';
@@ -285,6 +286,7 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
   // half-way would otherwise leave a paid order with no history and no confirmation, and Viva's retry would only find
   // 'already_paid'.
   return db.transaction(async (tx) => {
+    const outcome = await (async (): Promise<PaymentOutcome> => {
     const [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
     if (!order) return 'unknown_order';
     if (order.paymentStatus === 'paid' || order.paymentStatus === 'refunded') {
@@ -378,6 +380,11 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
     }
     await addOrderEvent(orderId, 'payment', `Η πληρωμή με κάρτα ολοκληρώθηκε (${info.provider}, αναφορά ${info.ref}).`, 'system', tx);
     return 'paid';
+    })();
+    // the mails this outcome leads to are saved with the payment itself (sent afterwards by settleCardPayment, and retried
+    // by the periodic sweep): a crash between the commit and the send can no longer lose them
+    await enqueuePaymentMails(orderId, outcome, tx);
+    return outcome;
   });
 }
 

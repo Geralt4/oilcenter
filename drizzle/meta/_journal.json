@@ -134,6 +134,13 @@
       "when": 1792612037713,
       "tag": "0018_unusual_spot",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1793453074413,
+      "tag": "0019_chemical_bloodstrike",
+      "breakpoints": true
     }
   ]
 }

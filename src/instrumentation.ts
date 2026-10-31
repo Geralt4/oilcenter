@@ -59,4 +59,14 @@ export async function register() {
   };
   setTimeout(releaseCardOrders, 60_000).unref();
   setInterval(releaseCardOrders, 60 * 60 * 1000).unref();
+
+  // Mails that follow a payment are saved with it and sent right after; this sweep sends the ones that did not go out (the
+  // process died in between, or the mail service was down) and gives up on a mail after 8 tries.
+  const { deliverPendingMail } = await import('@/lib/payments/mail-delivery');
+  const sweepMail = () =>
+    deliverPendingMail()
+      .then((sent) => sent > 0 && console.log(`[mail] sent ${sent} queued payment mail(s)`))
+      .catch((err) => console.error('[mail] sweep of queued payment mail failed', err instanceof Error ? err.message : err));
+  setTimeout(sweepMail, 90_000).unref();
+  setInterval(sweepMail, 10 * 60 * 1000).unref();
 }

@@ -25,6 +25,7 @@ async function main() {
   await migrate(db, { migrationsFolder: './drizzle' });
   const { coupons, orderEvents, orders, variants } = await import('../src/lib/db/schema');
   const { cancelOrder, createOrder, markOrderPaid } = await import('../src/lib/orders');
+  const { deliverPendingMail } = await import('../src/lib/payments/mail-delivery');
   const { computeTotals, courierRateCents } = await import('../src/lib/pricing');
   const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
 
@@ -387,14 +388,9 @@ async function main() {
     const o4bEvents = await eventsOf(o4b.id);
     check('…no customer confirmation is recorded', !o4bEvents.some((e) => e.message.startsWith('Στάλθηκε e-mail επιβεβαίωσης')), o4bEvents.map((e) => e.message));
     const newFiles = outboxFiles().filter((f) => !outboxBefore.has(f));
-    if (newFiles.length > 0) {
-      // the mail service is observable here: the owner alert was written to the outbox, and nothing went to the buyer
-      check('…the owner alert is written to the outbox', newFiles.length === 1, newFiles);
-      check('…and no file was addressed to the buyer', !newFiles.some((f) => f.includes(base.email)), newFiles);
-    } else {
-      // no recipient / no mail service: the failed alert is recorded on the timeline instead
-      check('…the owner alert failure is recorded on the timeline', o4bEvents.some((e) => e.message.startsWith('ΑΠΟΤΥΧΙΑ αποστολής e-mail ειδοποίησης')), o4bEvents.map((e) => e.message));
-    }
+    // the mail service is observable here: the owner alert must be there, and nothing may go to the buyer
+    check('…the owner alert is written to the outbox', newFiles.length === 1, newFiles);
+    check('…and no file was addressed to the buyer', !newFiles.some((f) => f.includes(base.email)), newFiles);
 
     console.log('  markOrderPaid wrapper');
     const o5a = await newCardOrder();
@@ -490,6 +486,7 @@ async function main() {
     await recordPaymentAttempt(o10.id, { provider: 'viva', ref: 'R1-10' });
     await recordPaymentAttempt(o10.id, { provider: 'viva', ref: 'R2-10' });
     await recordPayment(o10.id, { provider: 'viva', ref: 'T2-10', amountCents: o10.totalCents, attemptRef: 'R2-10' });
+    await deliverPendingMail({ orderId: o10.id }); // recordPayment only queues the mails: send them, so the next step sees only its own
     const outbox10 = new Set(outboxFiles());
     const r10 = await settleCardPayment({ id: o10.id, number: o10.number }, { provider: 'viva', ref: 'T1-10', amountCents: o10.totalCents, attemptRef: 'R1-10' });
     check('settleCardPayment on a second payment → duplicate_payment', r10 === 'duplicate_payment', r10);
@@ -605,6 +602,7 @@ async function main() {
     await recordPaymentAttempt(rf.id, { provider: 'viva', ref: 'R1-RF' });
     const rfInfo = { provider: 'viva', ref: 'T1-RF', amountCents: rf.totalCents, attemptRef: 'R1-RF' };
     check('a payment → paid', (await recordPayment(rf.id, rfInfo)) === 'paid');
+    await deliverPendingMail({ orderId: rf.id });
     await db.update(orders).set({ paymentStatus: 'refunded' }).where(eq(orders.id, rf.id));
     const rfEvents = (await eventsOf(rf.id)).length;
     check('the same payment replayed after a refund → already_paid', (await recordPayment(rf.id, rfInfo)) === 'already_paid');
@@ -929,6 +927,86 @@ async function main() {
       await deliver('checkout.session.async_payment_failed', { ...orphan, id: 'cs_orphan_3', payment_status: 'unpaid', payment_intent: 'pi_orphan_3' });
       check('an unpaid or failed session with no order records nothing', (await db.select().from(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe'))).length === 1);
       await db.delete(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe'));
+    }
+
+    console.log('  Payment mails survive a crash (mail queue)');
+    {
+      const { mailOutbox, orderEvents } = await import('../src/lib/db/schema');
+      const { settleCardPayment } = await import('../src/lib/payments/settle');
+      const { recordPayment } = await import('../src/lib/orders');
+      const eventsOf = (orderId: number) => db.select().from(orderEvents).where(eq(orderEvents.orderId, orderId));
+      const outboxDir = path.join(dir, 'data', 'outbox');
+      const filesNow = () => {
+        try {
+          return readdirSync(outboxDir);
+        } catch {
+          return [] as string[];
+        }
+      };
+      const queued = (orderId: number) => db.select().from(mailOutbox).where(eq(mailOutbox.orderId, orderId));
+
+      // (a) the process dies between the payment commit and the send
+      const q1 = await newCard();
+      await recordPaymentAttempt(q1.id, { provider: 'viva', ref: 'R-Q1' });
+      const info1 = { provider: 'viva', ref: 'T-Q1', amountCents: q1.totalCents, attemptRef: 'R-Q1' };
+      const before1 = new Set(filesNow());
+      check('a payment is recorded', (await recordPayment(q1.id, info1)) === 'paid');
+      const rows1 = await queued(q1.id);
+      check('…the confirmation and the shop notice are queued in the same transaction', rows1.length === 2 && rows1.every((r) => r.sentAt === null), rows1.map((r) => r.kind));
+      check('…and nothing has been sent yet (the crash)', filesNow().filter((f) => !before1.has(f)).length === 0);
+      check("the gateway's retry finds the payment already recorded", (await settleCardPayment({ id: q1.id, number: q1.number }, info1)) === 'already_paid');
+      check('…and the queued mails go out now: one to the buyer, one to the shop', filesNow().filter((f) => !before1.has(f)).length === 2, filesNow().filter((f) => !before1.has(f)));
+      check('…and the queue is marked sent', (await queued(q1.id)).every((r) => r.sentAt !== null));
+      check('…and the timeline records the confirmation', (await eventsOf(q1.id)).some((e) => e.message.startsWith('Στάλθηκε e-mail επιβεβαίωσης')));
+      await settleCardPayment({ id: q1.id, number: q1.number }, info1);
+      check('a further retry sends nothing more', filesNow().filter((f) => !before1.has(f)).length === 2);
+
+      // (b) the mail service is down, then comes back
+      const q2 = await newCard();
+      await recordPaymentAttempt(q2.id, { provider: 'viva', ref: 'R-Q2' });
+      const realFetch = globalThis.fetch;
+      const savedKey = process.env.RESEND_API_KEY;
+      process.env.RESEND_API_KEY = 're_test_dummy';
+      globalThis.fetch = (async () => new Response('down', { status: 500 })) as typeof fetch;
+      try {
+        await settleCardPayment({ id: q2.id, number: q2.number }, { provider: 'viva', ref: 'T-Q2', amountCents: q2.totalCents, attemptRef: 'R-Q2' });
+        const down = await queued(q2.id);
+        check('with the mail service down both mails stay queued, one failed attempt each', down.length === 2 && down.every((r) => r.sentAt === null && r.attempts === 1 && r.givenUpAt === null), down);
+        const failures = (await eventsOf(q2.id)).filter((e) => e.message.startsWith('ΑΠΟΤΥΧΙΑ αποστολής'));
+        check('…and the timeline says so once per mail, with "will retry"', failures.length === 2 && failures.every((e) => e.message.includes('Θα ξαναδοκιμαστεί')), failures.map((e) => e.message));
+      } finally {
+        globalThis.fetch = realFetch;
+        if (savedKey === undefined) delete process.env.RESEND_API_KEY;
+        else process.env.RESEND_API_KEY = savedKey;
+      }
+      check('the sweep (all pending mail) sends them once the service is back', (await deliverPendingMail()) >= 2);
+      const sent2 = await queued(q2.id);
+      check('…and both are marked sent, after the one failed attempt', sent2.length === 2 && sent2.every((r) => r.sentAt !== null && r.attempts === 1), sent2);
+
+      // (c) two senders at once: each queued mail goes out once
+      const q3 = await newCard();
+      await recordPaymentAttempt(q3.id, { provider: 'viva', ref: 'R-Q3' });
+      await recordPayment(q3.id, { provider: 'viva', ref: 'T-Q3', amountCents: q3.totalCents, attemptRef: 'R-Q3' });
+      const before3 = new Set(filesNow());
+      await Promise.all([deliverPendingMail({ orderId: q3.id }), deliverPendingMail({ orderId: q3.id })]);
+      check('two concurrent senders write each mail once', filesNow().filter((f) => !before3.has(f)).length === 2, filesNow().filter((f) => !before3.has(f)));
+
+      // (d) a mail that can never be sent is given up after 8 tries
+      const q4 = await newCard();
+      await recordPaymentAttempt(q4.id, { provider: 'viva', ref: 'R-Q4' });
+      await recordPayment(q4.id, { provider: 'viva', ref: 'T-Q4', amountCents: q4.totalCents + 1, attemptRef: 'R-Q4' });
+      process.env.RESEND_API_KEY = 're_test_dummy';
+      globalThis.fetch = (async () => new Response('down', { status: 500 })) as typeof fetch;
+      try {
+        for (let i = 0; i < 9; i++) await deliverPendingMail({ orderId: q4.id });
+      } finally {
+        globalThis.fetch = realFetch;
+        if (savedKey === undefined) delete process.env.RESEND_API_KEY;
+        else process.env.RESEND_API_KEY = savedKey;
+      }
+      const gone = await queued(q4.id);
+      check('after 8 failed tries the alert is given up, not retried forever', gone.length === 1 && gone[0].attempts === 8 && gone[0].givenUpAt !== null, gone);
+      check('…and the timeline says it will not be retried', (await eventsOf(q4.id)).some((e) => e.message.includes('Δεν θα ξαναδοκιμαστεί')));
     }
 
     console.log('  A deleted and recreated coupon');
