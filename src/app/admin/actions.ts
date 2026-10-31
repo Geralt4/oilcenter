@@ -15,8 +15,10 @@ import { adminUsers, brands, categories, contactMessages, coupons, launchSignups
 import { orderStatusMail, sendMail } from '@/lib/email';
 import { forgetTarget } from '@/lib/discount-cleanup';
 import { cleanIds, hasTargets, type Targets } from '@/lib/discounts';
+import { commerceEnabled } from '@/lib/commerce-flag';
 import { buildHazard } from '@/lib/ghs';
 import { isValidGtin, normalizeGtin } from '@/lib/gtin';
+import { isValidIban, normalizeIban } from '@/lib/iban';
 import { addOrderEvent, cancelOrder, flagForReview, getOrderByNumber, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/orders';
 import { applyPriceChanges } from '@/lib/price-apply';
 import { describePriceImport, MAX_PRICE_CENTS, parseCsv, planPriceImport } from '@/lib/price-csv';
@@ -1150,13 +1152,24 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
     return { day, closed: false, open, close, ...(open2 && close2 ? { open2, close2 } : {}) };
   });
 
+  // The IBAN is shown to customers who pay by transfer: stored without spaces, and only if its country, length and check digits add up.
+  let badIban = false;
   const bankAccounts: BankAccount[] = [0, 1, 2, 3]
-    .map((i) => ({ bank: str(fd, `bank${i}-name`), iban: str(fd, `bank${i}-iban`).toUpperCase().replace(/\s+/g, ' '), holder: str(fd, `bank${i}-holder`) }))
+    .map((i) => ({ bank: str(fd, `bank${i}-name`), iban: normalizeIban(str(fd, `bank${i}-iban`)), holder: str(fd, `bank${i}-holder`) }))
     .filter((a, i) => {
       if (a.iban && !a.bank) problems.push(`Τραπεζικός λογαριασμός ${i + 1}: συμπληρώστε και το όνομα της τράπεζας`);
       if (a.bank && !a.iban) problems.push(`Τραπεζικός λογαριασμός ${i + 1}: λείπει το IBAN`);
+      if (a.iban && !isValidIban(a.iban)) {
+        badIban = true;
+        problems.push(`Τραπεζικός λογαριασμός ${i + 1}: Μη έγκυρο IBAN (έλεγξτε τα ψηφία)`);
+      }
       return a.bank && a.iban;
     });
+  // Only while ordering is open: the website-only site keeps the transfer box ticked by default with no account, and a refusal
+  // there would block every other setting from being saved.
+  if (!badIban && bool(fd, 'bankTransfer') && bool(fd, 'ordersEnabled') && commerceEnabled() && !bankAccounts.some((a) => isValidIban(a.iban))) {
+    problems.push('Η τραπεζική κατάθεση είναι ενεργή, αλλά δεν υπάρχει έγκυρο IBAN. Προσθέστε IBAN ή απενεργοποιήστε την κατάθεση');
+  }
 
   const shop: ShopSettings['shop'] = {
     ...current.shop,

@@ -11,6 +11,7 @@ import { adminUsers, categories, orderEvents, orders, products, unmatchedPayment
 import { hazardPriorityCategoryIds, needsHazardCheck } from '@/lib/ghs';
 import { commerceEnabled } from '@/lib/commerce-flag';
 import { releaseAbandonedCardOrders } from '@/lib/orders';
+import { isValidIban } from '@/lib/iban';
 import { resendConfigured, resendWithoutSender } from '@/lib/startup-check';
 import { cardProvider } from '@/lib/payments';
 import { countGivenUpMails, GIVEN_UP_WINDOW_DAYS } from '@/lib/payments/mail-delivery';
@@ -80,7 +81,7 @@ export default async function AdminDashboard() {
     { done: shop.hoursVerified, label: 'Ωράριο λειτουργίας', detail: shop.hoursVerified ? 'Επιβεβαιωμένο.' : 'Το ωράριο είναι ενδεικτικό. Διορθώστε το και σημειώστε το ως επιβεβαιωμένο.', href: '/admin/settings#hours' },
     { done: Boolean(shop.vatNumber && shop.gemi), label: 'ΑΦΜ & Αρ. ΓΕΜΗ', detail: 'Ο νόμος απαιτεί να φαίνεται στο ηλεκτρονικό κατάστημα ποιος είναι ο πωλητής (εμφανίζονται στο υποσέλιδο). Η ΔΟΥ είναι προαιρετική.', href: '/admin/settings#company' },
     { done: Boolean(shop.instagramUrl && shop.skroutzUrl), label: 'Σύνδεσμοι Instagram & Skroutz', detail: shop.instagramUrl && shop.skroutzUrl ? 'Εμφανίζονται στην κεφαλίδα, στο μενού, στο υποσέλιδο και δίπλα στον χάρτη.' : `Λείπει: ${[!shop.instagramUrl && 'Instagram', !shop.skroutzUrl && 'Skroutz'].filter(Boolean).join(' και ')}. Επικολλήστε τον σύνδεσμο και θα εμφανιστεί αμέσως στο κατάστημα.`, href: '/admin/settings#social' },
-    { forOrders: true, done: !payments.bankTransfer || payments.bankAccounts.length > 0, label: 'Τραπεζικός λογαριασμός (IBAN)', detail: 'Χρειάζεται για την πληρωμή με κατάθεση — αλλιώς απενεργοποιήστε την.', href: '/admin/settings#payments' },
+    { forOrders: true, done: !payments.bankTransfer || payments.bankAccounts.some((a) => isValidIban(a.iban)), label: 'Τραπεζικός λογαριασμός (IBAN)', detail: payments.bankAccounts.length > 0 && !payments.bankAccounts.some((a) => isValidIban(a.iban)) ? 'Το IBAN που έχει αποθηκευτεί δεν είναι έγκυρο. Διορθώστε το στις ρυθμίσεις.' : 'Χρειάζεται για την πληρωμή με κατάθεση — αλλιώς απενεργοποιήστε την.', href: '/admin/settings#payments' },
     // having an address is one thing, the site being able to SEND to it (SMTP, next line) is another: say which is true
     { done: Boolean(shop.email || process.env.ORDERS_NOTIFY_EMAIL), label: 'E-mail καταστήματος', detail: !(shop.email || process.env.ORDERS_NOTIFY_EMAIL) ? 'Δεν έχει οριστεί: τα μηνύματα από τις φόρμες («Επικοινωνία», «Ποιο λάδι;») φαίνονται μόνο εδώ, στα Μηνύματα — δεν σας ειδοποιεί κανείς.' : process.env.SMTP_HOST ? 'Εκεί έρχονται τα μηνύματα από τις φόρμες του site.' : 'Η διεύθυνση έχει οριστεί και φαίνεται στο site, αλλά το site δεν στέλνει ακόμη e-mail (επόμενη γραμμή): μέχρι τότε τα μηνύματα των φορμών φαίνονται μόνο εδώ, στα Μηνύματα.', href: '/admin/settings' },
     { done: backupFresh, label: 'Αντίγραφο ασφαλείας', detail: backupFresh ? (newestBackup ? `Τελευταίο αυτόματο αντίγραφο: ${newestBackup}.` : 'Δεν χρειάζεται για αυτή τη βάση.') : `Το καθημερινό αντίγραφο δεν γράφτηκε${newestBackup ? ` από τις ${newestBackup}` : ' ποτέ'}. Ενημερώστε τον προγραμματιστή.`, href: null },

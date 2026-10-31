@@ -4,6 +4,7 @@ import nodemailer, { type Transporter } from 'nodemailer';
 import { AVAILABILITY_LABELS } from '@/lib/availability';
 import type { OrderWithItems } from '@/lib/orders';
 import { ORDER_STATUS_LABELS } from '@/lib/orders';
+import { formatIban } from '@/lib/iban';
 import { PAYMENT_LABELS, SHIPPING_LABELS } from '@/lib/pricing';
 import { fullAddress, mapsDirectionsUrl, type ShopSettings } from '@/lib/settings';
 import { siteUrl } from '@/lib/site-url';
@@ -150,7 +151,7 @@ export function orderConfirmationMail(order: OrderWithItems, settings: ShopSetti
   const { shop, payments } = settings;
   let next = '';
   if (order.paymentMethod === 'bank_transfer') {
-    const accounts = payments.bankAccounts.map((a) => `<li style="margin-bottom:6px;"><strong>${esc(a.bank)}</strong><br>IBAN: ${esc(a.iban)}<br>Δικαιούχος: ${esc(a.holder)}</li>`).join('');
+    const accounts = payments.bankAccounts.map((a) => `<li style="margin-bottom:6px;"><strong>${esc(a.bank)}</strong><br>IBAN: ${esc(formatIban(a.iban))}<br>Δικαιούχος: ${esc(a.holder)}</li>`).join('');
     next = `<div style="margin-top:20px;padding:16px;background:#fff8e6;border-radius:12px;font-size:14px;line-height:1.6;"><strong>Πληρωμή με τραπεζική κατάθεση</strong><br>Καταθέστε ${formatPrice(order.totalCents)} με αιτιολογία <strong>${esc(order.number)}</strong>. Η παραγγελία αποστέλλεται μόλις επιβεβαιωθεί η κατάθεση.${accounts ? `<ul style="padding-left:18px;margin:10px 0 0;">${accounts}</ul>` : '<br>Θα επικοινωνήσουμε μαζί σας με τα στοιχεία του λογαριασμού.'}</div>`;
   } else if (order.shippingMethod === 'pickup') {
     next = `<div style="margin-top:20px;padding:16px;background:#fff8e6;border-radius:12px;font-size:14px;line-height:1.6;"><strong>Παραλαβή από το κατάστημα</strong><br>Θα σας ειδοποιήσουμε μόλις η παραγγελία είναι έτοιμη. ${esc(fullAddress(shop))} — <a href="${esc(mapsDirectionsUrl(shop))}" style="color:#15406b;">οδηγίες στο Google Maps</a>.</div>`;

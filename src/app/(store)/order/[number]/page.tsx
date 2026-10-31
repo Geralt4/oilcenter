@@ -9,6 +9,7 @@ import { buttonClass } from '@/components/ui/button';
 import { getCustomer } from '@/lib/auth/session';
 import type { OrderStatus } from '@/lib/db/schema';
 import { getOrderByNumber, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/orders';
+import { formatIban } from '@/lib/iban';
 import { cardProvider } from '@/lib/payments';
 import { PAYMENT_LABELS, SHIPPING_LABELS } from '@/lib/pricing';
 import { fullAddress, mapsDirectionsUrl } from '@/lib/settings';
@@ -138,7 +139,7 @@ export default async function OrderPage({ params, searchParams }: Props) {
               {payments.bankAccounts.map((a) => (
                 <li key={a.iban} className="rounded-2xl bg-white p-4 text-sm">
                   <p className="font-semibold text-ink-950">{a.bank}</p>
-                  <p className="tabular mt-1 break-all text-ink-800">{a.iban}</p>
+                  <p className="tabular mt-1 break-all text-ink-800">{formatIban(a.iban)}</p>
                   <p className="text-ink-500">{a.holder}</p>
                 </li>
               ))}

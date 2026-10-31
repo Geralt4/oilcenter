@@ -980,6 +980,63 @@ async function main() {
     await db.delete(priceChanges).where(eq(priceChanges.variantId, sizeA.id));
   }
 
+  console.log('Bank IBANs');
+  {
+    const { formatIban, isValidIban, normalizeIban } = await import('../src/lib/iban');
+    const GR = 'GR16 0110 1250 0000 0001 2300 695';
+    check('a valid Greek IBAN is accepted, with spaces', isValidIban(GR));
+    check('…without spaces', isValidIban('GR1601101250000000012300695'));
+    check('…with dashes', isValidIban('GR16-0110-1250-0000-0001-2300-695'));
+    check('…and in lowercase, normalized to capitals without spaces', isValidIban(GR.toLowerCase()) && normalizeIban(GR.toLowerCase()) === 'GR1601101250000000012300695');
+    check('a wrong check digit is refused', !isValidIban('GR16 0110 1250 0000 0001 2300 694') && !isValidIban('GR17 0110 1250 0000 0001 2300 695'));
+    check('two digits swapped is refused', !isValidIban('GR16 0110 1250 0000 0001 2300 659'));
+    check('a wrong length is refused (one digit dropped, one added)', !isValidIban('GR16 0110 1250 0000 0001 2300 69') && !isValidIban('GR16 0110 1250 0000 0001 2300 6950'));
+    check('an unknown country is refused', !isValidIban('XX16 0110 1250 0000 0001 2300 695') && !isValidIban('6R16 0110 1250 0000 0001 2300 695'));
+    check('an empty string is not an IBAN', !isValidIban('') && !isValidIban('   '));
+    check('IBANs of other euro-area countries are accepted', ['DE89 3704 0044 0532 0130 00', 'LT12 1000 0111 0100 1000', 'BE68 5390 0754 7034', 'CY17 0020 0128 0000 0012 0052 7600', 'NL91 ABNA 0417 1643 00'].every(isValidIban));
+    check('formatIban groups in fours', formatIban('GR1601101250000000012300695') === GR && formatIban(GR) === GR);
+    check('…and shows an invalid stored value instead of failing', formatIban('abc12') === 'ABC1 2');
+
+    const { saveSettings } = await import('../src/app/admin/actions');
+    const { getSettings, saveSettingsGroup } = await import('../src/lib/settings.server');
+    const { orderConfirmationMail } = await import('../src/lib/email');
+    const { getOrderByNumber } = await import('../src/lib/orders');
+    const before = await getSettings();
+    const savedCommerce = process.env.COMMERCE_ENABLED;
+    delete process.env.COMMERCE_ENABLED;
+    const base = { name: 'Oil Center', phone: '2310111111', street: 'Οδός 1', city: 'Θεσσαλονίκη', cod: 'on' };
+    const account = (iban: string) => ({ 'bank0-name': 'Τράπεζα Δοκιμής', 'bank0-iban': iban, 'bank0-holder': 'Oil Center' });
+    const run = (fields: Record<string, string>) => saveSettings(null, form({ ...base, ...fields }));
+
+    const typed = await run({ ...account('gr16 0110 1250 0000 0001 2300 695') });
+    check('a valid IBAN typed with spaces and lowercase is saved', typed?.ok === true, typed);
+    check('…and stored normalized: capitals, no spaces', (await getSettings()).payments.bankAccounts[0]?.iban === 'GR1601101250000000012300695', (await getSettings()).payments.bankAccounts);
+    const bad = await run({ phone: '2310999999', ...account('GR16 0110 1250 0000 0001 2300 694') });
+    const after = await getSettings();
+    check('an invalid IBAN is refused with a message that says which account', bad?.ok === false && (bad.message ?? '').includes('Μη έγκυρο IBAN') && (bad.message ?? '').includes('Τραπεζικός λογαριασμός 1') && (bad.message ?? '').includes('Δεν αποθηκεύτηκε τίποτα'), bad);
+    check('…and nothing else in the form was saved either', after.shop.phone === '2310111111' && after.payments.bankAccounts[0]?.iban === 'GR1601101250000000012300695', { phone: after.shop.phone, accounts: after.payments.bankAccounts });
+    const empty = await run({ bankTransfer: 'on' });
+    check('with no account and ordering closed, an empty IBAN is accepted (bank transfer ticked)', empty?.ok === true && (await getSettings()).payments.bankAccounts.length === 0, empty);
+
+    // while ordering is open, bank transfer needs an account a customer can pay into
+    const noAccount = await run({ bankTransfer: 'on', ordersEnabled: 'on' });
+    check('ordering open + bank transfer on + no IBAN is refused', noAccount?.ok === false && (noAccount.message ?? '').includes('δεν υπάρχει έγκυρο IBAN'), noAccount);
+    check('…bank transfer off is accepted', (await run({ ordersEnabled: 'on' }))?.ok === true);
+    check('…and with a valid IBAN it is accepted', (await run({ bankTransfer: 'on', ordersEnabled: 'on', ...account(GR) }))?.ok === true);
+    process.env.COMMERCE_ENABLED = 'false';
+    check('…a website-only deployment (COMMERCE_ENABLED=false) is not blocked by it', (await run({ bankTransfer: 'on', ordersEnabled: 'on' }))?.ok === true);
+    if (savedCommerce === undefined) delete process.env.COMMERCE_ENABLED; else process.env.COMMERCE_ENABLED = savedCommerce;
+
+    // customers read the IBAN in groups of four
+    await run({ bankTransfer: 'on', ...account(GR) });
+    const [anyOrder] = await db.select({ number: orders.number }).from(orders).where(eq(orders.id, createdOrderIds[0]));
+    const full = (await getOrderByNumber(anyOrder.number))!;
+    const mail = orderConfirmationMail({ ...full, paymentMethod: 'bank_transfer' }, await getSettings());
+    check('the confirmation mail shows the IBAN in groups of four', mail.html.includes(GR) && !mail.html.includes('GR1601101250000000012300695'), mail.html.match(/IBAN:[^<]*/)?.[0]);
+
+    for (const group of ['shop', 'storefront', 'payments', 'shipping', 'reviews', 'tax'] as const) await saveSettingsGroup(group, before[group] as never);
+  }
+
   console.log('Login limits (customers and admin)');
   {
     const { customers } = await import('../src/lib/db/schema');
