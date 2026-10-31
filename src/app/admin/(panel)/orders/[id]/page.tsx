@@ -111,6 +111,9 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
               {/* what this page showed: a save only applies what the owner changed from it (see updateOrder) */}
               <input type="hidden" name="loadedStatus" value={order.status} />
               <input type="hidden" name="loadedPayment" value={order.paymentStatus} />
+              {!pickup && <input type="hidden" name="loadedTrackingCarrier" value={order.trackingCarrier ?? ''} />}
+              {!pickup && <input type="hidden" name="loadedTrackingNumber" value={order.trackingNumber ?? ''} />}
+              <input type="hidden" name="loadedAdminNotes" value={order.adminNotes ?? ''} />
               <div className="space-y-4">
                 <Field label="Κατάσταση">
                   <select name="status" defaultValue={order.status} className="field cursor-pointer">

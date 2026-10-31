@@ -340,6 +340,36 @@ export const unmatchedPayments = sqliteTable(
   (t) => [uniqueIndex('unmatched_payments_tx_uq').on(t.provider, t.transactionId)],
 );
 
+export type MailKind = 'order_confirmation' | 'order_paid_notice' | 'payment_alert' | 'unmatched_payment';
+
+/**
+ * Mails that follow a payment. A row is written in the SAME transaction as the payment (or the unmatched-payment row) it
+ * belongs to, and sent afterwards; a crash, or a mail service that is down, leaves the row pending and it is tried again.
+ * The e-mail text is built when it is sent, from the order as it is then. (DATA_DIR/outbox/*.html is something else: the
+ * development fallback of sendMail when no mail service is configured.)
+ */
+export const mailOutbox = sqliteTable(
+  'mail_outbox',
+  {
+    id: id(),
+    kind: text('kind').$type<MailKind>().notNull(),
+    orderId: integer('order_id').references(() => orders.id, { onDelete: 'cascade' }),
+    unmatchedId: integer('unmatched_id').references(() => unmatchedPayments.id, { onDelete: 'cascade' }),
+    /** the payment outcome that explains an alert (recordPayment's PaymentOutcome) */
+    problem: text('problem'),
+    createdAt: createdAt(),
+    /** set while one process is sending it; a claim older than 10 minutes is taken as abandoned */
+    claimedAt: integer('claimed_at', { mode: 'timestamp_ms' }),
+    sentAt: integer('sent_at', { mode: 'timestamp_ms' }),
+    /** after a failed attempt: not before this moment (back-off, see payments/mail-delivery.ts); NULL = due now */
+    nextAttemptAt: integer('next_attempt_at', { mode: 'timestamp_ms' }),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    givenUpAt: integer('given_up_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [index('mail_outbox_pending_idx').on(t.sentAt, t.givenUpAt), index('mail_outbox_order_idx').on(t.orderId)],
+);
+
 /** 'processing': the buyer finished the checkout but a delayed payment method (SEPA…) has not settled yet */
 export type PaymentAttemptStatus = 'created' | 'processing' | 'paid' | 'failed' | 'mismatch';
 

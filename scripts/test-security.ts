@@ -78,6 +78,7 @@ async function main() {
 
   console.log('Login budgets (persistent)');
   const { rateLimit } = await import('../src/lib/rate-limit');
+  // The counters themselves; the login actions that use them (per address, failure-only per account) are exercised in test-admin.ts.
   // The per-IP pool is what stops spraying; simulate it directly (no request context here for clientIp()).
   for (let i = 0; i < 20; i++) await rateLimit('login:ip:9.9.9.9', 20, 15 * 60 * 1000);
   const exhausted = await rateLimit('login:ip:9.9.9.9', 20, 15 * 60 * 1000);
@@ -87,6 +88,14 @@ async function main() {
   check('per-account budget is independent of the IP pool', otherAccount.ok, otherAccount);
   // The counter is in SQLite: inspect the row directly (raw keys are hashed, never stored).
   const { client } = await import('../src/lib/db');
+  // a counter that only failures move: peeking spends nothing, and the limit trips exactly when it is reached
+  const { peekLimit } = await import('../src/lib/rate-limit');
+  check('peeking at an untouched counter is allowed', (await peekLimit('peek:untouched', 3, 60_000)).ok);
+  for (let i = 0; i < 2; i++) await rateLimit('peek:counter', 3, 60_000);
+  check('peeking does not spend anything', (await peekLimit('peek:counter', 3, 60_000)).ok && (await peekLimit('peek:counter', 3, 60_000)).ok);
+  await rateLimit('peek:counter', 3, 60_000);
+  const peeked = await peekLimit('peek:counter', 3, 60_000);
+  check('after the 3rd recorded failure the 4th attempt is paused, with a retry time', !peeked.ok && peeked.retryAfterSec > 0, peeked);
   const stored = await client.execute('select count(*) as n from rate_limits');
   check('limit counters are persisted in the database', Number(stored.rows[0]?.n ?? 0) >= 2, stored.rows[0]);
 

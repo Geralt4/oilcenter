@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import { commerceEnabled } from '@/lib/commerce-flag';
 import { addOrderEvent } from '@/lib/orders';
 import { findOrderByPayment, setAttemptStatus } from '@/lib/payments/attempts';
-import { settleCardPayment } from '@/lib/payments/settle';
-import { stripe, stripeConfigured } from '@/lib/payments/stripe';
+import { reportUnmatchedPayment, settleCardPayment } from '@/lib/payments/settle';
+import { stripe, stripeConfigured, stripeSessionIsOurs } from '@/lib/payments/stripe';
 
 /** Signature-verified with STRIPE_WEBHOOK_SECRET; needs the RAW body, so it is read with request.text(). */
 export async function POST(request: Request) {
@@ -36,6 +36,22 @@ export async function POST(request: Request) {
         // finished by the buyer, money still on its way: no second checkout and no automatic release until it resolves
         if (await setAttemptStatus('stripe', session.id, 'processing', null, ['created'])) await addOrderEvent(order.id, 'payment', 'Η πληρωμή με κάρτα/τράπεζα είναι σε επεξεργασία: δεν έχει εισπραχθεί ακόμη.');
       }
+    } else if (!stripeSessionIsOurs(session.client_reference_id, session.metadata?.orderId)) {
+      // Another checkout of the same Stripe account (a Payment Link, another site): not ours, so not ours to report either.
+      console.warn(`[stripe] ${event.type} for session ${session.id} was not created by this shop: ignored`);
+    } else if (session.payment_status === 'paid') {
+      // Money for one of OUR checkouts that we cannot match to an order is kept and the shop is told (as with Viva); the buyer's
+      // browser coming back as well finds the row and stays quiet.
+      await reportUnmatchedPayment({
+        provider: 'stripe',
+        orderCode: session.id,
+        transactionId: typeof session.payment_intent === 'string' ? session.payment_intent : session.id,
+        merchantTrns: session.client_reference_id ?? null,
+        amountCents: session.amount_total ?? 0,
+        currency: session.currency ? session.currency.toUpperCase() : null,
+      });
+    } else {
+      console.warn(`[stripe] ${event.type} for session ${session.id} matches no order`);
     }
   }
   return NextResponse.json({ received: true });

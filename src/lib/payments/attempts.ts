@@ -1,5 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/lib/db';
+import { enqueueUnmatchedPaymentMail } from '@/lib/payments/mail-queue';
 import { orders, paymentAttempts, unmatchedPayments, type Order, type PaymentAttemptStatus } from '@/lib/db/schema';
 
 /** The shared client or the transaction a caller is inside: writes that must succeed or fail together take the latter. */
@@ -95,6 +96,11 @@ export async function recordUnmatchedPayment(info: {
   amountCents: number;
   currency: string | null;
 }): Promise<boolean> {
-  const created = await db.insert(unmatchedPayments).values(info).onConflictDoNothing().returning({ id: unmatchedPayments.id });
-  return created.length > 0;
+  // the row and the mail to the shop are saved together, so a crash cannot leave a payment nobody was told about
+  return db.transaction(async (tx) => {
+    const created = await tx.insert(unmatchedPayments).values(info).onConflictDoNothing().returning({ id: unmatchedPayments.id });
+    if (created.length === 0) return false;
+    await enqueueUnmatchedPaymentMail(created[0].id, tx);
+    return true;
+  });
 }

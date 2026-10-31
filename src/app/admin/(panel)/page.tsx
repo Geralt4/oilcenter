@@ -12,6 +12,7 @@ import { hazardPriorityCategoryIds, needsHazardCheck } from '@/lib/ghs';
 import { commerceEnabled } from '@/lib/commerce-flag';
 import { releaseAbandonedCardOrders } from '@/lib/orders';
 import { cardProvider } from '@/lib/payments';
+import { countGivenUpMails, GIVEN_UP_WINDOW_DAYS } from '@/lib/payments/mail-delivery';
 import { getSettings } from '@/lib/settings.server';
 import { cn, formatDateTime, formatPrice } from '@/lib/utils';
 import { backupStatus } from '@/lib/backup';
@@ -69,6 +70,8 @@ export default async function AdminDashboard() {
   ]);
   // > 36 h without a successful upload = at least one nightly run missed; surface it before the owner relies on it
   const offsiteFresh = offsiteIsFresh(offsiteLast);
+  // payment mails (customer confirmation, shop notice or alert) the site tried for about a day and then gave up on
+  const givenUpMails = await countGivenUpMails();
   const checklist = [
     { done: unverified.n === 0, label: 'Επιβεβαίωση τιμών', detail: unverified.n ? `${unverified.n} συσκευασίες δεν έχουν επιβεβαιωμένη τιμή: στο site γράφουν «Καλέστε για τιμή».` : 'Όλες οι τιμές είναι επιβεβαιωμένες.', href: '/admin/prices?filter=unverified' },
     { done: flagged.n === 0, label: 'Έλεγχος στοιχείων προϊόντων', detail: flagged.n ? `${flagged.n} προϊόντα έχουν σημείωση προς έλεγχο (π.χ. συσκευασία που δεν φαινόταν στη φωτογραφία).` : 'Κανένα προϊόν δεν περιμένει έλεγχο.', href: '/admin/products?filter=review' },
@@ -83,6 +86,7 @@ export default async function AdminDashboard() {
     { done: offsiteFresh, label: 'Αντίγραφο εκτός δίσκου (Backblaze B2)', detail: !offsiteOn ? 'Δεν έχει ρυθμιστεί: τα αντίγραφα μένουν στον ίδιο δίσκο με το site — αν χαθεί ο δίσκος, χάνονται όλα. Ρυθμίζεται από τον προγραμματιστή (.env).' : offsiteFresh ? 'Κρυπτογραφημένο αντίγραφο ανεβαίνει κάθε βράδυ, μαζί με φωτογραφίες και δελτία ασφαλείας.' : `Η τελευταία αποστολή απέτυχε${offsiteLast ? ` (${formatDateTime(new Date(offsiteLast.at))})` : ''}. Ελέγξτε τα στοιχεία B2 στο Railway.`, href: null },
     { done: Boolean(mfaRow?.confirmedAt), label: 'Επαλήθευση δύο βημάτων (2FA)', detail: mfaRow?.confirmedAt ? 'Ενεργή: η σύνδεση στη διαχείριση ζητά και κωδικό από την εφαρμογή επαλήθευσης.' : 'Ανενεργή: ένα κλεμμένο συνθηματικό αρκεί για να μπει κάποιος στη διαχείριση. Ενεργοποιήστε την — διαρκεί δύο λεπτά.', href: '/admin/settings#mfa' },
     { done: mailConfigured(), label: 'Αποστολή e-mail', detail: mailConfigured() ? 'Ρυθμισμένο.' : 'Δεν έχει ρυθμιστεί: τα e-mail γράφονται σε αρχεία αντί να στέλνονται. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
+    { forOrders: true, done: givenUpMails === 0, label: 'E-mail πληρωμών που δεν στάλθηκαν', detail: givenUpMails ? `${givenUpMails} e-mail για πληρωμές (επιβεβαίωση προς πελάτη ή ειδοποίηση προς το κατάστημα) δεν στάλθηκαν ούτε μετά από δοκιμές επί περίπου ένα εικοσιτετράωρο, τις τελευταίες ${GIVEN_UP_WINDOW_DAYS} ημέρες. Δείτε το ιστορικό των παραγγελιών («ΑΠΟΤΥΧΙΑ αποστολής…») και ενημερώστε τον προγραμματιστή.` : 'Κανένα e-mail πληρωμής δεν έμεινε απέσταλτο.', href: null },
     { forOrders: true, done: cardProvider() !== null, label: 'Πληρωμές με κάρτα', detail: cardProvider() ? `Ενεργός πάροχος: ${cardProvider()}.` : 'Δεν έχει συνδεθεί πάροχος (Viva ή Stripe): η επιλογή «κάρτα» δεν εμφανίζεται στο ταμείο. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
     { forOrders: true, done: storefront.ordersEnabled, label: 'Άνοιγμα online παραγγελιών', detail: storefront.ordersEnabled ? 'Οι επισκέπτες μπορούν να παραγγείλουν.' : 'Κλειστές: το site λειτουργεί ως ιστοσελίδα-κατάλογος — προϊόντα, τιμές και επικοινωνία, χωρίς καλάθι, ταμείο και λογαριασμούς. Εσείς, όσο είστε συνδεδεμένος, βλέπετε ολόκληρο το κατάστημα και μπορείτε να κάνετε δοκιμαστικές παραγγελίες. Ανοίξτε τες όταν είναι όλα έτοιμα.', href: '/admin/settings#storefront' },
     { done: !storefront.demoMode, label: 'Απενεργοποίηση δοκιμαστικής λειτουργίας', detail: storefront.demoMode ? 'Όσο είναι ενεργή, το site μένει κρυφό από το Google και οι παραγγελίες σημειώνονται ως δοκιμαστικές. Κλείστε την όταν το site είναι έτοιμο να το δει ο κόσμος — γίνεται και με τις online παραγγελίες ακόμη κλειστές.' : 'Το site είναι δημόσιο και ορατό στο Google.', href: '/admin/settings#storefront' },

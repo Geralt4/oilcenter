@@ -4,7 +4,7 @@ import { unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq, inArray, isNull, lt, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, ne, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { AVAILABILITY, type Availability } from '@/lib/availability';
 import { hashPassword, randomToken, verifyPassword } from '@/lib/auth/password';
@@ -20,7 +20,7 @@ import { isValidGtin, normalizeGtin } from '@/lib/gtin';
 import { addOrderEvent, cancelOrder, flagForReview, getOrderByNumber, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/orders';
 import { applyPriceChanges } from '@/lib/price-apply';
 import { describePriceImport, MAX_PRICE_CENTS, parseCsv, planPriceImport } from '@/lib/price-csv';
-import { clientIp, loginBudgets, rateLimit } from '@/lib/rate-limit';
+import { accountFailuresBlocked, clientIp, loginBudgets, peekLimit, rateLimit, recordAccountFailure } from '@/lib/rate-limit';
 import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours, type ShopSettings } from '@/lib/settings';
 import { buildSearchText } from '@/lib/search-keywords';
 import { rebuildSearchTexts } from '@/lib/search-text';
@@ -66,15 +66,22 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
   if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
   const perAccount = await rateLimit(`admin-login:${await clientIp()}:${email}`, 6, 15 * 60 * 1000);
   if (!perAccount.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(perAccount.retryAfterSec / 60)} λεπτά.` };
-  // Independent of the source IP: an attacker rotating addresses cannot exceed this per account.
-  const perEmail = await rateLimit(`admin-login:account:${email}`, 10, 15 * 60 * 1000);
-  if (!perEmail.ok) return { ok: false, message: `Πολλές προσπάθειες για αυτόν τον λογαριασμό. Δοκιμάστε ξανά σε ${Math.ceil(perEmail.retryAfterSec / 60)} λεπτά.` };
-
   const [admin] = await db.select().from(adminUsers).where(eq(adminUsers.email, email));
+  // The account-wide failed-password ceiling (rate-limit.ts) is for accounts that a password alone can open. An admin with
+  // two-step verification is left out: guessing the password gets nobody in without the code, the code has its own account-wide
+  // cap below, and so strangers cannot use the ceiling to lock the owner out of the panel. An address with no account is
+  // treated like an admin without 2FA, so the ceiling itself does not tell the two apart.
+  const ceilingApplies = !admin?.totpConfirmedAt;
+  if (ceilingApplies) {
+    const blocked = await accountFailuresBlocked('admin-login', email);
+    if (!blocked.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(blocked.retryAfterSec / 60)} λεπτά.` };
+  }
+
   const valid = await verifyPassword(password, admin?.passwordHash ?? 'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAA');
   if (!admin || !valid) {
+    if (ceilingApplies) await recordAccountFailure('admin-login', email);
     // The e-mail the visitor typed, never the password. Kept to one line: log floods hunt for noise.
-    // At 6 tries/15 min/account this stays rare in normal use — 2+ logged failures in a window means
+    // At 6 tries/15 min per address this stays rare in normal use — 2+ logged failures in a window means
     // someone is knocking, and the platform log is where the owner (or an alert rule) will see it.
     const ip = await clientIp();
     console.warn(`[admin-login] FAILED attempt email=${JSON.stringify(email)} ip=${ip}`);
@@ -93,7 +100,14 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
     if (!attempted) return { ok: false, message: 'Συμπληρώστε τον 6ψήφιο κωδικό από την εφαρμογή επαλήθευσης.', fieldErrors: { totp: 'Υποχρεωτικό πεδίο' } };
     const totpLimited = await rateLimit(`admin-totp:${await clientIp()}:${email}`, 5, 15 * 60 * 1000);
     if (!totpLimited.ok) return { ok: false, message: `Πολλές προσπάθειες με κωδικό. Δοκιμάστε ξανά σε ${Math.ceil(totpLimited.retryAfterSec / 60)} λεπτά.` };
-    if (!(await consumeTotp(admin.id, admin.totpSecret, admin.email, attempted))) return { ok: false, message: 'Λάθος ή ήδη χρησιμοποιημένος κωδικός επαλήθευσης.' };
+    // Across all addresses, failed codes only, and only reachable with the right password, so nobody else can spend it: it keeps
+    // the 6-digit code from being guessed by many machines at once (the old account-wide key did that for every attempt).
+    const totpAccount = await peekLimit(`admin-totp-fail:account:${email}`, 10, 15 * 60 * 1000);
+    if (!totpAccount.ok) return { ok: false, message: `Πολλές προσπάθειες με κωδικό. Δοκιμάστε ξανά σε ${Math.ceil(totpAccount.retryAfterSec / 60)} λεπτά.` };
+    if (!(await consumeTotp(admin.id, admin.totpSecret, admin.email, attempted))) {
+      await rateLimit(`admin-totp-fail:account:${email}`, 10, 15 * 60 * 1000);
+      return { ok: false, message: 'Λάθος ή ήδη χρησιμοποιημένος κωδικός επαλήθευσης.' };
+    }
   }
 
   await db.update(adminUsers).set({ lastLoginAt: new Date() }).where(eq(adminUsers.id, admin.id));
@@ -257,6 +271,9 @@ export async function changeAdminPassword(_prev: AdminFormState, fd: FormData): 
 const STATUSES = Object.keys(ORDER_STATUS_LABELS) as OrderStatus[];
 const PAYMENT_STATUSES = Object.keys(PAYMENT_STATUS_LABELS) as PaymentStatus[];
 
+/** Thrown inside the order editor's transaction when the order moved on since the page was loaded: rolls everything back. */
+class StaleOrder extends Error {}
+
 export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   const admin = await requireAdmin();
   const id = int(fd, 'id');
@@ -299,47 +316,84 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
   // refused up front, before anything is written: a cancelled order does not come back (its stock is already released)
   if (status !== order.status && order.status === 'cancelled') return { ok: false, message: 'Μια ακυρωμένη παραγγελία δεν επανέρχεται (το απόθεμα έχει ήδη αποδεσμευτεί). Δημιουργήστε νέα.' };
 
-  // The payment is written first and only from the status that was read above: a payment that landed since (the webhook, the
-  // buyer's return) must not be overwritten by this save, and a refused save changes nothing else on the order.
-  if (payment !== order.paymentStatus) {
-    const written = await db
-      .update(orders)
-      .set({ paymentStatus: payment, paidAt: payment === 'paid' ? new Date() : payment === 'refunded' ? order.paidAt : null, ...(payment === 'refunded' ? { paymentFlag: null } : {}) })
-      .where(and(eq(orders.id, id), eq(orders.paymentStatus, order.paymentStatus)))
-      .returning({ id: orders.id });
-    if (written.length === 0) return { ok: false, message: staleMessage };
-    const message = {
-      paid: 'Σημειώθηκε ως εξοφλημένη.',
-      pending: 'Η ένδειξη εξόφλησης αφαιρέθηκε.',
-      failed: 'Σημειώθηκε ως αποτυχημένη πληρωμή.',
-      refunded: 'Σημειώθηκε ως επιστραφείσα (χειροκίνητη επιστροφή από τον πάροχο πληρωμών).',
-    }[payment];
-    await addOrderEvent(id, 'payment', message, actor);
-  }
-
-  if (status === 'cancelled' && order.status !== 'cancelled') {
-    await cancelOrder(id, actor); // restocks
-    // Cancelling an order that ends up paid leaves money with the shop: put it on the owner's list until it is refunded. Where
-    // the payment ends up: what this form asks for when it changes it, otherwise what the row holds NOW (read again here, so a
-    // payment that landed after the order was loaded still counts). Someone who un-pays a hand-marked order and cancels it
-    // together has not taken any money, so no refund alarm. The millisecond between the two reads cannot be driven from outside.
-    const [now] = await db.select({ paymentStatus: orders.paymentStatus }).from(orders).where(eq(orders.id, id));
-    const finalPayment = payment !== order.paymentStatus ? payment : (now?.paymentStatus ?? order.paymentStatus);
-    if (finalPayment === 'paid') {
-      await flagForReview(id);
-      await addOrderEvent(id, 'payment', 'ΠΡΟΣΟΧΗ: ακυρώθηκε παραγγελία που είχε εξοφληθεί. Επιστρέψτε τα χρήματα στον πελάτη και σημειώστε «Επιστροφή χρημάτων».', actor);
+  // Tracking and notes follow the same rule as status and payment: only what the owner CHANGED from what the page showed is
+  // written, and only if the row still holds what the page showed. (Not a version number: every payment webhook would bump
+  // it and turn a harmless tracking-only save into an error.) A field the form does not carry is left alone; without the
+  // «loaded…» copies (older callers) the asked value is written as before.
+  const nl = (v: string) => v.replace(/\r\n/g, '\n'); // browsers send line breaks as CRLF, the row may hold either
+  const textGuards: SQL[] = [];
+  const textChanges: Partial<Pick<typeof orders.$inferInsert, 'trackingCarrier' | 'trackingNumber' | 'adminNotes'>> = {};
+  const watch = (field: 'trackingCarrier' | 'trackingNumber' | 'adminNotes') => {
+    if (!fd.has(field)) return;
+    const asked = str(fd, field) || null;
+    const loadedKey = `loaded${field[0].toUpperCase()}${field.slice(1)}`;
+    if (!fd.has(loadedKey)) {
+      textChanges[field] = asked;
+      return;
     }
-  } else if (status !== order.status) {
-    if (order.status === 'cancelled') return { ok: false, message: 'Μια ακυρωμένη παραγγελία δεν επανέρχεται (το απόθεμα έχει ήδη αποδεσμευτεί). Δημιουργήστε νέα.' };
-    // only from the status read above: the automatic release may have cancelled (and restocked) the order since, and a
-    // write without this condition would bring it back with its stock already returned
-    const moved = await db.update(orders).set({ status }).where(and(eq(orders.id, id), eq(orders.status, order.status))).returning({ id: orders.id });
-    if (moved.length === 0) return { ok: false, message: staleMessage };
-    await addOrderEvent(id, 'status', `Κατάσταση: ${ORDER_STATUS_LABELS[order.status]} → ${ORDER_STATUS_LABELS[status]}.`, actor);
-  }
+    const loaded = nl(String(fd.get(loadedKey) ?? '').trim()) || null;
+    if ((asked === null ? null : nl(asked)) === loaded) return; // not edited
+    textChanges[field] = asked;
+    textGuards.push(loaded === null ? isNull(orders[field]) : sql`replace(${orders[field]}, char(13) || char(10), char(10)) = ${loaded}`);
+  };
+  watch('trackingCarrier');
+  watch('trackingNumber');
+  watch('adminNotes');
 
-  await db.update(orders).set({ trackingCarrier, trackingNumber, adminNotes: str(fd, 'adminNotes') || null }).where(eq(orders.id, id));
-  if (trackingNumber && trackingNumber !== order.trackingNumber) await addOrderEvent(id, 'shipping', `Αριθμός αποστολής: ${trackingNumber}${trackingCarrier ? ` (${trackingCarrier})` : ''}.`, actor);
+  // Everything that is written goes in ONE transaction: a refusal half-way (the order moved on while this was saved) undoes
+  // what was written before it, instead of leaving a payment changed and a status not.
+  try {
+    await db.transaction(async (tx) => {
+      // The payment is written first and only from the status that was read above: a payment that landed since (the webhook, the
+      // buyer's return) must not be overwritten by this save, and a refused save changes nothing else on the order.
+      if (payment !== order.paymentStatus) {
+        const written = await tx
+          .update(orders)
+          .set({ paymentStatus: payment, paidAt: payment === 'paid' ? new Date() : payment === 'refunded' ? order.paidAt : null, ...(payment === 'refunded' ? { paymentFlag: null } : {}) })
+          .where(and(eq(orders.id, id), eq(orders.paymentStatus, order.paymentStatus)))
+          .returning({ id: orders.id });
+        if (written.length === 0) throw new StaleOrder();
+        const message = {
+          paid: 'Σημειώθηκε ως εξοφλημένη.',
+          pending: 'Η ένδειξη εξόφλησης αφαιρέθηκε.',
+          failed: 'Σημειώθηκε ως αποτυχημένη πληρωμή.',
+          refunded: 'Σημειώθηκε ως επιστραφείσα (χειροκίνητη επιστροφή από τον πάροχο πληρωμών).',
+        }[payment];
+        await addOrderEvent(id, 'payment', message, actor, tx);
+      }
+
+      if (status === 'cancelled' && order.status !== 'cancelled') {
+        await cancelOrder(id, actor, undefined, {}, tx); // restocks
+        // Cancelling an order that ends up paid leaves money with the shop: put it on the owner's list until it is refunded. Where
+        // the payment ends up: what this form asks for when it changes it, otherwise what the row holds NOW (read again here, so a
+        // payment that landed after the order was loaded still counts). Someone who un-pays a hand-marked order and cancels it
+        // together has not taken any money, so no refund alarm. The millisecond between the two reads cannot be driven from outside.
+        const [now] = await tx.select({ paymentStatus: orders.paymentStatus }).from(orders).where(eq(orders.id, id));
+        const finalPayment = payment !== order.paymentStatus ? payment : (now?.paymentStatus ?? order.paymentStatus);
+        if (finalPayment === 'paid') {
+          await flagForReview(id, tx);
+          await addOrderEvent(id, 'payment', 'ΠΡΟΣΟΧΗ: ακυρώθηκε παραγγελία που είχε εξοφληθεί. Επιστρέψτε τα χρήματα στον πελάτη και σημειώστε «Επιστροφή χρημάτων».', actor, tx);
+        }
+      } else if (status !== order.status) {
+        // only from the status read above: the automatic release may have cancelled (and restocked) the order since, and a
+        // write without this condition would bring it back with its stock already returned
+        const moved = await tx.update(orders).set({ status }).where(and(eq(orders.id, id), eq(orders.status, order.status))).returning({ id: orders.id });
+        if (moved.length === 0) throw new StaleOrder();
+        await addOrderEvent(id, 'status', `Κατάσταση: ${ORDER_STATUS_LABELS[order.status]} → ${ORDER_STATUS_LABELS[status]}.`, actor, tx);
+      }
+
+      if (Object.keys(textChanges).length > 0) {
+        const saved = await tx.update(orders).set(textChanges).where(and(eq(orders.id, id), ...textGuards)).returning({ id: orders.id });
+        if (saved.length === 0) throw new StaleOrder();
+      }
+      if (trackingNumber && trackingNumber !== order.trackingNumber && 'trackingNumber' in textChanges) {
+        await addOrderEvent(id, 'shipping', `Αριθμός αποστολής: ${trackingNumber}${trackingCarrier ? ` (${trackingCarrier})` : ''}.`, actor, tx);
+      }
+    });
+  } catch (err) {
+    if (err instanceof StaleOrder) return { ok: false, message: staleMessage };
+    throw err;
+  }
 
   if (notify && status !== order.status) {
     const [full, settings] = await Promise.all([getOrderByNumber(order.number), getSettings()]);

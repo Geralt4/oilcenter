@@ -19,10 +19,12 @@ async function main() {
   dir = await cloneDatabase('oc-admin-');
   // Admin sessions without a request: next/headers' cookies() is replaced by an in-memory jar before anything imports it.
   const cookieJar = new Map<string, string>();
+  let currentIp = '203.0.113.1'; // the address clientIp() sees; the login tests change it per attempt
   const headersPath = require.resolve('next/headers');
   require.cache[headersPath] = {
     id: headersPath, filename: headersPath, loaded: true,
     exports: {
+      headers: async () => new Headers({ 'x-forwarded-for': currentIp }),
       cookies: async () => ({
         get: (name: string) => (cookieJar.has(name) ? { name, value: cookieJar.get(name)! } : undefined),
         set: (name: string, value: string) => void cookieJar.set(name, value),
@@ -319,6 +321,69 @@ async function main() {
   const cancelRefundAfter = await orderNow(cancelRefund.id);
   check('cancelling together with refunded is accepted', r10?.ok === true && cancelRefundAfter.status === 'cancelled' && cancelRefundAfter.paymentStatus === 'refunded', [r10, cancelRefundAfter.status, cancelRefundAfter.paymentStatus]);
   check('…and leaves no review flag', cancelRefundAfter.paymentFlag === null, cancelRefundAfter.paymentFlag);
+
+  console.log('Order editor: stale tabs and one transaction');
+  {
+    // the form the order page sends, with the «loaded…» copies of what it showed
+    const pageForm = (order: { id: number; status: string; paymentStatus: string; trackingCarrier?: string | null; trackingNumber?: string | null; adminNotes?: string | null }, asked: Record<string, string> = {}) =>
+      form({
+        id: String(order.id),
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        loadedStatus: order.status,
+        loadedPayment: order.paymentStatus,
+        loadedTrackingCarrier: order.trackingCarrier ?? '',
+        loadedTrackingNumber: order.trackingNumber ?? '',
+        loadedAdminNotes: order.adminNotes ?? '',
+        trackingCarrier: order.trackingCarrier ?? '',
+        trackingNumber: order.trackingNumber ?? '',
+        adminNotes: order.adminNotes ?? '',
+        ...asked,
+      });
+    const o = await makeOrder({ paymentMethod: 'cod', status: 'confirmed', paymentStatus: 'pending' });
+    const tabA = pageForm(await orderNow(o.id), { trackingNumber: 'AAA-111' });
+    const tabB = pageForm(await orderNow(o.id), { trackingNumber: 'BBB-222', trackingCarrier: 'ACS' });
+    const rB = await updateOrder(null, tabB);
+    check('tab B saves a tracking number', rB?.ok === true && (await orderNow(o.id)).trackingNumber === 'BBB-222' && (await orderNow(o.id)).trackingCarrier === 'ACS', rB);
+    const rA = await updateOrder(null, tabA);
+    check('tab A, opened before B saved, is refused as stale', rA?.ok === false && String(rA.message).includes('άλλαξε στο μεταξύ'), rA);
+    check('…and does not overwrite B', (await orderNow(o.id)).trackingNumber === 'BBB-222', (await orderNow(o.id)).trackingNumber);
+
+    const tabC = pageForm(await orderNow(o.id), { adminNotes: 'σημείωση C' });
+    const tabD = pageForm(await orderNow(o.id), { adminNotes: 'σημείωση D' });
+    await updateOrder(null, tabD);
+    const rC = await updateOrder(null, tabC);
+    check('the same for notes: the stale tab is refused and D stays', rC?.ok === false && (await orderNow(o.id)).adminNotes === 'σημείωση D', [rC, (await orderNow(o.id)).adminNotes]);
+
+    // a stale tab that does not touch tracking or notes still works: it only applies what it changed
+    const tabE = pageForm({ ...(await orderNow(o.id)), trackingNumber: '', trackingCarrier: '', adminNotes: '' }, { status: 'shipped' });
+    const rE = await updateOrder(null, tabE);
+    const afterE = await orderNow(o.id);
+    check('a stale tab that only changes the status succeeds', rE?.ok === true && afterE.status === 'shipped', rE);
+    check('…and leaves the tracking and notes saved meanwhile alone', afterE.trackingNumber === 'BBB-222' && afterE.adminNotes === 'σημείωση D', [afterE.trackingNumber, afterE.adminNotes]);
+
+    // nothing is half-saved: a payment change in the same save is undone when the tracking step finds the row has moved
+    const o2 = await makeOrder({ paymentMethod: 'cod', status: 'confirmed', paymentStatus: 'pending', trackingNumber: 'NEW-1' });
+    const staleTab = pageForm({ ...(await orderNow(o2.id)), trackingNumber: 'OLD-0' }, { paymentStatus: 'paid', trackingNumber: 'MINE-9' });
+    const events2Before = (await eventsNow(o2.id)).length;
+    const rRoll = await updateOrder(null, staleTab);
+    const o2After = await orderNow(o2.id);
+    check('a save whose tracking step is stale is refused', rRoll?.ok === false, rRoll);
+    check('…and its payment change is rolled back with it', o2After.paymentStatus === 'pending' && o2After.paidAt === null && o2After.trackingNumber === 'NEW-1', [o2After.paymentStatus, o2After.trackingNumber]);
+    check('…and leaves no event behind', (await eventsNow(o2.id)).length === events2Before, await eventsNow(o2.id));
+
+    // browsers send line breaks as CRLF: an unchanged note must not look stale, and a changed one saves
+    const o3 = await makeOrder({ paymentMethod: 'cod', status: 'confirmed', paymentStatus: 'pending', adminNotes: 'γραμμή 1\nγραμμή 2' });
+    const crlf = pageForm({ ...(await orderNow(o3.id)) }, { loadedAdminNotes: 'γραμμή 1\r\nγραμμή 2', adminNotes: 'γραμμή 1\r\nγραμμή 2\r\nγραμμή 3' });
+    const rCr = await updateOrder(null, crlf);
+    check('a note with line breaks saves from a CRLF form', rCr?.ok === true && (await orderNow(o3.id)).adminNotes?.includes('γραμμή 3') === true, rCr);
+
+    // cancelling through the editor still restocks and flags, in the same transaction
+    const o4 = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-TXN', paymentProvider: 'viva' });
+    const rCancel = await updateOrder(null, pageForm(await orderNow(o4.id), { status: 'cancelled' }));
+    const o4After = await orderNow(o4.id);
+    check('cancelling a paid order from the editor still works as one save', rCancel?.ok === true && o4After.status === 'cancelled' && o4After.paymentFlag === 'review', [rCancel, o4After.status, o4After.paymentFlag]);
+  }
 
   console.log('Payment review and unmatched payments (admin actions)');
   const flagged = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentTransactionId: 'TX-ADM-5', paymentProvider: 'viva', paymentFlag: 'review' });
@@ -778,6 +843,116 @@ async function main() {
     check('a deleted photo that a past order shows stays on disk', existsSync(path.join(dir, 'uploads', 'products', 'second-pass-kept.webp')));
     check('…while one that nothing shows any more is removed', !existsSync(path.join(dir, 'uploads', 'products', 'second-pass-gone.webp')));
     delete process.env.DATA_DIR;
+  }
+
+  console.log('Login limits (customers and admin)');
+  {
+    const { customers } = await import('../src/lib/db/schema');
+    const { hashPassword } = await import('../src/lib/auth/password');
+    const { totpFor, newTotpSecret } = await import('../src/lib/auth/totp');
+    const { loginCustomer } = await import('../src/app/(store)/account/actions');
+    const { loginAdmin } = await import('../src/app/admin/actions');
+    // redirect() throws: a login that succeeds ends in NEXT_REDIRECT, anything else answers with a message
+    const attempt = async (ip: string, fn: () => Promise<unknown>) => {
+      currentIp = ip;
+      try {
+        const r = (await fn()) as { ok: boolean; message: string } | null;
+        return { redirected: false, message: r?.message ?? '' };
+      } catch (err) {
+        if (String((err as { digest?: string }).digest ?? '').startsWith('NEXT_REDIRECT')) return { redirected: true, message: '' };
+        throw err;
+      }
+    };
+    const WRONG = 'Λάθος e-mail ή κωδικός.';
+    const customerLogin = (email: string, password: string) => () => loginCustomer(null, form({ email, password }));
+    const adminLogin = (email: string, password: string, totp = '') => () => loginAdmin(null, form({ email, password, totp }));
+    const pw = 'σωστός-κωδικός-1';
+    await db.insert(customers).values({ email: 'victim@example.com', passwordHash: await hashPassword(pw), firstName: 'Θύμα', lastName: 'Τεστ' });
+
+    // customers: strangers cannot lock an account out
+    let wrongOnes = 0;
+    for (let i = 1; i <= 15; i++) if ((await attempt(`198.51.100.${i}`, customerLogin('victim@example.com', 'λάθος-κωδικός'))).message === WRONG) wrongOnes++;
+    check('15 wrong passwords for one account from 15 different addresses are each simply wrong', wrongOnes === 15, wrongOnes);
+    const owner = await attempt('198.51.100.200', customerLogin('victim@example.com', pw));
+    check('…and the real owner, from another address, still signs in', owner.redirected, owner);
+    for (let i = 0; i < 8; i++) await attempt('198.51.100.201', customerLogin('victim@example.com', 'λάθος-κωδικός'));
+    const sameIp = await attempt('198.51.100.201', customerLogin('victim@example.com', pw));
+    check('one address that keeps failing is stopped for that account (even with the right password)', !sameIp.redirected && sameIp.message.startsWith('Πολλές αποτυχημένες'), sameIp);
+    const otherIp = await attempt('198.51.100.202', customerLogin('victim@example.com', pw));
+    check('…while every other address is not affected', otherIp.redirected, otherIp);
+    const ghost = await attempt('198.51.100.203', customerLogin('nobody@example.com', 'λάθος-κωδικός'));
+    const real = await attempt('198.51.100.204', customerLogin('victim@example.com', 'λάθος-κωδικός'));
+    check('an unknown e-mail and a wrong password get the same answer', ghost.message === WRONG && real.message === WRONG, [ghost, real]);
+
+    // the account-wide ceiling: about 50 failures an hour from anywhere, the same answer with or without an account
+    await db.insert(customers).values({ email: 'ceiling@example.com', passwordHash: await hashPassword(pw), firstName: 'Όριο', lastName: 'Τεστ' });
+    for (let i = 1; i <= 50; i++) {
+      await attempt(`192.0.2.${i}`, customerLogin('ceiling@example.com', 'λάθος-κωδικός'));
+      await attempt(`192.0.2.${i}`, customerLogin('ghost-ceiling@example.com', 'λάθος-κωδικός'));
+    }
+    const blockedReal = await attempt('192.0.2.200', customerLogin('ceiling@example.com', pw));
+    const blockedGhost = await attempt('192.0.2.201', customerLogin('ghost-ceiling@example.com', pw));
+    check('after 50 failures an hour the account is paused, whoever asks', !blockedReal.redirected && blockedReal.message.startsWith('Πολλές αποτυχημένες'), blockedReal);
+    check('…and an address that has no account gets the same pause (nothing tells them apart)', blockedGhost.message.startsWith('Πολλές αποτυχημένες'), blockedGhost);
+
+    // admin: the same, and the second factor stays strict
+    const adminPw = 'κωδικός-διαχειριστή-9';
+    await db.insert(adminUsers).values({ email: 'plain-admin@example.com', name: 'Plain', passwordHash: await hashPassword(adminPw) });
+    for (let i = 1; i <= 12; i++) await attempt(`198.18.0.${i}`, adminLogin('plain-admin@example.com', 'λάθος-κωδικός'));
+    const adminOwner = await attempt('198.18.0.100', adminLogin('plain-admin@example.com', adminPw));
+    check('12 wrong admin passwords from 12 addresses do not lock the owner out', adminOwner.redirected, adminOwner);
+
+    const secret = newTotpSecret();
+    const mfaEmail = 'mfa-admin@example.com';
+    await db.insert(adminUsers).values({ email: mfaEmail, name: 'Mfa', passwordHash: await hashPassword(adminPw), totpSecret: secret, totpConfirmedAt: new Date() });
+    const noCode = await attempt('198.19.0.1', adminLogin(mfaEmail, adminPw));
+    check('the right password alone does not sign in: it asks for the code', !noCode.redirected && noCode.message.includes('6ψήφιο'), noCode);
+    const wrongPwMfa = await attempt('198.19.0.2', adminLogin(mfaEmail, 'λάθος-κωδικός', totpFor(secret, mfaEmail).generate()));
+    check('a right code with a wrong password does not sign in', !wrongPwMfa.redirected && wrongPwMfa.message === WRONG, wrongPwMfa);
+    for (let i = 10; i < 20; i++) await attempt(`198.19.0.${i}`, adminLogin(mfaEmail, adminPw, '000000'));
+    const lateCode = await attempt('198.19.0.100', adminLogin(mfaEmail, adminPw, totpFor(secret, mfaEmail).generate()));
+    check('10 wrong codes from 10 addresses stop further guessing, even with the right code', !lateCode.redirected && lateCode.message.startsWith('Πολλές προσπάθειες με κωδικό'), lateCode);
+    const mfaOwner = await attempt('198.19.1.1', adminLogin('plain-admin@example.com', adminPw));
+    check('…and that pause belongs to the one account: another admin still signs in', mfaOwner.redirected, mfaOwner);
+    // a person who does not know the password cannot trigger the pause on the code
+    const secret2 = newTotpSecret();
+    const mfa2 = 'mfa-admin2@example.com';
+    await db.insert(adminUsers).values({ email: mfa2, name: 'Mfa2', passwordHash: await hashPassword(adminPw), totpSecret: secret2, totpConfirmedAt: new Date() });
+    for (let i = 1; i <= 12; i++) await attempt(`198.19.2.${i}`, adminLogin(mfa2, 'λάθος-κωδικός', '000000'));
+    const mfa2Owner = await attempt('198.19.2.100', adminLogin(mfa2, adminPw, totpFor(secret2, mfa2).generate()));
+    check('wrong passwords (with or without a code) never use up the code budget: the owner signs in', mfa2Owner.redirected, mfa2Owner);
+
+    // the failed-password ceiling (about 50 an hour, any address) applies to admins WITHOUT two-step verification and to unknown
+    // addresses, and not to an admin who has it: for them the code (capped separately) is what stops guessing
+    const noMfa = 'ceiling-admin@example.com';
+    await db.insert(adminUsers).values({ email: noMfa, name: 'NoMfa', passwordHash: await hashPassword(adminPw) });
+    for (let i = 1; i <= 50; i++) {
+      await attempt(`198.20.1.${i}`, adminLogin(noMfa, 'λάθος-κωδικός'));
+      await attempt(`198.20.2.${i}`, adminLogin('ghost-admin@example.com', 'λάθος-κωδικός'));
+    }
+    const pausedNoMfa = await attempt('198.20.3.1', adminLogin(noMfa, adminPw));
+    check('an admin without 2FA is paused after 50 failed passwords an hour, even with the right password', !pausedNoMfa.redirected && pausedNoMfa.message.startsWith('Πολλές προσπάθειες'), pausedNoMfa);
+    const pausedGhost = await attempt('198.20.3.2', adminLogin('ghost-admin@example.com', adminPw));
+    check('…an address with no account gets the same pause', !pausedGhost.redirected && pausedGhost.message === pausedNoMfa.message.replace(/\d+ λεπτά/, pausedGhost.message.match(/\d+ λεπτά/)?.[0] ?? ''), [pausedGhost, pausedNoMfa]);
+
+    const secret3 = newTotpSecret();
+    const mfa3 = 'mfa-admin3@example.com';
+    await db.insert(adminUsers).values({ email: mfa3, name: 'Mfa3', passwordHash: await hashPassword(adminPw), totpSecret: secret3, totpConfirmedAt: new Date() });
+    for (let i = 1; i <= 55; i++) await attempt(`198.20.4.${i}`, adminLogin(mfa3, 'λάθος-κωδικός'));
+    const mfa3Owner = await attempt('198.20.5.1', adminLogin(mfa3, adminPw, totpFor(secret3, mfa3).generate()));
+    check('an admin WITH 2FA is not paused by 55 failed passwords from 55 addresses: the owner signs in', mfa3Owner.redirected, mfa3Owner);
+    const { sql: sqlTag } = await import('drizzle-orm');
+    const { createHash } = await import('node:crypto');
+    const counterRows = async (key: string) => Number((await db.all<{ n: number }>(sqlTag`SELECT count(*) AS n FROM rate_limits WHERE "key" = ${createHash('sha256').update(key).digest('hex')}`))[0]?.n ?? 0);
+    check('…no password-failure counter is even kept for them (but is for the admin without 2FA)', (await counterRows(`admin-login-fail:account:${mfa3}`)) === 0 && (await counterRows(`admin-login-fail:account:${noMfa}`)) === 1);
+    for (let i = 10; i < 20; i++) await attempt(`198.20.6.${i}`, adminLogin(mfa3, adminPw, '000000'));
+    const mfa3Late = await attempt('198.20.6.100', adminLogin(mfa3, adminPw, totpFor(secret3, mfa3).generate()));
+    check('…and their code is still capped (10 wrong codes pause it), so guessing stays bounded', !mfa3Late.redirected && mfa3Late.message.startsWith('Πολλές προσπάθειες με κωδικό'), mfa3Late);
+
+    await db.delete(adminUsers).where(inArray(adminUsers.email, ['plain-admin@example.com', mfaEmail, mfa2]));
+    await db.delete(customers).where(inArray(customers.email, ['victim@example.com', 'ceiling@example.com']));
+    currentIp = '203.0.113.1';
+    await createSession('admin', admin.id, admin.tokenVersion); // the sign-ins above replaced the session cookie
   }
 
   console.log('Cleanup');

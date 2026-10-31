@@ -47,6 +47,15 @@ export async function stripeCreateCheckout(input: {
   return { sessionId: session.id, redirectUrl: session.url };
 }
 
+/**
+ * Is this Checkout Session one this shop created? stripeCreateCheckout puts the order number in client_reference_id and the
+ * order id in metadata.orderId. A session without both (a Payment Link, another site on the same Stripe account) is not ours:
+ * it is neither settled nor reported as an unmatched payment. The same idea as vivaTransactionIsOurs for Viva.
+ */
+export function stripeSessionIsOurs(clientReferenceId: string | null | undefined, orderId: string | number | null | undefined): boolean {
+  return Boolean(clientReferenceId) && /^[1-9]\d*$/.test(String(orderId ?? ''));
+}
+
 export async function stripeRetrieveSession(sessionId: string) {
   const session = await stripe().checkout.sessions.retrieve(sessionId);
   return {
@@ -54,6 +63,9 @@ export async function stripeRetrieveSession(sessionId: string) {
     /** the buyer finished the checkout but the money is still on its way (SEPA Debit and other delayed methods) */
     processing: session.status === 'complete' && session.payment_status === 'unpaid',
     amountCents: session.amount_total ?? 0,
+    currency: session.currency ? session.currency.toUpperCase() : null,
+    /** the order number we put on the session when it was created */
+    clientReferenceId: session.client_reference_id ?? null,
     orderId: Number(session.metadata?.orderId ?? 0),
     paymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent?.id ?? null),
   };
