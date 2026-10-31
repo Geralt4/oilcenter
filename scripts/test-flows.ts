@@ -442,6 +442,7 @@ async function main() {
     const previousViewport = page.viewportSize() ?? { width: 1280, height: 720 };
     await page.setViewportSize({ width: 1280, height: 500 });
     await page.goto(`${base}/admin`);
+    check('the dashboard checklist lists the payment-mail line (no mail has been given up)', (await page.getByText('E-mail πληρωμών που δεν στάλθηκαν').count()) > 0 && (await page.getByText('Κανένα e-mail πληρωμής δεν έμεινε απέσταλτο.').count()) > 0);
     const menu = page.locator('aside nav[aria-label="Διαχείριση"]');
     const lastLink = menu.getByRole('link').last();
     const firstLink = menu.getByRole('link', { name: 'Επισκόπηση', exact: true });
