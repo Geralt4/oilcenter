@@ -61,7 +61,8 @@ export async function register() {
   setInterval(releaseCardOrders, 60 * 60 * 1000).unref();
 
   // Mails that follow a payment are saved with it and sent right after; this sweep sends the ones that did not go out (the
-  // process died in between, or the mail service was down) and gives up on a mail after 8 tries.
+  // process died in between, or the mail service was down). Each mail waits 1, 5, 15 and 60 minutes and then an hour between
+  // attempts, and is given up at the 27th failure, about a day after the first (payments/mail-delivery.ts).
   const { deliverPendingMail } = await import('@/lib/payments/mail-delivery');
   const sweepMail = () =>
     deliverPendingMail()
