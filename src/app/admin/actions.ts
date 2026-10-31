@@ -66,15 +66,20 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
   if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
   const perAccount = await rateLimit(`admin-login:${await clientIp()}:${email}`, 6, 15 * 60 * 1000);
   if (!perAccount.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(perAccount.retryAfterSec / 60)} λεπτά.` };
-  // Account-wide, failures only (see rate-limit.ts): many machines guessing at one account run into it, and it cannot be spent by
-  // someone who merely knows the e-mail address, so it cannot lock the owner out.
-  const blocked = await accountFailuresBlocked('admin-login', email);
-  if (!blocked.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(blocked.retryAfterSec / 60)} λεπτά.` };
-
   const [admin] = await db.select().from(adminUsers).where(eq(adminUsers.email, email));
+  // The account-wide failed-password ceiling (rate-limit.ts) is for accounts that a password alone can open. An admin with
+  // two-step verification is left out: guessing the password gets nobody in without the code, the code has its own account-wide
+  // cap below, and so strangers cannot use the ceiling to lock the owner out of the panel. An address with no account is
+  // treated like an admin without 2FA, so the ceiling itself does not tell the two apart.
+  const ceilingApplies = !admin?.totpConfirmedAt;
+  if (ceilingApplies) {
+    const blocked = await accountFailuresBlocked('admin-login', email);
+    if (!blocked.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(blocked.retryAfterSec / 60)} λεπτά.` };
+  }
+
   const valid = await verifyPassword(password, admin?.passwordHash ?? 'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAA');
   if (!admin || !valid) {
-    await recordAccountFailure('admin-login', email);
+    if (ceilingApplies) await recordAccountFailure('admin-login', email);
     // The e-mail the visitor typed, never the password. Kept to one line: log floods hunt for noise.
     // At 6 tries/15 min per address this stays rare in normal use — 2+ logged failures in a window means
     // someone is knocking, and the platform log is where the owner (or an alert rule) will see it.

@@ -922,6 +922,33 @@ async function main() {
     const mfa2Owner = await attempt('198.19.2.100', adminLogin(mfa2, adminPw, totpFor(secret2, mfa2).generate()));
     check('wrong passwords (with or without a code) never use up the code budget: the owner signs in', mfa2Owner.redirected, mfa2Owner);
 
+    // the failed-password ceiling (about 50 an hour, any address) applies to admins WITHOUT two-step verification and to unknown
+    // addresses, and not to an admin who has it: for them the code (capped separately) is what stops guessing
+    const noMfa = 'ceiling-admin@example.com';
+    await db.insert(adminUsers).values({ email: noMfa, name: 'NoMfa', passwordHash: await hashPassword(adminPw) });
+    for (let i = 1; i <= 50; i++) {
+      await attempt(`198.20.1.${i}`, adminLogin(noMfa, 'λάθος-κωδικός'));
+      await attempt(`198.20.2.${i}`, adminLogin('ghost-admin@example.com', 'λάθος-κωδικός'));
+    }
+    const pausedNoMfa = await attempt('198.20.3.1', adminLogin(noMfa, adminPw));
+    check('an admin without 2FA is paused after 50 failed passwords an hour, even with the right password', !pausedNoMfa.redirected && pausedNoMfa.message.startsWith('Πολλές προσπάθειες'), pausedNoMfa);
+    const pausedGhost = await attempt('198.20.3.2', adminLogin('ghost-admin@example.com', adminPw));
+    check('…an address with no account gets the same pause', !pausedGhost.redirected && pausedGhost.message === pausedNoMfa.message.replace(/\d+ λεπτά/, pausedGhost.message.match(/\d+ λεπτά/)?.[0] ?? ''), [pausedGhost, pausedNoMfa]);
+
+    const secret3 = newTotpSecret();
+    const mfa3 = 'mfa-admin3@example.com';
+    await db.insert(adminUsers).values({ email: mfa3, name: 'Mfa3', passwordHash: await hashPassword(adminPw), totpSecret: secret3, totpConfirmedAt: new Date() });
+    for (let i = 1; i <= 55; i++) await attempt(`198.20.4.${i}`, adminLogin(mfa3, 'λάθος-κωδικός'));
+    const mfa3Owner = await attempt('198.20.5.1', adminLogin(mfa3, adminPw, totpFor(secret3, mfa3).generate()));
+    check('an admin WITH 2FA is not paused by 55 failed passwords from 55 addresses: the owner signs in', mfa3Owner.redirected, mfa3Owner);
+    const { sql: sqlTag } = await import('drizzle-orm');
+    const { createHash } = await import('node:crypto');
+    const counterRows = async (key: string) => Number((await db.all<{ n: number }>(sqlTag`SELECT count(*) AS n FROM rate_limits WHERE "key" = ${createHash('sha256').update(key).digest('hex')}`))[0]?.n ?? 0);
+    check('…no password-failure counter is even kept for them (but is for the admin without 2FA)', (await counterRows(`admin-login-fail:account:${mfa3}`)) === 0 && (await counterRows(`admin-login-fail:account:${noMfa}`)) === 1);
+    for (let i = 10; i < 20; i++) await attempt(`198.20.6.${i}`, adminLogin(mfa3, adminPw, '000000'));
+    const mfa3Late = await attempt('198.20.6.100', adminLogin(mfa3, adminPw, totpFor(secret3, mfa3).generate()));
+    check('…and their code is still capped (10 wrong codes pause it), so guessing stays bounded', !mfa3Late.redirected && mfa3Late.message.startsWith('Πολλές προσπάθειες με κωδικό'), mfa3Late);
+
     await db.delete(adminUsers).where(inArray(adminUsers.email, ['plain-admin@example.com', mfaEmail, mfa2]));
     await db.delete(customers).where(inArray(customers.email, ['victim@example.com', 'ceiling@example.com']));
     currentIp = '203.0.113.1';
