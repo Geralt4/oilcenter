@@ -97,6 +97,9 @@ What the deployment-level protections do and where they live — read together w
 - **Startup checks:** a production boot fails loudly (`src/instrumentation.ts` → `src/lib/startup-check.ts`) when
   `AUTH_SECRET` is missing/short, `SITE_URL` is absent or not https, or `COMMERCE_ENABLED` holds a nonsense value.
   A restart loop with a clear log message beats a silently misconfigured site. Deliberately skipped during `next build`.
+  One non-fatal warning is logged (`[startup] WARNING:`) when mail goes through Resend (`RESEND_API_KEY`), `MAIL_FROM` is
+  empty and commerce is on: the sender would be Resend's test address, which reaches only the Resend account's own mailbox.
+  The admin dashboard checklist shows the same thing.
 - **Login throttling:** both logins use two limits that only count the visitor's own address — per address+e-mail (8 tries
   per 15 minutes for customers, 6 for admins) and an address-wide pool (20 per 15 minutes, against spraying) — so a stranger
   cannot spend somebody else's tries. On top sits one account-wide ceiling that counts **failed passwords only**, from any

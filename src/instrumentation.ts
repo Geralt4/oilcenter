@@ -11,12 +11,14 @@ export async function register() {
 
   // Fail the boot rather than run misconfigured: a missing AUTH_SECRET or a http SITE_URL discovered by the
   // first broken e-mail link is far worse than a restart loop that says exactly what is wrong.
-  const { checkProductionConfig } = await import('@/lib/startup-check');
+  const { checkProductionConfig, checkProductionWarnings } = await import('@/lib/startup-check');
   const problems = checkProductionConfig();
   if (problems.length) {
     for (const p of problems) console.error(`[startup] CONFIGURATION PROBLEM: ${p}`);
     process.exit(1);
   }
+  // Warnings never stop the boot.
+  for (const w of checkProductionWarnings()) console.warn(`[startup] WARNING: ${w}`);
 
   const { ensureDailyBackup } = await import('@/lib/backup');
   const { ensureOffsiteBackup, offsiteConfigured, pushSnapshotNow } = await import('@/lib/backup-offsite');

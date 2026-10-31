@@ -128,7 +128,41 @@ async function main() {
   check('a nonsense COMMERCE_ENABLED is reported', weird.some((p) => p.includes('COMMERCE_ENABLED')), weird);
   const good = cfg('x'.repeat(48), 'https://www.oilcenter.gr', 'false');
   check('a complete production configuration passes', good.length === 0, good);
-  process.env.AUTH_SECRET = saved.secret; process.env.SITE_URL = saved.site; process.env.COMMERCE_ENABLED = saved.commerce;
+
+  // Non-fatal warning: Resend without MAIL_FROM while commerce is on
+  const { checkProductionWarnings } = await import('../src/lib/startup-check');
+  const mailEnv = ['RESEND_API_KEY', 'MAIL_FROM', 'SMTP_HOST', 'COMMERCE_ENABLED'] as const;
+  const savedMail = Object.fromEntries(mailEnv.map((n) => [n, process.env[n]]));
+  const warnWith = (env: Partial<Record<(typeof mailEnv)[number], string>>): string[] => {
+    for (const n of mailEnv) delete process.env[n];
+    for (const [n, v] of Object.entries(env)) process.env[n] = v;
+    return checkProductionWarnings();
+  };
+  const noSender = warnWith({ RESEND_API_KEY: 're_test' });
+  check('Resend without MAIL_FROM while commerce is on → one warning naming MAIL_FROM', noSender.length === 1 && noSender[0].includes('MAIL_FROM'), noSender);
+  const blankSender = warnWith({ RESEND_API_KEY: 're_test', MAIL_FROM: '   ' });
+  check('…a blank MAIL_FROM counts as unset', blankSender.length === 1, blankSender);
+  const explicitCommerce = warnWith({ RESEND_API_KEY: 're_test', COMMERCE_ENABLED: 'true' });
+  check('…also with COMMERCE_ENABLED=true', explicitCommerce.length === 1, explicitCommerce);
+  const withSender = warnWith({ RESEND_API_KEY: 're_test', MAIL_FROM: 'Oil Center <no-reply@oilcenter.gr>' });
+  check('no warning when MAIL_FROM is set', withSender.length === 0, withSender);
+  const catalogue = warnWith({ RESEND_API_KEY: 're_test', COMMERCE_ENABLED: 'false' });
+  check('no warning in catalogue mode (COMMERCE_ENABLED=false)', catalogue.length === 0, catalogue);
+  const smtpOnly = warnWith({ SMTP_HOST: 'smtp.example.gr' });
+  check('no warning when mail goes through SMTP', smtpOnly.length === 0, smtpOnly);
+  const fileFallback = warnWith({});
+  check('no warning with the file fallback (no Resend, no SMTP)', fileFallback.length === 0, fileFallback);
+  const fatalToo = (() => {
+    for (const n of mailEnv) delete process.env[n];
+    process.env.RESEND_API_KEY = 're_test';
+    return cfg('x'.repeat(48), 'https://www.oilcenter.gr', undefined);
+  })();
+  check('the warning is not a boot-stopping problem', fatalToo.length === 0, fatalToo);
+  for (const n of mailEnv) { if (savedMail[n] === undefined) delete process.env[n]; else process.env[n] = savedMail[n]; }
+
+  if (saved.secret === undefined) delete process.env.AUTH_SECRET; else process.env.AUTH_SECRET = saved.secret;
+  if (saved.site === undefined) delete process.env.SITE_URL; else process.env.SITE_URL = saved.site;
+  if (saved.commerce === undefined) delete process.env.COMMERCE_ENABLED; else process.env.COMMERCE_ENABLED = saved.commerce;
 
   console.log('Admin second factor (TOTP)');
   const { newTotpSecret, totpFor, totpStep, totpUri, verifyTotp } = await import('../src/lib/auth/totp');
