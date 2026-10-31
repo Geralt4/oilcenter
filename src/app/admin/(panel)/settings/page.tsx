@@ -7,7 +7,7 @@ import { Card, Check, Field, PageHeader } from '@/components/admin/ui';
 import { buttonClass } from '@/components/ui/button';
 import { totpUri } from '@/lib/auth/totp';
 import { backupsSupported, listBackups } from '@/lib/backup';
-import { offsiteConfigured, offsiteStatus } from '@/lib/backup-offsite';
+import { lastOffsiteSuccess, offsiteConfigured, offsiteStatus } from '@/lib/backup-offsite';
 import { db } from '@/lib/db';
 import { adminUsers } from '@/lib/db/schema';
 import { cardProvider } from '@/lib/payments';
@@ -334,7 +334,7 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
                   : offsiteLast?.ok
                     ? `Εξωτερικό αντίγραφο (Backblaze B2): ενημερώθηκε ${formatDate(new Date(offsiteLast.at))} — κρυπτογραφημένο, διατηρούνται 14 ημερήσια.`
                     : offsiteLast
-                      ? `Εξωτερικό αντίγραφο (Backblaze B2): Η ΤΕΛΕΥΤΑΙΑ ΑΠΟΣΤΟΛΗ ΑΠΕΤΥΧΕ (${formatDate(new Date(offsiteLast.at))}). Ελέγξτε τα στοιχεία σύνδεσης στο Railway.`
+                      ? `Εξωτερικό αντίγραφο (Backblaze B2): Η ΤΕΛΕΥΤΑΙΑ ΑΠΟΣΤΟΛΗ ΑΠΕΤΥΧΕ (${formatDate(new Date(offsiteLast.at))}).${lastOffsiteSuccess(offsiteLast) ? ` Τελευταίο επιτυχές: ${formatDate(new Date(lastOffsiteSuccess(offsiteLast)!))}.` : ''} Ελέγξτε τα στοιχεία σύνδεσης στο Railway.`
                       : 'Εξωτερικό αντίγραφο (Backblaze B2): ρυθμισμένο, αναμένεται η πρώτη αποστολή.'}
               </p>
             </>

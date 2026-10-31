@@ -251,6 +251,130 @@ async function main() {
   check('a bad BACKUP_ENCRYPTION_KEY is reported', badBackupKey.some((p) => p.includes('BACKUP_ENCRYPTION_KEY')), badBackupKey);
   delete process.env.B2_KEY_ID; delete process.env.B2_APP_KEY; delete process.env.B2_BUCKET; delete process.env.BACKUP_ENCRYPTION_KEY;
 
+  console.log('Off-site backup: timeouts and stuck runs');
+  {
+    const { B2Error, ensureOffsiteBackup, offsiteIsFresh, offsiteLimits, offsiteStatus, pushSnapshotNow, uploadTimeoutMs } = await import('../src/lib/backup-offsite');
+    const nodePath = (await import('node:path')).default;
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const lim0 = { ...offsiteLimits };
+    check('the limits: 30 s for a call, 60 s + 4 s per MiB for an upload, 2 h before a run is taken for dead', lim0.callMs === 30_000 && lim0.uploadBaseMs === 60_000 && lim0.uploadPerMibMs === 4_000 && lim0.staleMs === 7_200_000, lim0);
+    check('an upload of 5 MiB gets 80 s, an empty one 60 s, and the cap holds', uploadTimeoutMs(5 * 1024 * 1024) === 80_000 && uploadTimeoutMs(0) === 60_000 && uploadTimeoutMs(10_000 * 1024 * 1024) === 1_800_000);
+
+    // a fake B2: every step answers, hangs (and gives up when its signal aborts, like the real fetch) or answers an HTTP error
+    type Rule = 'hang' | 'deaf' | number;
+    let rules: Partial<Record<string, Rule>> = {};
+    const release: Array<() => void> = [];
+    const stepOf = (url: string) => url.includes('b2_authorize_account') ? 'authorize' : url.includes('b2_list_buckets') ? 'bucket' : url.includes('b2_list_file_names') ? 'list' : url.includes('b2_get_upload_url') ? 'upload URL' : url.includes('up.b2.test') ? 'upload' : 'cleanup';
+    const answers: Record<string, unknown> = {
+      authorize: { apiUrl: 'https://api.b2.test', authorizationToken: 't', accountId: 'acc' },
+      bucket: { buckets: [{ bucketId: 'b1', bucketName: 'bucket-test' }] },
+      list: { files: [], nextFileName: null },
+      'upload URL': { uploadUrl: 'https://up.b2.test/file', authorizationToken: 'u' },
+      upload: {},
+      cleanup: { files: [], nextFileName: null, nextFileId: null },
+    };
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const step = stepOf(String(input));
+      const rule = rules[step];
+      if (rule === 'hang') return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)));
+      // a hang the deadline cannot reach: it ignores the signal until the test lets it go, and then fails
+      if (rule === 'deaf') { await new Promise<void>((resolve) => release.push(resolve)); throw new Error('connection reset'); }
+      if (typeof rule === 'number') return new Response('boom', { status: rule });
+      return new Response(JSON.stringify(answers[step]));
+    }) as typeof fetch;
+
+    const saved = { data: process.env.DATA_DIR, key: process.env.BACKUP_ENCRYPTION_KEY };
+    const offDir = nodePath.join(dir, 'offsite-data');
+    await mkdir(nodePath.join(offDir, 'backups'), { recursive: true });
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Athens' }).format(new Date());
+    await writeFile(nodePath.join(offDir, 'backups', `shop-${day}.db.gz`), 'a tiny snapshot');
+    process.env.DATA_DIR = offDir;
+    process.env.B2_KEY_ID = 'k'; process.env.B2_APP_KEY = 'a'; process.env.B2_BUCKET = 'bucket-test';
+    process.env.BACKUP_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
+    offsiteLimits.callMs = 150; offsiteLimits.uploadBaseMs = 150; offsiteLimits.uploadPerMibMs = 0; offsiteLimits.uploadMaxMs = 150; offsiteLimits.staleMs = 400;
+
+    const attempt = async () => {
+      const t = Date.now();
+      try {
+        return { result: await ensureOffsiteBackup(), err: null as unknown as InstanceType<typeof B2Error>, ms: Date.now() - t };
+      } catch (err) {
+        return { result: null, err: err as InstanceType<typeof B2Error>, ms: Date.now() - t };
+      }
+    };
+    const steps = ['authorize', 'bucket', 'list', 'upload URL', 'upload', 'cleanup'];
+    // AbortSignal.timeout timers do not keep a process alive, and the fake fetch has no socket: hold the loop open while the section runs
+    const keepAlive = setInterval(() => undefined, 1000);
+    try {
+      for (const step of steps) {
+        rules = { [step]: 'hang' };
+        const r = await attempt();
+        check(`a «${step}» call that never answers fails within the limit and says so`, r.err instanceof B2Error && r.err.step === step && r.err.timedOut && r.err.message.includes(step) && r.err.message.includes('timed out') && r.ms < 2000, { message: r.err?.message, ms: r.ms });
+        const status = await offsiteStatus();
+        check('…the failure is recorded with the step', status?.ok === false && (status.error ?? '').includes(step), status);
+        rules = {};
+        const next = await attempt();
+        check('…and the next run goes ahead (the flag was reset)', next.result === 'uploaded', next.err?.message ?? next.result);
+      }
+      for (const step of steps) {
+        rules = { [step]: 500 };
+        const r = await attempt();
+        check(`an HTTP 500 at «${step}» names the step and is not a timeout`, r.err instanceof B2Error && r.err.step === step && !r.err.timedOut && r.err.message.includes(step) && r.err.message.includes('500'), r.err?.message);
+        rules = {};
+        check('…and the next run goes ahead', (await attempt()).result === 'uploaded');
+      }
+
+      // a hang the deadline cannot reach: the run stays marked as running until the stale limit passes
+      rules = { authorize: 'deaf' };
+      const warnings: string[] = [];
+      const realWarn = console.warn;
+      console.warn = (...args: unknown[]) => void warnings.push(args.join(' '));
+      try {
+        const stuck = ensureOffsiteBackup().then(() => 'finished', (err: Error) => err.message);
+        await sleep(20);
+        check('while a run is young, the next call leaves it alone', (await ensureOffsiteBackup()) === 'exists' && warnings.length === 0, warnings);
+        await sleep(450);
+        const takeover = ensureOffsiteBackup().then(() => 'finished', (err: Error) => err.message);
+        await sleep(20);
+        check('a run marked as running past the stale limit is taken for dead, with a warning', warnings.length === 1 && warnings[0].includes('treating it as dead'), warnings);
+        release[0]();
+        check('the dead run failing late is reported to its own caller', (await stuck).includes('authorize'));
+        check('…and does not clear the flag of the run that replaced it', (await ensureOffsiteBackup()) === 'exists');
+        release[1]();
+        await takeover;
+        rules = {};
+        check('once the replacement ends, runs go ahead again', (await attempt()).result === 'uploaded');
+      } finally {
+        console.warn = realWarn;
+      }
+
+      // the time of the last success survives a failed attempt
+      const good = await offsiteStatus();
+      check('a successful run records the time of the success', good?.ok === true && good.lastOkAt === good.at, good);
+      rules = { upload: 500 };
+      await attempt();
+      const failed = await offsiteStatus();
+      check('a failed run keeps the time of the last success', failed?.ok === false && failed.lastOkAt === good?.at, failed);
+      check('…so the checklist stays green for a day after one failed run', offsiteIsFresh(failed));
+      const H = 3600 * 1000;
+      check('fresh at 25 h, not at 27 h', offsiteIsFresh({ at: Date.now(), ok: true, object: 'x', lastOkAt: Date.now() - 25 * H }) && !offsiteIsFresh({ at: Date.now(), ok: true, object: 'x', lastOkAt: Date.now() - 27 * H }));
+      check('a failed attempt after an old success is not fresh', !offsiteIsFresh({ at: Date.now(), ok: false, object: null, lastOkAt: Date.now() - 30 * H }));
+      check('a status file from before lastOkAt existed still reads right', offsiteIsFresh({ at: Date.now() - H, ok: true, object: 'x' }) && !offsiteIsFresh({ at: Date.now() - H, ok: false, object: null }) && !offsiteIsFresh(null));
+
+      // the «backup now» path has the same deadlines
+      rules = { upload: 'hang' };
+      const pushed = await pushSnapshotNow().then(() => null, (err: InstanceType<typeof B2Error>) => err);
+      check('«backup now» also gives up on a hung upload and says which step', pushed instanceof B2Error && pushed.step === 'upload' && pushed.timedOut, pushed?.message);
+    } finally {
+      clearInterval(keepAlive);
+      globalThis.fetch = realFetch;
+      Object.assign(offsiteLimits, lim0);
+      if (saved.data === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = saved.data;
+      if (saved.key === undefined) delete process.env.BACKUP_ENCRYPTION_KEY; else process.env.BACKUP_ENCRYPTION_KEY = saved.key;
+      delete process.env.B2_KEY_ID; delete process.env.B2_APP_KEY; delete process.env.B2_BUCKET;
+    }
+  }
+
   console.log('Request-size boundaries');
   const { readJsonLimited } = await import('../src/lib/form-size');
   const okBody = await readJsonLimited(new Request('http://localhost/x', { method: 'POST', body: JSON.stringify({ lines: [] }), headers: { 'Content-Type': 'application/json' } }), 1024);

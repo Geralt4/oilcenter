@@ -18,7 +18,7 @@ import { countGivenUpMails, GIVEN_UP_WINDOW_DAYS } from '@/lib/payments/mail-del
 import { getSettings } from '@/lib/settings.server';
 import { cn, formatDateTime, formatPrice } from '@/lib/utils';
 import { backupStatus } from '@/lib/backup';
-import { offsiteConfigured, offsiteIsFresh, offsiteStatus } from '@/lib/backup-offsite';
+import { lastOffsiteSuccess, offsiteConfigured, offsiteIsFresh, offsiteStatus } from '@/lib/backup-offsite';
 
 const DAY = 24 * 60 * 60 * 1000;
 const daysAgo = (days: number) => new Date(Date.now() - days * DAY);
@@ -70,7 +70,7 @@ export default async function AdminDashboard() {
     Promise.resolve(offsiteConfigured()),
     offsiteStatus(),
   ]);
-  // > 36 h without a successful upload = at least one nightly run missed; surface it before the owner relies on it
+  // > 26 h without a successful upload = the night's copy is late (two hourly runs in a row failed, or none ran); surface it before the owner relies on it
   const offsiteFresh = offsiteIsFresh(offsiteLast);
   // payment mails (customer confirmation, shop notice or alert) the site tried for about a day and then gave up on
   const givenUpMails = await countGivenUpMails();
@@ -85,7 +85,7 @@ export default async function AdminDashboard() {
     // having an address is one thing, the site being able to SEND to it (SMTP, next line) is another: say which is true
     { done: Boolean(shop.email || process.env.ORDERS_NOTIFY_EMAIL), label: 'E-mail καταστήματος', detail: !(shop.email || process.env.ORDERS_NOTIFY_EMAIL) ? 'Δεν έχει οριστεί: τα μηνύματα από τις φόρμες («Επικοινωνία», «Ποιο λάδι;») φαίνονται μόνο εδώ, στα Μηνύματα — δεν σας ειδοποιεί κανείς.' : process.env.SMTP_HOST ? 'Εκεί έρχονται τα μηνύματα από τις φόρμες του site.' : 'Η διεύθυνση έχει οριστεί και φαίνεται στο site, αλλά το site δεν στέλνει ακόμη e-mail (επόμενη γραμμή): μέχρι τότε τα μηνύματα των φορμών φαίνονται μόνο εδώ, στα Μηνύματα.', href: '/admin/settings' },
     { done: backupFresh, label: 'Αντίγραφο ασφαλείας', detail: backupFresh ? (newestBackup ? `Τελευταίο αυτόματο αντίγραφο: ${newestBackup}.` : 'Δεν χρειάζεται για αυτή τη βάση.') : `Το καθημερινό αντίγραφο δεν γράφτηκε${newestBackup ? ` από τις ${newestBackup}` : ' ποτέ'}. Ενημερώστε τον προγραμματιστή.`, href: null },
-    { done: offsiteFresh, label: 'Αντίγραφο εκτός δίσκου (Backblaze B2)', detail: !offsiteOn ? 'Δεν έχει ρυθμιστεί: τα αντίγραφα μένουν στον ίδιο δίσκο με το site — αν χαθεί ο δίσκος, χάνονται όλα. Ρυθμίζεται από τον προγραμματιστή (.env).' : offsiteFresh ? 'Κρυπτογραφημένο αντίγραφο ανεβαίνει κάθε βράδυ, μαζί με φωτογραφίες και δελτία ασφαλείας.' : `Η τελευταία αποστολή απέτυχε${offsiteLast ? ` (${formatDateTime(new Date(offsiteLast.at))})` : ''}. Ελέγξτε τα στοιχεία B2 στο Railway.`, href: null },
+    { done: offsiteFresh, label: 'Αντίγραφο εκτός δίσκου (Backblaze B2)', detail: !offsiteOn ? 'Δεν έχει ρυθμιστεί: τα αντίγραφα μένουν στον ίδιο δίσκο με το site — αν χαθεί ο δίσκος, χάνονται όλα. Ρυθμίζεται από τον προγραμματιστή (.env).' : offsiteFresh ? `Τελευταίο επιτυχές αντίγραφο εκτός server: ${formatDateTime(new Date(lastOffsiteSuccess(offsiteLast)!))}. Κρυπτογραφημένο, ανεβαίνει κάθε βράδυ, μαζί με φωτογραφίες και δελτία ασφαλείας.` : lastOffsiteSuccess(offsiteLast) === null ? `Δεν έχει ανέβει ακόμη κανένα αντίγραφο εκτός server${offsiteLast && !offsiteLast.ok ? ': η τελευταία προσπάθεια απέτυχε' : ''}. Ελέγξτε τα στοιχεία B2 στο Railway.` : `Δεν υπάρχει επιτυχές αντίγραφο εκτός server από ${formatDateTime(new Date(lastOffsiteSuccess(offsiteLast)!))} (πάνω από 26 ώρες). ${offsiteLast && !offsiteLast.ok ? 'Η τελευταία προσπάθεια απέτυχε.' : 'Δεν έχει γίνει νέα προσπάθεια.'} Ελέγξτε τα στοιχεία B2 στο Railway.`, href: null },
     { done: Boolean(mfaRow?.confirmedAt), label: 'Επαλήθευση δύο βημάτων (2FA)', detail: mfaRow?.confirmedAt ? 'Ενεργή: η σύνδεση στη διαχείριση ζητά και κωδικό από την εφαρμογή επαλήθευσης.' : 'Ανενεργή: ένα κλεμμένο συνθηματικό αρκεί για να μπει κάποιος στη διαχείριση. Ενεργοποιήστε την — διαρκεί δύο λεπτά.', href: '/admin/settings#mfa' },
     { done: mailConfigured(), label: 'Αποστολή e-mail', detail: mailConfigured() ? 'Ρυθμισμένο.' : 'Δεν έχει ρυθμιστεί: τα e-mail γράφονται σε αρχεία αντί να στέλνονται. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
     // with Resend and no MAIL_FROM the sender is Resend's test address: fine for the shop's own notices, not for customers (lib/startup-check.ts warns at boot too)
