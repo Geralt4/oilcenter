@@ -913,7 +913,7 @@ async function main() {
           return [] as string[];
         }
       };
-      const orphan = { id: 'cs_orphan_1', payment_status: 'paid', status: 'complete', client_reference_id: 'OC-NOPE-1', amount_total: 1999, currency: 'eur', payment_intent: 'pi_orphan_1' };
+      const orphan = { id: 'cs_orphan_1', payment_status: 'paid', status: 'complete', client_reference_id: 'OC-NOPE-1', metadata: { orderId: '999991', orderNumber: 'OC-NOPE-1' }, amount_total: 1999, currency: 'eur', payment_intent: 'pi_orphan_1' };
       const before = new Set(filesNow());
       const a1 = await deliver('checkout.session.completed', orphan);
       check('the webhook answers 200 for a paid checkout with no order', a1.status === 200, a1.status);
@@ -933,8 +933,8 @@ async function main() {
       const sessions = stripe().checkout.sessions as unknown as { retrieve: (id: string) => Promise<unknown> };
       const realRetrieve = sessions.retrieve;
       const answers: Record<string, Record<string, unknown>> = {
-        cs_orphan_ret: { id: 'cs_orphan_ret', payment_status: 'paid', status: 'complete', client_reference_id: 'OC-NOPE-2', amount_total: 2550, currency: 'eur', payment_intent: 'pi_orphan_ret' },
-        cs_orphan_unpaid: { id: 'cs_orphan_unpaid', payment_status: 'unpaid', status: 'open', client_reference_id: 'OC-NOPE-3', amount_total: 2550, currency: 'eur', payment_intent: null },
+        cs_orphan_ret: { id: 'cs_orphan_ret', payment_status: 'paid', status: 'complete', client_reference_id: 'OC-NOPE-2', metadata: { orderId: '999992', orderNumber: 'OC-NOPE-2' }, amount_total: 2550, currency: 'eur', payment_intent: 'pi_orphan_ret' },
+        cs_orphan_unpaid: { id: 'cs_orphan_unpaid', payment_status: 'unpaid', status: 'open', client_reference_id: 'OC-NOPE-3', metadata: { orderId: '999993', orderNumber: 'OC-NOPE-3' }, amount_total: 2550, currency: 'eur', payment_intent: null },
       };
       sessions.retrieve = async (id: string) => answers[id];
       try {
@@ -952,6 +952,25 @@ async function main() {
         // the webhook for the same payment finds the row the return made: still one row, one mail
         await deliver('checkout.session.completed', { ...answers.cs_orphan_ret });
         check('the webhook for the same payment adds nothing either', (await db.select().from(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe'))).length === 1 && filesNow().filter((f) => !beforeRet.has(f)).length === 1);
+
+        // a paid session this shop did not create (a Payment Link, another site on the same Stripe account): not ours, so not reported
+        const rowsBefore = (await db.select().from(unmatchedPayments)).length;
+        const mailsBefore = filesNow().length;
+        const foreign: Record<string, Record<string, unknown>> = {
+          cs_foreign_bare: { id: 'cs_foreign_bare', payment_status: 'paid', status: 'complete', amount_total: 4200, currency: 'eur', payment_intent: 'pi_foreign_bare' },
+          cs_foreign_noref: { id: 'cs_foreign_noref', payment_status: 'paid', status: 'complete', metadata: { orderId: '999994' }, amount_total: 4200, currency: 'eur', payment_intent: 'pi_foreign_noref' },
+          cs_foreign_nometa: { id: 'cs_foreign_nometa', payment_status: 'paid', status: 'complete', client_reference_id: 'SOMEONE-ELSE', amount_total: 4200, currency: 'eur', payment_intent: 'pi_foreign_nometa' },
+          cs_foreign_badmeta: { id: 'cs_foreign_badmeta', payment_status: 'paid', status: 'complete', client_reference_id: 'OC-X', metadata: { orderId: 'abc' }, amount_total: 4200, currency: 'eur', payment_intent: 'pi_foreign_badmeta' },
+        };
+        Object.assign(answers, foreign);
+        for (const [id, sess] of Object.entries(foreign)) {
+          const hook = await deliver('checkout.session.completed', sess);
+          const back = await stripeReturn(new Request(`http://localhost/api/payments/stripe/return?session_id=${id}`));
+          check(`${id}: the webhook answers 200 and the return goes home`, hook.status === 200 && back.headers.get('location')?.includes('order-status') === false, [hook.status, back.headers.get('location')]);
+        }
+        check('paid sessions without our markers record nothing', (await db.select().from(unmatchedPayments)).length === rowsBefore, (await db.select().from(unmatchedPayments)).length - rowsBefore);
+        check('…and mail no one', filesNow().length === mailsBefore, filesNow().length - mailsBefore);
+        check('…while our own marked session is still reported (the filter is not a blanket ignore)', (await db.select().from(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe'))).some((r) => r.transactionId === 'pi_orphan_ret'));
       } finally {
         sessions.retrieve = realRetrieve;
       }

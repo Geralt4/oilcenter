@@ -4,7 +4,7 @@ import { addOrderEvent } from '@/lib/orders';
 import { siteUrl } from '@/lib/payments';
 import { findOrderByPayment, setAttemptStatus } from '@/lib/payments/attempts';
 import { reportUnmatchedPayment, settleCardPayment } from '@/lib/payments/settle';
-import { stripeRetrieveSession } from '@/lib/payments/stripe';
+import { stripeRetrieveSession, stripeSessionIsOurs } from '@/lib/payments/stripe';
 
 /** success_url of the Checkout Session. The session is re-read from Stripe; the URL itself is not trusted. */
 export async function GET(request: Request) {
@@ -18,8 +18,9 @@ export async function GET(request: Request) {
     // through the checkout history: the buyer may have paid an earlier checkout than the latest one
     const order = await findOrderByPayment('stripe', sessionId);
     if (!order) {
-      if (!session.paid) return home;
-      // paid, but no order owns this checkout: kept for the owner (the webhook reports the same row), and the buyer is told
+      // not paid, or not a checkout this shop created (see stripeSessionIsOurs): nothing to record
+      if (!session.paid || !stripeSessionIsOurs(session.clientReferenceId, session.orderId)) return home;
+      // paid, one of ours, but no order owns this checkout: kept for the owner (the webhook reports the same row), and the buyer is told
       // to wait for the shop instead of seeing the home page as if nothing happened
       await reportUnmatchedPayment({ provider: 'stripe', orderCode: sessionId, transactionId: session.paymentIntent ?? sessionId, merchantTrns: session.clientReferenceId, amountCents: session.amountCents, currency: session.currency });
       return NextResponse.redirect(`${siteUrl()}/order-status?payment=review`);

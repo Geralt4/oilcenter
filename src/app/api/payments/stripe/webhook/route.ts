@@ -3,7 +3,7 @@ import { commerceEnabled } from '@/lib/commerce-flag';
 import { addOrderEvent } from '@/lib/orders';
 import { findOrderByPayment, setAttemptStatus } from '@/lib/payments/attempts';
 import { reportUnmatchedPayment, settleCardPayment } from '@/lib/payments/settle';
-import { stripe, stripeConfigured } from '@/lib/payments/stripe';
+import { stripe, stripeConfigured, stripeSessionIsOurs } from '@/lib/payments/stripe';
 
 /** Signature-verified with STRIPE_WEBHOOK_SECRET; needs the RAW body, so it is read with request.text(). */
 export async function POST(request: Request) {
@@ -36,9 +36,12 @@ export async function POST(request: Request) {
         // finished by the buyer, money still on its way: no second checkout and no automatic release until it resolves
         if (await setAttemptStatus('stripe', session.id, 'processing', null, ['created'])) await addOrderEvent(order.id, 'payment', 'Η πληρωμή με κάρτα/τράπεζα είναι σε επεξεργασία: δεν έχει εισπραχθεί ακόμη.');
       }
+    } else if (!stripeSessionIsOurs(session.client_reference_id, session.metadata?.orderId)) {
+      // Another checkout of the same Stripe account (a Payment Link, another site): not ours, so not ours to report either.
+      console.warn(`[stripe] ${event.type} for session ${session.id} was not created by this shop: ignored`);
     } else if (session.payment_status === 'paid') {
-      // Money for a checkout we cannot match to an order is kept and the shop is told (as with Viva); the buyer's browser
-      // coming back as well finds the row and stays quiet.
+      // Money for one of OUR checkouts that we cannot match to an order is kept and the shop is told (as with Viva); the buyer's
+      // browser coming back as well finds the row and stays quiet.
       await reportUnmatchedPayment({
         provider: 'stripe',
         orderCode: session.id,
