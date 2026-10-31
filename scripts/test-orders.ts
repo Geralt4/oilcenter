@@ -231,7 +231,7 @@ async function main() {
   check('a variant of another brand is unchanged', s2.unitPriceCents === P2.priceCents && s2.compareAtCents === null, s2);
   const detail = await getProductBySlug(readyA.p.slug);
   const shownUnverified = detail?.variants.find((v) => v.id === unverified.id);
-  check('a size with an unconfirmed price is untouched on the product page', shownUnverified !== undefined && shownUnverified.priceCents === 1500 && shownUnverified.compareAtCents === null, shownUnverified);
+  check('a size with an unconfirmed price shows no price on the product page, sale or not', shownUnverified !== undefined && shownUnverified.priceVerified === false && shownUnverified.priceCents === 0 && shownUnverified.compareAtCents === null, shownUnverified);
   const shownP1 = detail?.variants.find((v) => v.id === P1.id);
   check('the product page shows the sale price', shownP1?.priceCents === Math.round(P1.priceCents * 0.8) && shownP1?.compareAtCents === P1.priceCents, shownP1);
   const feed = await buildSkroutzFeed(settings);
