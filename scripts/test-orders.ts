@@ -904,6 +904,33 @@ async function main() {
     check('cancelling the order after the coupon was renamed still gives the use back', afterCancel.usedCount === 0, afterCancel.usedCount);
     await db.update(coupons).set({ code: 'WELCOME5' }).where(eq(coupons.id, couponRow.id));
 
+    console.log('  Stripe: a paid checkout that matches no order');
+    {
+      const { unmatchedPayments } = await import('../src/lib/db/schema');
+      const outboxDir = path.join(dir, 'data', 'outbox');
+      const filesNow = () => {
+        try {
+          return readdirSync(outboxDir);
+        } catch {
+          return [] as string[];
+        }
+      };
+      const orphan = { id: 'cs_orphan_1', payment_status: 'paid', status: 'complete', client_reference_id: 'OC-NOPE-1', amount_total: 1999, currency: 'eur', payment_intent: 'pi_orphan_1' };
+      const before = new Set(filesNow());
+      const a1 = await deliver('checkout.session.completed', orphan);
+      check('the webhook answers 200 for a paid checkout with no order', a1.status === 200, a1.status);
+      const rows = await db.select().from(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe'));
+      check('…and the payment is kept in unmatched_payments', rows.length === 1 && rows[0].transactionId === 'pi_orphan_1' && rows[0].amountCents === 1999 && rows[0].currency === 'EUR' && rows[0].merchantTrns === 'OC-NOPE-1', rows);
+      const mails = filesNow().filter((f) => !before.has(f));
+      check('…and the owner is mailed once', mails.length === 1, mails);
+      await deliver('checkout.session.completed', orphan);
+      check('a repeated delivery adds no second row and no second mail', (await db.select().from(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe'))).length === 1 && filesNow().filter((f) => !before.has(f)).length === 1);
+      await deliver('checkout.session.completed', { ...orphan, id: 'cs_orphan_2', payment_status: 'unpaid', payment_intent: 'pi_orphan_2' });
+      await deliver('checkout.session.async_payment_failed', { ...orphan, id: 'cs_orphan_3', payment_status: 'unpaid', payment_intent: 'pi_orphan_3' });
+      check('an unpaid or failed session with no order records nothing', (await db.select().from(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe'))).length === 1);
+      await db.delete(unmatchedPayments).where(eq(unmatchedPayments.provider, 'stripe'));
+    }
+
     console.log('  A deleted and recreated coupon');
     await db.update(coupons).set({ usedCount: 0, maxUses: 1 }).where(eq(coupons.id, couponRow.id));
     const oldOrder = await newCard({ couponCode: 'WELCOME5' });

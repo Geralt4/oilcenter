@@ -54,6 +54,9 @@ export async function stripeRetrieveSession(sessionId: string) {
     /** the buyer finished the checkout but the money is still on its way (SEPA Debit and other delayed methods) */
     processing: session.status === 'complete' && session.payment_status === 'unpaid',
     amountCents: session.amount_total ?? 0,
+    currency: session.currency ? session.currency.toUpperCase() : null,
+    /** the order number we put on the session when it was created */
+    clientReferenceId: session.client_reference_id ?? null,
     orderId: Number(session.metadata?.orderId ?? 0),
     paymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent?.id ?? null),
   };
