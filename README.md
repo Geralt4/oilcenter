@@ -97,13 +97,18 @@ What the deployment-level protections do and where they live — read together w
 - **Startup checks:** a production boot fails loudly (`src/instrumentation.ts` → `src/lib/startup-check.ts`) when
   `AUTH_SECRET` is missing/short, `SITE_URL` is absent or not https, or `COMMERCE_ENABLED` holds a nonsense value.
   A restart loop with a clear log message beats a silently misconfigured site. Deliberately skipped during `next build`.
-- **Login throttling:** both logins spend from three pools — per-IP+e-mail, an IP-wide budget, and a per-account budget
-  that ignores the source address — so neither spraying nor repeated guessing from rotating IPs gets unlimited tries.
+- **Login throttling:** both logins use two limits that only count the visitor's own address — per address+e-mail (8 tries
+  per 15 minutes for customers, 6 for admins) and an address-wide pool (20 per 15 minutes, against spraying) — so a stranger
+  cannot spend somebody else's tries. On top sits one account-wide ceiling that counts **failed passwords only**, from any
+  address: 50 an hour, the same answer for an e-mail with no account. It does not apply to an admin with two-step
+  verification (a password alone does not open that account, and the code has its own cap, below). This reduces lockout, it
+  does not remove it: while the ceiling is tripped even the right password is refused for up to an hour, and a few addresses
+  can trip it (two for a customer, about three for an admin without 2FA).
   Counters live in SQLite (`rate_limits`, keys hashed with SHA-256, never raw addresses; indexed, bounded cleanup), so a
   restart or redeploy does not reset them.
 - **Admin two-step verification (TOTP):** Admin → Ρυθμίσεις → «Επαλήθευση δύο βημάτων» enrolls an authenticator app
   (QR code). Once confirmed, every admin login also requires the 6-digit code; each code is **single-use** (its time step
-  is burned in the database, so replay inside the 30 s window fails), and a separate rate limit guards guessing. Turning
+  is burned in the database, so replay inside the 30 s window fails), and separate limits guard guessing the code (5 wrong codes per address and 10 per account, per 15 minutes; the account cap is only reachable with the right password). Turning
   it off or replacing it requires a current code, and both changes revoke all sessions. Lost phone:
   `npm run admin:reset-mfa -- <email>` on the server (also signs every session out), or — for the *other* administrator —
   the «Επαναφορά 2FA» button under «Διαχειριστές». No recovery-code list by design.
