@@ -446,7 +446,7 @@ centres and converts them to the same 1000×1000 format as the rest of the catal
 
 ## Deployment
 
-The app needs Node ≥ 20.9 and **one persistent directory** (`DATA_DIR`) for the SQLite file and uploaded images.
+The app needs Node ≥ 20.12 and **one persistent directory** (`DATA_DIR`) for the SQLite file and uploaded images.
 
 - **Any VPS / Docker host** (Hetzner, Railway, Fly.io, Render with a disk, Coolify…): `docker build -t oilcenter .` then run
   with `-v oilcenter-data:/app/data --env-file .env.production`. The container migrates and seeds (if empty) on start.

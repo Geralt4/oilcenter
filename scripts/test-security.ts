@@ -597,10 +597,13 @@ async function main() {
 
   console.log('package.json');
   {
-    const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string> };
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string>; engines?: { node?: string } };
     // every `tsx scripts/<file>` an npm script runs must exist (the `images` script once pointed at a file that was never there)
     const missing = Object.entries(pkg.scripts).flatMap(([name, cmd]) => [...cmd.matchAll(/\btsx\s+(scripts\/[\w.-]+\.ts)/g)].map((m) => ({ name, file: m[1] }))).filter((s) => !existsSync(s.file));
     check('every npm script that runs a tsx file points at a file that exists', missing.length === 0, missing);
+    // scripts/env.ts calls process.loadEnvFile, which arrived in Node 20.12
+    const [major, minor] = (/(\d+)\.(\d+)/.exec(pkg.engines?.node ?? '') ?? []).slice(1).map(Number);
+    check('engines.node asks for at least 20.12 (process.loadEnvFile in scripts/env.ts)', major > 20 || (major === 20 && minor >= 12), pkg.engines);
   }
 }
 

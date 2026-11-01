@@ -32,7 +32,7 @@
     "test:card": "npm run build && tsx scripts/test-card-flow.ts"
   },
   "engines": {
-    "node": ">=20.9"
+    "node": ">=20.12"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
