@@ -1508,14 +1508,18 @@ async function main() {
       }
       const afterReset = await customerRow('reset-verifies@example.com');
       check('a password reset activates an account that was never activated', afterReset.emailVerifiedAt !== null && afterReset.verifyTokenHash === null && afterReset.verifyTokenExpires === null, afterReset);
+      check('…and clears the names that were typed at registration (they may not be the owner\'s)', afterReset.firstName === '' && afterReset.lastName === '', [afterReset.firstName, afterReset.lastName]);
       cookieJar.delete('oc_customer');
       check('…and the new password signs in', (await login('reset-verifies@example.com', 'καινούριος-κωδικός-1', '192.0.2.42')).signedIn);
       cookieJar.delete('oc_customer');
-      const knownVerifiedAt = (await customerRow('known@example.com')).emailVerifiedAt?.getTime();
+      const resetKnownBefore = await customerRow('known@example.com');
+      const knownVerifiedAt = resetKnownBefore.emailVerifiedAt?.getTime();
       const knownReset = randomToken();
       await db.update(customers).set({ resetTokenHash: sha256(knownReset), resetTokenExpires: new Date(Date.now() + 3600_000) }).where(eq(customers.email, 'known@example.com'));
       await resetPassword(null, form({ token: knownReset, password: 'νέος-κωδικός-γνωστού' })).catch(() => undefined);
       check('…while an account that was already active keeps its activation date', (await customerRow('known@example.com')).emailVerifiedAt?.getTime() === knownVerifiedAt);
+      const resetKnownAfter = await customerRow('known@example.com');
+      check('…and its names', resetKnownBefore.firstName !== '' && resetKnownAfter.firstName === resetKnownBefore.firstName && resetKnownAfter.lastName === resetKnownBefore.lastName, [resetKnownBefore.firstName, resetKnownAfter.firstName]);
       cookieJar.delete('oc_customer');
 
       // limits on reset requests (per address) and on the reset itself (per visitor address)

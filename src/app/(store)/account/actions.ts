@@ -211,7 +211,20 @@ export async function resetPassword(_prev: FormState, formData: FormData): Promi
   const [customer] = await db
     .update(customers)
     // the reset link reached the mailbox, which proves the address too: an account that was never activated is activated here
-    .set({ passwordHash, resetTokenHash: null, resetTokenExpires: null, emailVerifiedAt: sql`coalesce(${customers.emailVerifiedAt}, ${Date.now()})`, verifyTokenHash: null, verifyTokenExpires: null, tokenVersion: sql`${customers.tokenVersion} + 1` })
+    .set({
+      passwordHash,
+      resetTokenHash: null,
+      resetTokenExpires: null,
+      emailVerifiedAt: sql`coalesce(${customers.emailVerifiedAt}, ${Date.now()})`,
+      // Whoever registered this address may not be its owner, and the names came from that form: an account that was never
+      // activated starts with none (the account page asks for them; every page shows a fallback until then). In one UPDATE,
+      // where the right-hand sides still see the row as it was, so the test «never activated» is decided on the old value.
+      firstName: sql`case when ${customers.emailVerifiedAt} is null then '' else ${customers.firstName} end`,
+      lastName: sql`case when ${customers.emailVerifiedAt} is null then '' else ${customers.lastName} end`,
+      verifyTokenHash: null,
+      verifyTokenExpires: null,
+      tokenVersion: sql`${customers.tokenVersion} + 1`,
+    })
     .where(and(eq(customers.resetTokenHash, tokenHash), gt(customers.resetTokenExpires, new Date())))
     .returning({ id: customers.id, tokenVersion: customers.tokenVersion });
   if (!customer) return { ok: false, message: 'Ο σύνδεσμος επαναφοράς δεν ισχύει ή έχει λήξει. Ζητήστε νέο.' };
