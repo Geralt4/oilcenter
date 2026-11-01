@@ -284,11 +284,21 @@ export async function getFeedLog(): Promise<FeedLog> {
   return row && typeof row.value === 'object' && row.value !== null ? { ...EMPTY_LOG, ...(row.value as Partial<FeedLog>) } : EMPTY_LOG;
 }
 
+/**
+ * A read inside this window of the last one written for the same kind (SkroutzBot / anyone else) is not written down again:
+ * the line in Admin → Skroutz needs "when" and "how often", not one database write per request. In this process only.
+ */
+export const feedLogThrottle = { windowMs: 2 * 60_000, lastBot: 0, lastOther: 0 };
+
 /** Skroutz's downloader identifies itself as "SkroutzBot". Anyone can claim that name, so this is a diagnostic, not a gate. */
 export async function recordFeedFetch(userAgent: string, itemCount: number): Promise<void> {
-  const log = await getFeedLog();
   const isBot = /skroutzbot/i.test(userAgent);
   const now = Date.now();
+  const last = isBot ? feedLogThrottle.lastBot : feedLogThrottle.lastOther;
+  if (now - last < feedLogThrottle.windowMs) return;
+  if (isBot) feedLogThrottle.lastBot = now;
+  else feedLogThrottle.lastOther = now;
+  const log = await getFeedLog();
   const value: FeedLog = { lastAt: now, lastBotAt: isBot ? now : log.lastBotAt, botFetches: log.botFetches + (isBot ? 1 : 0), lastItems: itemCount };
   await db.insert(settingsTable).values({ key: LOG_KEY, value }).onConflictDoUpdate({ target: settingsTable.key, set: { value, updatedAt: new Date() } });
 }

@@ -27,6 +27,7 @@ import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours
 import { buildSearchText } from '@/lib/search-keywords';
 import { rebuildSearchTexts } from '@/lib/search-text';
 import { getSettings, saveSettingsGroup } from '@/lib/settings.server';
+import { invalidateSkroutzFeed } from '@/lib/skroutz-feed-cache';
 import { claimUpload, finishUpload, moveClaimed, readStagedText, releaseUpload } from '@/lib/uploads';
 import { normalizeText, parseAthensDate, parsePriceToCents, parseVolumeMl, slugify } from '@/lib/utils';
 
@@ -707,6 +708,7 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   if (previousSdsUrl && previousSdsUrl !== hazard?.sdsUrl) await removeUpload(previousSdsUrl);
   revalidatePath('/admin/products');
   revalidatePath(`/admin/products/${productId}`);
+  invalidateSkroutzFeed();
   // Reload after every save: the form's upload tokens have just been claimed, and a reload clears them.
   if (!id) redirect(`/admin/products/${productId}?created=1`);
   redirect(`/admin/products/${productId}?saved=1`);
@@ -724,6 +726,7 @@ export async function deleteProduct(fd: FormData): Promise<void> {
   });
   await forgetTarget('product', id);
   await Promise.all([...images.map((i) => i.url), ...(row?.hazard?.sdsUrl ? [row.hazard.sdsUrl] : [])].map(removeUpload));
+  invalidateSkroutzFeed();
   redirect('/admin/products?deleted=1');
 }
 
@@ -759,6 +762,7 @@ export async function imageAction(fd: FormData): Promise<void> {
     for (const [sort, img] of ordered.entries()) await db.update(productImages).set({ sort }).where(eq(productImages.id, img.id));
   }
   revalidatePath(`/admin/products/${image.productId}`);
+  invalidateSkroutzFeed();
 }
 
 // ─── Bulk prices ─────────────────────────────────────────────────────────────
@@ -814,6 +818,7 @@ export async function updatePrices(input: PriceUpdate[]): Promise<PriceUpdateRes
   });
 
   revalidatePath('/admin/prices');
+  invalidateSkroutzFeed();
   const count = saved.length === 1 ? 'Αποθηκεύτηκε 1 αλλαγή' : `Αποθηκεύτηκαν ${saved.length} αλλαγές`;
   if (failed.length) return { ok: false, message: `${count}. ${failed.length === 1 ? 'Μία τιμή δεν είναι έγκυρη' : `${failed.length} τιμές δεν είναι έγκυρες`} (σημειωμένες με κόκκινο).${skippedNote}`, saved, failed };
   return { ok: true, message: `${saved.length ? `${count}. ${saved.length === 1 ? 'Ισχύει' : 'Ισχύουν'} ήδη στο κατάστημα.` : 'Καμία αλλαγή.'}${skippedNote}`, saved, failed };
@@ -854,6 +859,7 @@ export async function importPricesCsv(_prev: AdminFormState, fd: FormData): Prom
     await db.transaction((tx) => applyPriceChanges(tx, plan.changes));
     await finishUpload(token);
     revalidatePath('/admin/prices');
+    invalidateSkroutzFeed();
     // Completed even when some rows were skipped: returning ok:false here would keep the form-looking
     // failure and leave an already-consumed token in the UI. The message reports what changed.
     return { ok: true, message: describePriceImport(plan) };
@@ -883,6 +889,7 @@ export async function saveBrand(_prev: AdminFormState, fd: FormData): Promise<Ad
   // the brand's name is part of what its products are found by
   if (id && storedName && storedName.name !== name) await rebuildSearchTexts({ brandId: id });
   revalidatePath('/admin/brands');
+  invalidateSkroutzFeed();
   return { ok: true, message: 'Αποθηκεύτηκε.' };
 }
 
@@ -915,6 +922,7 @@ export async function saveCategory(_prev: AdminFormState, fd: FormData): Promise
   }
   if (id && storedCategory && storedCategory.name !== name) await rebuildSearchTexts({ categoryId: id });
   revalidatePath('/admin/categories');
+  invalidateSkroutzFeed();
   return { ok: true, message: 'Αποθηκεύτηκε.' };
 }
 
@@ -929,6 +937,7 @@ export async function deleteTaxon(fd: FormData): Promise<void> {
     await rebuildSearchTexts({ productIds: affected });
     await forgetTarget('brand', id);
     revalidatePath('/admin/brands');
+    invalidateSkroutzFeed();
   } else {
     const affected = (await db.select({ id: products.id }).from(products).where(eq(products.categoryId, id))).map((p) => p.id);
     await db.update(products).set({ categoryId: null }).where(eq(products.categoryId, id));
@@ -937,6 +946,7 @@ export async function deleteTaxon(fd: FormData): Promise<void> {
     await rebuildSearchTexts({ productIds: affected });
     await forgetTarget('category', id);
     revalidatePath('/admin/categories');
+    invalidateSkroutzFeed();
   }
 }
 
@@ -1043,6 +1053,7 @@ export async function saveSale(_prev: AdminFormState, fd: FormData): Promise<Adm
   else await db.insert(sales).values(values);
   // every storefront page reads prices per request, so the new price shows on the next load
   revalidatePath('/admin/sales');
+  invalidateSkroutzFeed();
   return { ok: true, message: 'Αποθηκεύτηκε.' };
 }
 
@@ -1050,6 +1061,7 @@ export async function deleteSale(fd: FormData): Promise<void> {
   await requireAdmin();
   await db.delete(sales).where(eq(sales.id, int(fd, 'id')));
   revalidatePath('/admin/sales');
+  invalidateSkroutzFeed();
 }
 
 /** Product search for the «Ισχύει για» picker: at most 50 hits, so a form never carries the whole catalogue. */
@@ -1225,6 +1237,7 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
   await saveSettingsGroup('tax', { vatRate });
 
   revalidatePath('/', 'layout');
+  invalidateSkroutzFeed();
   return { ok: true, message: 'Οι ρυθμίσεις αποθηκεύτηκαν.' };
 }
 
@@ -1240,6 +1253,7 @@ export async function saveSkroutzSettings(_prev: AdminFormState, fd: FormData): 
     defaultQuantity: Math.min(1000, Math.max(1, int(fd, 'defaultQuantity', DEFAULT_SETTINGS.skroutz.defaultQuantity))),
   });
   revalidatePath('/admin/skroutz');
+  invalidateSkroutzFeed();
   return { ok: true, message: feedEnabled ? 'Αποθηκεύτηκε. Το αρχείο είναι ανοιχτό για το Skroutz.' : 'Αποθηκεύτηκε. Το αρχείο παραμένει κλειστό: το βλέπετε μόνο εσείς.' };
 }
 
@@ -1290,6 +1304,7 @@ export async function updateCodes(input: CodeUpdate[]): Promise<CodeUpdateResult
   });
 
   revalidatePath('/admin/skroutz');
+  invalidateSkroutzFeed();
   const count = saved.length === 1 ? 'Αποθηκεύτηκε 1 συσκευασία' : `Αποθηκεύτηκαν ${saved.length} συσκευασίες`;
   if (failed.length) return { ok: false, message: `${count}. ${failed.length === 1 ? 'Ένα barcode δεν έγινε δεκτό' : `${failed.length} barcodes δεν έγιναν δεκτά`} (σημειωμένα με κόκκινο).${skippedNote}`, saved, failed };
   return { ok: true, message: `${saved.length ? `${count}.` : 'Καμία αλλαγή.'}${skippedNote}`, saved, failed };
@@ -1364,6 +1379,7 @@ export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promi
     });
 
     revalidatePath('/admin/skroutz');
+    invalidateSkroutzFeed();
     await finishUpload(token);
     const list = (label: string, skus: string[]) => (skus.length ? ` ${label}: ${skus.slice(0, 6).join(', ')}${skus.length > 6 ? '…' : ''}.` : '');
     // Completed even with unknown/rejected codes; the message names them.

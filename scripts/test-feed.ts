@@ -40,9 +40,24 @@ const field = (block: string, tag: string) => new RegExp(`<${tag}>([\\s\\S]*?)</
 
 async function main() {
   dir = await cloneDatabase('oc-feed-');
+  // The route reads the visitor's address and the admin cookie from next/headers: an in-memory jar and a settable address stand in for a request.
+  const cookieJar = new Map<string, string>();
+  let currentIp = '198.51.100.1';
+  const headersPath = require.resolve('next/headers');
+  require.cache[headersPath] = {
+    id: headersPath, filename: headersPath, loaded: true,
+    exports: {
+      headers: async () => new Headers({ 'x-forwarded-for': currentIp }),
+      cookies: async () => ({
+        get: (name: string) => (cookieJar.has(name) ? { name, value: cookieJar.get(name)! } : undefined),
+        set: (name: string, value: string) => void cookieJar.set(name, value),
+        delete: (name: string) => void cookieJar.delete(name),
+      }),
+    },
+  } as unknown as NodeJS.Module;
   const { and, eq, gt } = await import('drizzle-orm');
   const { db } = await import('../src/lib/db');
-  const { products: productsTable, variants } = await import('../src/lib/db/schema');
+  const { products: productsTable, settings: settingsTableRef, variants } = await import('../src/lib/db/schema');
   const { isValidGtin, normalizeGtin } = await import('../src/lib/gtin');
   const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
   const { buildSkroutzFeed, FEED_EXCLUSION_LABELS, feedName, getFeedLog, recordFeedFetch } = await import('../src/lib/skroutz-feed');
@@ -240,6 +255,197 @@ async function main() {
   await recordFeedFetch('SkroutzBot v1.0', 140);
   const afterBot = await getFeedLog();
   check('a SkroutzBot download is recorded', afterBot.lastBotAt !== null && afterBot.botFetches === before.botFetches + 1 && afterBot.lastItems === 140);
+
+  console.log('Cache, rate limit and conditional requests');
+  {
+    const { count, sql } = await import('drizzle-orm');
+    const { adminUsers, rateLimits } = await import('../src/lib/db/schema');
+    const { hashPassword } = await import('../src/lib/auth/password');
+    const { createSession } = await import('../src/lib/auth/session');
+    const { saveSettingsGroup, getSettings } = await import('../src/lib/settings.server');
+    const { feedCacheLimits, getCachedSkroutzFeed, invalidateSkroutzFeed } = await import('../src/lib/skroutz-feed-cache');
+    const { feedLogThrottle } = await import('../src/lib/skroutz-feed');
+    const { GET } = await import('../src/app/feeds/skroutz.xml/route');
+    const { NextRequest } = await import('next/server');
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const rows = async (table: typeof rateLimits) => Number((await db.select({ n: count() }).from(table))[0].n);
+    const hit = (o: { ip?: string; ua?: string; inm?: string; query?: string } = {}) => {
+      currentIp = o.ip ?? '198.51.100.1';
+      const headers: Record<string, string> = {};
+      if (o.ua) headers['user-agent'] = o.ua;
+      if (o.inm) headers['if-none-match'] = o.inm;
+      return GET(new NextRequest(`https://www.oilcenter.gr/feeds/skroutz.xml${o.query ?? ''}`, { headers }));
+    };
+
+    await saveSettingsGroup('skroutz', { ...settings.skroutz, feedEnabled: true });
+    const current = await getSettings();
+    const live = (await buildSkroutzFeed(current)).items[0];
+    const setPrice = (cents: number) => db.update(variants).set({ priceCents: cents }).where(eq(variants.id, live.variantId));
+    const priceIn = (xml: string) => field(products(xml).find((b) => field(b, 'id') === live.id)!, 'price_with_vat');
+    const p0 = live.priceCents;
+
+    // ── the cache, through the route: the database is changed behind its back, so only a rebuild shows it
+    feedCacheLimits.ttlMs = 60_000;
+    invalidateSkroutzFeed();
+    const first = await hit();
+    const xml1 = await first.text();
+    await setPrice(p0 + 100);
+    const second = await hit();
+    check('a second anonymous request is answered from memory (a price changed behind it is not rebuilt in)', (await second.text()) === xml1 && priceIn(xml1) === (p0 / 100).toFixed(2));
+    check('…with the same ETag', first.headers.get('etag') !== null && first.headers.get('etag') === second.headers.get('etag'), [first.headers.get('etag'), second.headers.get('etag')]);
+
+    // ── an admin always gets a fresh file, and is not limited
+    await db.insert(adminUsers).values({ email: 'feed-admin@example.com', name: 'Feed', passwordHash: await hashPassword('feed-admin-pass-1') });
+    const [adm] = await db.select().from(adminUsers).where(eq(adminUsers.email, 'feed-admin@example.com'));
+    await createSession('admin', adm.id, adm.tokenVersion);
+    const limitedBefore = await rows(rateLimits);
+    const adminHit = await hit({ ip: '198.51.100.60' });
+    check('an admin sees the data as it is now, never the cached copy', priceIn(await adminHit.text()) === ((p0 + 100) / 100).toFixed(2));
+    check('…uncached, without an ETag', adminHit.headers.get('cache-control') === 'no-store' && adminHit.headers.get('etag') === null);
+    let adminStatuses = 0;
+    for (let i = 0; i < 40; i++) if ((await hit({ ip: '198.51.100.60' })).status === 200) adminStatuses++;
+    check('an admin is not rate limited (41 requests)', adminStatuses === 40);
+    check('…and spends nothing from any limit', (await rows(rateLimits)) === limitedBefore);
+    cookieJar.clear();
+
+    // ── time and invalidation
+    feedCacheLimits.ttlMs = 40;
+    await sleep(80);
+    check('after the TTL the next request rebuilds', priceIn(await (await hit()).text()) === ((p0 + 100) / 100).toFixed(2));
+    feedCacheLimits.ttlMs = 60_000;
+    await setPrice(p0 + 200);
+    check('inside the TTL the new price is not there yet', priceIn(await (await hit()).text()) === ((p0 + 100) / 100).toFixed(2));
+    invalidateSkroutzFeed();
+    check('invalidateSkroutzFeed() makes the next request show the change', priceIn(await (await hit()).text()) === ((p0 + 200) / 100).toFixed(2));
+
+    // ── builds, counted
+    let builds = 0;
+    const counting: typeof buildSkroutzFeed = async (st, at) => { builds++; return buildSkroutzFeed(st, at); };
+    const slow: typeof buildSkroutzFeed = async (st, at) => { builds++; await sleep(80); return buildSkroutzFeed(st, at); };
+    invalidateSkroutzFeed();
+    await getCachedSkroutzFeed(current, counting);
+    await getCachedSkroutzFeed(current, counting);
+    check('two quick requests build once', builds === 1, builds);
+    feedCacheLimits.ttlMs = 40;
+    await sleep(80);
+    await getCachedSkroutzFeed(current, counting);
+    check('…and one after the TTL builds again', builds === 2, builds);
+    feedCacheLimits.ttlMs = 60_000;
+    invalidateSkroutzFeed();
+    await getCachedSkroutzFeed(current, counting);
+    check('…and one after an invalidation too', builds === 3, builds);
+
+    builds = 0;
+    invalidateSkroutzFeed();
+    const crowd = await Promise.all(Array.from({ length: 8 }, () => getCachedSkroutzFeed(current, slow)));
+    check('eight requests during a build share that one build', builds === 1 && new Set(crowd.map((c) => c.etag)).size === 1, builds);
+
+    builds = 0;
+    invalidateSkroutzFeed();
+    const broken: typeof buildSkroutzFeed = async () => { builds++; throw new Error('database busy'); };
+    const failed = await getCachedSkroutzFeed(current, broken).then(() => false, () => true);
+    await getCachedSkroutzFeed(current, counting);
+    check('a failed build is not remembered: the next request builds again', failed && builds === 2, { failed, builds });
+
+    builds = 0;
+    invalidateSkroutzFeed();
+    const racing = getCachedSkroutzFeed(current, slow);
+    await sleep(20);
+    invalidateSkroutzFeed();
+    await racing;
+    builds = 0;
+    await getCachedSkroutzFeed(current, counting);
+    check('a build that started before an invalidation is never stored', builds === 1, builds);
+
+    builds = 0;
+    invalidateSkroutzFeed();
+    await getCachedSkroutzFeed(current, counting);
+    const other = structuredClone(current);
+    other.skroutz.defaultQuantity += 1;
+    await getCachedSkroutzFeed(other, counting);
+    check('a change in the Skroutz or VAT settings is never served from the old copy', builds === 2, builds);
+
+    // ── rate limit
+    invalidateSkroutzFeed();
+    await hit({ ip: '203.0.113.7' }); // warm
+    const before = await rows(rateLimits);
+    const statuses: number[] = [];
+    for (let i = 0; i < 31; i++) statuses.push((await hit({ ip: '203.0.113.50' })).status);
+    const over = await hit({ ip: '203.0.113.50' });
+    check('30 requests from one address are answered', statuses.slice(0, 30).every((st) => st === 200), statuses);
+    check('the 31st gets 429', statuses[30] === 429, statuses[30]);
+    const retry = Number(over.headers.get('retry-after'));
+    check('…with a Retry-After in seconds, and no file', Number.isInteger(retry) && retry >= 1 && retry <= 600 && over.status === 429 && !(await over.text()).includes('<product>'), over.headers.get('retry-after'));
+    check('another address is not affected', (await hit({ ip: '203.0.113.51' })).status === 200);
+    check('a visitor costs one rate-limit row, however often they come', (await rows(rateLimits)) === before + 2, { before, after: await rows(rateLimits) });
+
+    // ── conditional requests
+    const fresh = await hit({ ip: '203.0.113.70' });
+    const etag = fresh.headers.get('etag')!;
+    await fresh.text();
+    const notModified = await hit({ ip: '203.0.113.70', inm: etag });
+    check('a matching If-None-Match gets 304 and no body', notModified.status === 304 && (await notModified.text()) === '' && notModified.headers.get('etag') === etag);
+    check('…also as a weak validator inside a list', (await hit({ ip: '203.0.113.70', inm: `"x", W/${etag}` })).status === 304);
+    const stale = await hit({ ip: '203.0.113.70', inm: '"old"' });
+    check('a stale validator gets the whole file', stale.status === 200 && (await stale.text()).includes('<product>'));
+    const download = await hit({ ip: '203.0.113.70', inm: etag, query: '?download=1' });
+    check('?download=1 is always a file', download.status === 200 && (download.headers.get('content-disposition') ?? '').startsWith('attachment; filename="skroutz-feed-'));
+
+    // ── the access log: the same single row, written at most once per window and kind
+    const logRows = async () => Number((await db.select({ n: count() }).from(settingsTableRef).where(eq(settingsTableRef.key, 'skroutzFeedLog')))[0].n);
+    feedLogThrottle.windowMs = 60_000;
+    feedLogThrottle.lastBot = 0;
+    feedLogThrottle.lastOther = 0;
+    await hit({ ip: '203.0.113.80', ua: 'Mozilla/5.0' });
+    const l1 = await getFeedLog();
+    for (let i = 0; i < 20; i++) await hit({ ip: '203.0.113.80', ua: 'Mozilla/5.0' });
+    const l2 = await getFeedLog();
+    check('20 more hits do not touch the log', l1.lastAt !== null && l2.lastAt === l1.lastAt, [l1.lastAt, l2.lastAt]);
+    await hit({ ip: '203.0.113.80', ua: 'SkroutzBot/1.0' });
+    const b1 = await getFeedLog();
+    await hit({ ip: '203.0.113.80', ua: 'SkroutzBot/1.0' });
+    const b2 = await getFeedLog();
+    check('SkroutzBot is recorded at once, once per window', b1.lastBotAt !== null && b1.botFetches === l2.botFetches + 1 && b2.botFetches === b1.botFetches, [l2.botFetches, b1.botFetches, b2.botFetches]);
+    feedLogThrottle.windowMs = 40;
+    await sleep(80);
+    await hit({ ip: '203.0.113.80', ua: 'SkroutzBot/1.0' });
+    const b3 = await getFeedLog();
+    check('…and again after the window', b3.botFetches === b1.botFetches + 1 && (b3.lastBotAt ?? 0) > (b1.lastBotAt ?? 0), [b1.botFetches, b3.botFetches]);
+    check('it is still one row', (await logRows()) === 1);
+    feedLogThrottle.windowMs = 2 * 60_000;
+
+    // ── closed
+    await saveSettingsGroup('skroutz', { ...settings.skroutz, feedEnabled: false });
+    invalidateSkroutzFeed();
+    const closedBefore = await rows(rateLimits);
+    const closed = await hit({ ip: '203.0.113.90' });
+    check('a closed feed is 404 for visitors', closed.status === 404 && !(await closed.text()).includes('<product>'));
+    check('…without touching the rate limit', (await rows(rateLimits)) === closedBefore);
+    builds = 0;
+    await getCachedSkroutzFeed(await getSettings(), counting);
+    check('…and without building or caching anything', builds === 1, builds);
+    await createSession('admin', adm.id, adm.tokenVersion);
+    const adminClosed = await hit({ ip: '203.0.113.90' });
+    check('…while an admin still gets the file', adminClosed.status === 200 && (await adminClosed.text()).includes('<product>'));
+    cookieJar.clear();
+    await saveSettingsGroup('skroutz', { ...settings.skroutz, feedEnabled: true });
+
+    // ── what comes out has not changed
+    invalidateSkroutzFeed();
+    await setPrice(p0);
+    const finalRes = await hit({ ip: '203.0.113.99' });
+    const finalXml = await finalRes.text();
+    const direct = await buildSkroutzFeed(await getSettings());
+    const imgs = [...finalXml.matchAll(/<image>([\s\S]*?)<\/image>/g)].map((m) => m[1]);
+    check('the served file is the built one: same items, same content type, well formed', products(finalXml).length === direct.items.length && finalRes.headers.get('content-type') === 'application/xml; charset=utf-8' && wellFormed(finalXml) === null);
+    check('…with every <image> an https address and none empty', imgs.length === direct.items.length && imgs.every((u) => u.startsWith('https://') && u.trim() !== ''));
+
+    await db.delete(adminUsers).where(eq(adminUsers.id, adm.id));
+    await db.run(sql`DELETE FROM rate_limits`);
+    feedCacheLimits.ttlMs = 15 * 60_000;
+    feedLogThrottle.windowMs = 2 * 60_000;
+    invalidateSkroutzFeed();
+  }
 }
 
 main()

@@ -980,6 +980,28 @@ async function main() {
     await db.delete(priceChanges).where(eq(priceChanges.variantId, sizeA.id));
   }
 
+  console.log('Skroutz feed cache follows the admin');
+  {
+    const { updatePrices } = await import('../src/app/admin/actions');
+    const { getSettings } = await import('../src/lib/settings.server');
+    const { buildSkroutzFeed } = await import('../src/lib/skroutz-feed');
+    const { getCachedSkroutzFeed, invalidateSkroutzFeed } = await import('../src/lib/skroutz-feed-cache');
+    const current = await getSettings();
+    let builds = 0;
+    const counting: typeof buildSkroutzFeed = async (st, at) => { builds++; return buildSkroutzFeed(st, at); };
+    invalidateSkroutzFeed();
+    const item = (await getCachedSkroutzFeed(current, counting)).feed.items[0];
+    await getCachedSkroutzFeed(current, counting);
+    check('the feed is built once for two reads', builds === 1, builds);
+    const newCents = item.priceCents + 250;
+    const res = await updatePrices([{ id: item.variantId, price: (newCents / 100).toFixed(2).replace('.', ',') }]);
+    const after = await getCachedSkroutzFeed(current, counting);
+    check('saving a price in the admin makes the next feed read rebuild', res.ok && builds === 2, { ok: res.ok, builds });
+    check('…and it carries the new price', after.feed.items.find((i) => i.variantId === item.variantId)?.priceCents === newCents, after.feed.items.find((i) => i.variantId === item.variantId)?.priceCents);
+    await db.update(variants).set({ priceCents: item.priceCents }).where(eq(variants.id, item.variantId));
+    invalidateSkroutzFeed();
+  }
+
   console.log('Bank IBANs');
   {
     const { formatIban, isValidIban, normalizeIban } = await import('../src/lib/iban');
