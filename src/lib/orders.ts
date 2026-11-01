@@ -527,6 +527,19 @@ export async function releaseExpiredBankTransferOrders(): Promise<number> {
   return released;
 }
 
+/**
+ * The same release for a caller that must not fail because of it (the admin dashboard renders on every visit): an error is logged
+ * and answered as «nothing released». The hourly job has its own catch; `run` is only there so a test can make it fail.
+ */
+export async function releaseExpiredBankTransferOrdersQuietly(run: () => Promise<number> = releaseExpiredBankTransferOrders): Promise<number> {
+  try {
+    return await run();
+  } catch (err) {
+    console.error('[orders] release of expired bank-transfer orders failed', err instanceof Error ? err.message : err);
+    return 0;
+  }
+}
+
 /** Cash-on-delivery and pay-in-store orders nobody has acted on for OPEN_ORDER_FLAG_DAYS (still «pending»). Test orders are not real obligations. */
 export function staleOpenOrdersCondition(days = OPEN_ORDER_FLAG_DAYS) {
   return and(

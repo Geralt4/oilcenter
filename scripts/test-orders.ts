@@ -641,6 +641,16 @@ async function main() {
       check('…counted from when the order was placed, not from today', promise !== bankTransferExpiryNotice(new Date(), formatDate), promise);
       check('the sentence for pages without an order names the same 5 days', BANK_TRANSFER_EXPIRY_GENERAL.includes('5 ημέρες'));
 
+      // the dashboard calls the release on every visit: a failure there is logged, never thrown into the page
+      const { releaseExpiredBankTransferOrdersQuietly } = await import('../src/lib/orders');
+      const quietErrors: string[] = [];
+      const realConsoleError = console.error;
+      console.error = (...a: unknown[]) => void quietErrors.push(a.map(String).join(' '));
+      const thrown = await releaseExpiredBankTransferOrdersQuietly(async () => { throw new Error('database is locked'); }).then((n) => ({ n }), (err: Error) => ({ err: err.message }));
+      console.error = realConsoleError;
+      check('a failing release is answered as «nothing released» and logged, not thrown', 'n' in thrown && thrown.n === 0 && quietErrors.some((e) => e.includes('database is locked')), [thrown, quietErrors]);
+      check('…and the quiet form does the real release when nothing fails', typeof (await releaseExpiredBankTransferOrdersQuietly()) === 'number');
+
       // ── the age flag for cash on delivery and pay in store ──
       const codYoung = await make('cod');
       await age(codYoung.id, 6 * DAY_MS + 23 * H);

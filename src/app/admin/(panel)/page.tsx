@@ -10,7 +10,7 @@ import { mailConfigured } from '@/lib/email';
 import { adminUsers, categories, orderEvents, orders, products, unmatchedPayments, variants } from '@/lib/db/schema';
 import { hazardPriorityCategoryIds, needsHazardCheck } from '@/lib/ghs';
 import { commerceEnabled } from '@/lib/commerce-flag';
-import { releaseAbandonedCardOrders, releaseExpiredBankTransferOrders, staleOpenOrderCount, staleOpenOrders } from '@/lib/orders';
+import { releaseAbandonedCardOrders, releaseExpiredBankTransferOrdersQuietly, staleOpenOrderCount, staleOpenOrders } from '@/lib/orders';
 import { OPEN_ORDER_FLAG_DAYS } from '@/lib/order-ageing';
 import { isValidIban } from '@/lib/iban';
 import { resendConfigured, resendWithoutSender } from '@/lib/startup-check';
@@ -31,7 +31,7 @@ export default async function AdminDashboard() {
   // like the hourly job: nothing to release (and nothing to touch) while the shop is a website only
   if (commerceEnabled()) {
     await releaseAbandonedCardOrders();
-    await releaseExpiredBankTransferOrders(); // its customer notices are sent by the mail sweep
+    await releaseExpiredBankTransferOrdersQuietly(); // its customer notices are sent by the mail sweep; a failure here must not break the dashboard
   }
   const settings = await getSettings();
   // orders paid on delivery or in the shop that nobody has acted on for a week (they are never cancelled by themselves)
