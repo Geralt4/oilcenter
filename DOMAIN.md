@@ -256,7 +256,7 @@ The moment resolvers pick up the new zone the old static site is gone from the d
    curl -sI "https://oilcenter.gr/products?x=1" | grep -i '^location'
    ```
    → `https://www.oilcenter.gr/products?x=1` (the app's canonical-host redirect in `src/proxy.ts`, 301); the same for
-   `https://web-production-2fe57.up.railway.app/`. Then `curl -sI https://www.oilcenter.gr/` → 200 with a
+   `https://web-production-c64ee.up.railway.app/`. Then `curl -sI https://www.oilcenter.gr/` → 200 with a
    `strict-transport-security` header; `curl -s https://www.oilcenter.gr/this-does-not-exist | grep canonical` → `www`;
    `https://www.oilcenter.gr/castrol.html` → `/brand/castrol`. In the admin, *Skroutz* no longer warns about a
    temporary address.

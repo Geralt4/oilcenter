@@ -27,10 +27,14 @@ Admin login = `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env.local`. Change the pas
 | `npm run db:generate` | create a new migration after editing `src/lib/db/schema.ts` |
 | `npm run admin:create -- <email> <password> [name]` | add an admin or reset a password |
 | `npm run catalog:build` | rebuild `catalog/catalog.json` + `public/catalog/*.webp` from the client's photos |
-| `npm run test:orders` | order-logic regression test, incl. availability (runs on a throwaway snapshot of the DB) |
-| `npm run test:feed` | Skroutz feed regression test: what is listed, valid XML, barcodes (same throwaway snapshot) |
-| `npm run test:security` | commerce switch, MFA, limits, upload tokens/deadline/rollback and backup encryption |
-| `npm run test:flows` | real browser flow on a throwaway DB: login + TOTP, confirmed database download, CSV import, photo/SDS save (builds first) |
+| `npm run test:orders` | order-logic regression test, incl. availability and payment outcomes (runs on a throwaway snapshot of the DB) — 282 checks |
+| `npm run test:viva` | Viva adapter with a mocked `fetch`: create, return, webhook, IP allow-list, unmatched payments — 190 checks |
+| `npm run test:admin` | admin actions: prices and CSV round trip, sales, coupons, orders and payment review, categories, product sizes, IBANs, customer and admin sign-in limits — 259 checks |
+| `npm run test:catalog` | catalogue data, search, sizes and hazard tables — 120 checks |
+| `npm run test:security` | commerce switch, MFA, limits, upload tokens/deadline/rollback and backup encryption — 130 checks |
+| `npm run test:feed` | Skroutz feed regression test: what is listed, valid XML, barcodes, cache and rate limit (same throwaway snapshot) — 104 checks |
+| `npm run test:flows` | real browser flow on a throwaway DB: login + TOTP, confirmed database download, CSV import, photo/SDS save (builds first) — 55 checks |
+| `npm run test:card` | whole card journey in a browser against a fake Viva server (builds first) — 50 checks |
 | `npm run lint` / `typecheck` | ESLint / TypeScript |
 
 ## ⚠️ Before going live
@@ -171,7 +175,7 @@ What the deployment-level protections do and where they live — read together w
 
 A review of two local competitors (lazaridis-lubricants.gr, todos.gr) produced seven additions. None copies their
 material; each is a common technique built from this shop's own data. Everything that needs the owner's input ships
-empty or switched off and **renders nothing until he fills it in**. `npm run test:catalog` (73 checks) covers the logic.
+empty or switched off and **renders nothing until he fills it in**. `npm run test:catalog` covers the logic.
 
 - **Viscosity pages** — `/viscosity` and `/viscosity/5w-30`. Filtered listings are `noindex` with `/products` as their
   canonical, so nothing could rank for «λάδια 5W-30»; each SAE grade now has an indexable page whose title, intro and
