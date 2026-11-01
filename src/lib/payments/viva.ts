@@ -183,6 +183,27 @@ export function vivaTransactionIsOurs(tx: Pick<VivaTransaction, 'sourceCode'>): 
   return !(tx.sourceCode && mine && tx.sourceCode !== mine);
 }
 
+/** How long a verification key found at Viva is kept: it is a fixed value of the merchant account, asked for once when a webhook is registered. */
+const KEY_CACHE_MS = 10 * 60 * 1000;
+let keyCache: { forCredentials: string; key: string; until: number } | null = null;
+
+/** Forgets the kept verification key (tests, and a clean slate after a change of credentials). */
+export function clearVivaWebhookKeyCache(): void {
+  keyCache = null;
+}
+
+/**
+ * The verification key for the public GET endpoint: kept for ten minutes, so that a visitor hammering the (open) URL cannot turn
+ * every hit into a call to Viva's API. Tied to the credentials it was fetched with; a failed lookup is never kept.
+ */
+export async function vivaWebhookVerificationKeyCached(): Promise<string> {
+  const credentials = `${process.env.VIVA_ENV ?? ''}|${process.env.VIVA_MERCHANT_ID ?? ''}|${process.env.VIVA_API_KEY ?? ''}`;
+  if (keyCache && keyCache.forCredentials === credentials && keyCache.until > Date.now()) return keyCache.key;
+  const key = await vivaWebhookVerificationKey();
+  keyCache = { forCredentials: credentials, key, until: Date.now() + KEY_CACHE_MS };
+  return key;
+}
+
 /** Viva verifies a webhook URL with a GET that must echo back this key. Needs Merchant ID + API key (basic auth). */
 export async function vivaWebhookVerificationKey(): Promise<string> {
   const { VIVA_MERCHANT_ID, VIVA_API_KEY } = process.env;

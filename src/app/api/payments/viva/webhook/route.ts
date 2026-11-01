@@ -3,17 +3,23 @@ import { commerceEnabled } from '@/lib/commerce-flag';
 import { addOrderEvent } from '@/lib/orders';
 import { findOrderByPayment, setAttemptStatus } from '@/lib/payments/attempts';
 import { reportUnmatchedPayment, settleCardPayment } from '@/lib/payments/settle';
-import { vivaRetrieveTransaction, vivaTransactionIsOurs, vivaWebhookIpAllowed, vivaWebhookVerificationKey } from '@/lib/payments/viva';
+import { vivaRetrieveTransaction, vivaTransactionIsOurs, vivaWebhookIpAllowed, vivaWebhookVerificationKeyCached } from '@/lib/payments/viva';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 
 const EVENT_PAYMENT_CREATED = 1796;
 const EVENT_PAYMENT_FAILED = 1798;
 
-/** Viva verifies the endpoint once with a GET that must answer {"Key": "<verification key>"}. */
+/**
+ * Viva verifies the endpoint once with a GET that must answer {"Key": "<verification key>"}. It has to stay open (Viva cannot log in),
+ * so it is limited per address and the key is kept for a few minutes: the URL cannot be used to make the shop call Viva over and over.
+ * The webhook IP allow-list applies to the POST only: a wrong list must not stop the webhook from being registered.
+ */
 export async function GET() {
   if (!commerceEnabled()) return NextResponse.json({ error: 'commerce_disabled' }, { status: 503 });
+  const limited = await rateLimit(`viva-webhook-verify:${await clientIp()}`, 10, 60 * 1000);
+  if (!limited.ok) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': String(limited.retryAfterSec) } });
   try {
-    return NextResponse.json({ Key: await vivaWebhookVerificationKey() });
+    return NextResponse.json({ Key: await vivaWebhookVerificationKeyCached() });
   } catch (err) {
     console.error('[viva] webhook verification failed', err);
     return NextResponse.json({ error: 'not_configured' }, { status: 503 });
