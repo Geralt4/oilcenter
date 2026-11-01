@@ -18,6 +18,7 @@
     "backup:push": "tsx scripts/backup-push.ts",
     "backup:now": "tsx scripts/backup-now.ts",
     "backup:pull": "tsx scripts/backup-pull.ts",
+    "backup:decrypt": "tsx scripts/backup-decrypt.ts",
     "db:patch": "tsx scripts/patches.ts",
     "setup": "npm run db:migrate && npm run db:seed && npm run db:patch",
     "catalog:build": "tsx scripts/build-catalog.ts",

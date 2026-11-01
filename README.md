@@ -157,7 +157,12 @@ What the deployment-level protections do and where they live — read together w
 - **Non-root container:** `docker/entrypoint.sh` starts as root only to `chown` the persistent volume to `node`, then
   re-execs migrations and the server as uid 1000 via gosu; the Dockerfile pre-creates Next's runtime image cache owned by
   `node`, so optimized images are cached without permission errors.
-- **Off-site backups:** every night's local snapshot (`shop-*.db.gz`) is encrypted with AES-256-GCM and uploaded to a
+- **Stored snapshots are encrypted too:** with `BACKUP_ENCRYPTION_KEY` set, the daily snapshots kept on the volume are
+  `shop-YYYY-MM-DD.db.gz.enc` (same AES-256-GCM, same key), so a copy of the volume does not give away customer data or
+  password hashes. Plain `.db.gz` files left by older versions are encrypted at the next run, verified by reading them back,
+  and only then removed. The admin «download a backup» stays a plain gzip behind the identity confirmation. Open a stored
+  copy with `npm run backup:decrypt -- shop-2026-11-02.db.gz.enc ./restore/shop.db`.
+- **Off-site backups:** every night's local snapshot (`shop-*.db.gz.enc`) is uploaded as it is (already encrypted with AES-256-GCM) to a
   private Backblaze B2 bucket as `shop-YYYY-MM-DD.db.gz.enc`, together with a daily archive of uploaded photos and safety
   data sheets. Fourteen versions of each family are kept; pruning uses `b2_list_file_versions`, so superseded versions
   are deleted too, not just the visible filename. **Every deploy also writes a fresh uniquely named snapshot and uploads
@@ -177,6 +182,9 @@ What the deployment-level protections do and where they live — read together w
 4. Photos/SDS: `npm run backup:pull -- uploads-2026-10-17.tar.gz.enc ./restore/uploads.tar`, then
    `tar -xf uploads.tar -C DATA_DIR`.
 5. Sign in to `/admin` and spot-check products, orders and settings. A restore that has never been tried is not a backup.
+
+A snapshot that is still on the volume (not in B2) is opened with `npm run backup:decrypt -- <file>.db.gz.enc ./restore/shop.db`
+(same key, same steps from 3).
 - **Dependency audit (2026-10-17):** production dependencies report **0 known vulnerabilities**. The flagged packages in
   a full-lockfile audit are all dev tooling, none shipped in the runtime request path: `braces@3.0.3` (via the Next ESLint
   plugin; the advisory CVE-2026-93687 has **no fixed release yet** — newest version IS 3.0.3), and `drizzle-kit`'s legacy

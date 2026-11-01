@@ -320,7 +320,7 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
               <p className="text-sm text-ink-700">
                 {backups.length === 0
                   ? 'Δεν υπάρχει ακόμη αυτόματο αντίγραφο (δημιουργείται μόνο στο δημοσιευμένο site, λίγο μετά την εκκίνηση).'
-                  : `Τελευταίο αυτόματο αντίγραφο: ${formatDate(new Date(`${backups[0].day}T12:00:00`))} · ${backups.length} ${backups.length === 1 ? 'αποθηκευμένο' : 'αποθηκευμένα'}.`}
+                  : `Τελευταίο αυτόματο αντίγραφο: ${formatDate(new Date(`${backups[0].day}T12:00:00`))} · ${backups.length} ${backups.length === 1 ? 'αποθηκευμένο' : 'αποθηκευμένα'}${backups.every((b) => b.encrypted) ? ', κρυπτογραφημένα στον δίσκο' : ''}.`}
               </p>
               {sudo ? (
                 <a href="/admin/backup" className={buttonClass({ variant: 'dark', className: 'mt-4' })}>

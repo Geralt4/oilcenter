@@ -425,6 +425,150 @@ async function main() {
     }
   }
 
+  console.log('Stored snapshots are encrypted');
+  {
+    const nodePath = (await import('node:path')).default;
+    const { readFile: readF, readdir: readD, rm: rmF } = await import('node:fs/promises');
+    const { gunzipSync, gzipSync } = await import('node:zlib');
+    const { createClient } = await import('@libsql/client');
+    const { ensureDailyBackup, encryptStoredSnapshots, listBackups, writeSnapshot, backupsDir } = await import('../src/lib/backup');
+    const { decryptBackup, encryptBackup } = await import('../src/lib/backup-crypto');
+    const { ensureOffsiteBackup } = await import('../src/lib/backup-offsite');
+    const saved = { data: process.env.DATA_DIR, key: process.env.BACKUP_ENCRYPTION_KEY, b2: [process.env.B2_KEY_ID, process.env.B2_APP_KEY, process.env.B2_BUCKET] };
+    const dataDir = nodePath.join(dir, 'stored-data');
+    process.env.DATA_DIR = dataDir;
+    const KEY_A = Buffer.alloc(32, 7).toString('base64');
+    const KEY_B = Buffer.alloc(32, 9).toString('base64');
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Athens' }).format(new Date());
+    const names = async () => (await readD(backupsDir()).catch(() => [] as string[])).sort();
+    const reset = async () => { await rmF(backupsDir(), { recursive: true, force: true }); await mkdir(backupsDir(), { recursive: true }); };
+    const isSqlite = (buf: Buffer) => buf.subarray(0, 15).toString() === 'SQLite format 3';
+    try {
+      // without a key nothing changes: a plain .db.gz, as before
+      delete process.env.BACKUP_ENCRYPTION_KEY;
+      await reset();
+      check('without a backup key the daily snapshot is a plain .db.gz, as before', (await ensureDailyBackup()) === 'created' && (await names()).join() === `shop-${today}.db.gz`, await names());
+      const plainFile = nodePath.join(backupsDir(), `shop-${today}.db.gz`);
+      check('…and it is a gzip of a SQLite file', isSqlite(gunzipSync(await readF(plainFile))));
+      check('…listed as not encrypted', (await listBackups())[0]?.encrypted === false);
+
+      // with a key the stored file is sealed and no plain copy is left behind
+      process.env.BACKUP_ENCRYPTION_KEY = KEY_A;
+      await reset();
+      check('with a key the daily snapshot is created sealed', (await ensureDailyBackup()) === 'created');
+      check('…as .db.gz.enc only: no plain .db.gz, no raw .db, no partial file is left in the folder', (await names()).join() === `shop-${today}.db.gz.enc`, await names());
+      const sealedFile = nodePath.join(backupsDir(), `shop-${today}.db.gz.enc`);
+      const sealed = await readF(sealedFile);
+      check('…it starts with the backup header and does not contain the database text', sealed.subarray(0, 5).toString() === 'OCBK1' && !sealed.includes('SQLite format 3') && !sealed.includes('CREATE TABLE'));
+      check('…it decrypts to a gzip of a SQLite file', isSqlite(gunzipSync(decryptBackup(sealed))));
+      check('…listed as encrypted, and a second run the same day does nothing', (await listBackups())[0]?.encrypted === true && (await ensureDailyBackup()) === 'exists' && (await names()).length === 1);
+      const flipped = Buffer.from(sealed); flipped[flipped.length - 1] ^= 0xff;
+      check('a flipped byte in the stored file is refused', (() => { try { decryptBackup(flipped); return false; } catch { return true; } })());
+      process.env.BACKUP_ENCRYPTION_KEY = KEY_B;
+      check('…and so is the wrong key', (() => { try { decryptBackup(sealed); return false; } catch { return true; } })());
+      process.env.BACKUP_ENCRYPTION_KEY = KEY_A;
+
+      // restore drill: open the stored copy with the developer tool and compare it with the live database
+      const out = nodePath.join(dir, 'restored', 'shop.db');
+      const run = spawnSync('npx', ['tsx', 'scripts/backup-decrypt.ts', sealedFile, out], { encoding: 'utf8', env: { ...process.env, BACKUP_ENCRYPTION_KEY: KEY_A } });
+      check('npm run backup:decrypt writes a SQLite file from the stored copy', run.status === 0 && isSqlite(await readF(out)), run.stderr || run.stdout);
+      const restored = createClient({ url: `file:${out}` });
+      const live = createClient({ url: process.env.DATABASE_URL! });
+      const counts = async (c: typeof live) => Object.fromEntries(await Promise.all(['products', 'variants', 'orders', 'customers', 'settings', '__drizzle_migrations'].map(async (t) => [t, Number((await c.execute(`select count(*) as n from ${t}`)).rows[0]!.n)] as const)));
+      const integrity = String((await restored.execute('pragma integrity_check')).rows[0]![0]);
+      const [rc, lc] = [await counts(restored), await counts(live)];
+      check('…the restored copy passes the integrity check and has the same rows as the live database', integrity === 'ok' && JSON.stringify(rc) === JSON.stringify(lc), { integrity, rc, lc });
+      restored.close(); live.close();
+      const wrongKeyRun = spawnSync('npx', ['tsx', 'scripts/backup-decrypt.ts', sealedFile, nodePath.join(dir, 'restored', 'bad.db')], { encoding: 'utf8', env: { ...process.env, BACKUP_ENCRYPTION_KEY: KEY_B } });
+      check('…and with the wrong key it fails with a message and writes nothing', wrongKeyRun.status !== 0 && /Decrypt failed/.test(wrongKeyRun.stderr) && !existsSync(nodePath.join(dir, 'restored', 'bad.db')), wrongKeyRun.stderr.slice(0, 200));
+
+      // plain snapshots from an older version are sealed once, verified, and only then removed
+      await reset();
+      delete process.env.BACKUP_ENCRYPTION_KEY;
+      const oldDaily = nodePath.join(backupsDir(), 'shop-2020-01-01.db.gz');
+      const oldManual = nodePath.join(backupsDir(), 'shop-2020-01-02-030405.db.gz');
+      await writeSnapshot(oldDaily);
+      await writeSnapshot(oldManual);
+      const originals = { daily: await readF(oldDaily), manual: await readF(oldManual) };
+      process.env.BACKUP_ENCRYPTION_KEY = KEY_A;
+      const converted = await encryptStoredSnapshots();
+      check('plain snapshots of an older version (daily and boot / «backup now») are encrypted', converted.converted === 2 && converted.kept.length === 0 && (await names()).join() === 'shop-2020-01-01.db.gz.enc,shop-2020-01-02-030405.db.gz.enc', { converted, names: await names() });
+      check('…each decrypts to exactly what the plain file held', decryptBackup(await readF(`${oldDaily}.enc`)).equals(originals.daily) && decryptBackup(await readF(`${oldManual}.enc`)).equals(originals.manual));
+      check('…and running it again changes nothing', (await encryptStoredSnapshots()).converted === 0 && (await names()).length === 2);
+
+      // a plain file whose sealed twin cannot be verified is NOT removed
+      await reset();
+      const keep = nodePath.join(backupsDir(), 'shop-2020-01-03.db.gz');
+      await writeSnapshot(keep, { encrypt: false });
+      await writeFile(`${keep}.enc`, 'garbage that is not a backup');
+      const errors: string[] = [];
+      const realError = console.error; console.error = (...a: unknown[]) => void errors.push(a.map(String).join(' '));
+      const unverified = await encryptStoredSnapshots();
+      console.error = realError;
+      check('a plain snapshot whose encrypted twin does not verify stays, and the problem is logged', unverified.converted === 0 && unverified.kept.join() === 'shop-2020-01-03.db.gz' && (await names()).includes('shop-2020-01-03.db.gz') && errors.some((e) => e.includes('shop-2020-01-03.db.gz')), { unverified, errors });
+      process.env.BACKUP_ENCRYPTION_KEY = KEY_B;
+      const keptByWrongKey = await encryptStoredSnapshots();
+      check('…and a key that does not match an existing encrypted copy keeps the plain one too', keptByWrongKey.kept.length === 1 && (await names()).includes('shop-2020-01-03.db.gz'));
+      process.env.BACKUP_ENCRYPTION_KEY = KEY_A;
+      delete process.env.BACKUP_ENCRYPTION_KEY;
+      check('without a key the conversion does nothing', (await encryptStoredSnapshots()).converted === 0);
+
+      // retention counts both forms: 14 days stay, older ones go in either form
+      process.env.BACKUP_ENCRYPTION_KEY = KEY_A;
+      await reset();
+      const stub = encryptBackup(gzipSync(Buffer.from('SQLite format 3\0x')));
+      for (let d = 1; d <= 20; d++) {
+        const day = `2020-01-${String(d).padStart(2, '0')}`;
+        await writeFile(nodePath.join(backupsDir(), `shop-${day}.db.gz.enc`), stub);
+        if (d % 2 === 0) await writeFile(nodePath.join(backupsDir(), `shop-${day}.db.gz`), 'plain twin'); // never converted: the twin exists
+      }
+      const quiet = console.error; console.error = () => undefined; // the unverifiable plain twins log, as intended
+      await ensureDailyBackup();
+      console.error = quiet;
+      const left = await listBackups();
+      check('retention keeps the newest 14 days (today and 13 older ones)', left.length === 14 && left[0]!.day === today && left[13]!.day === '2020-01-08', left.map((f) => f.day));
+      check('…and removes every file of an older day, plain and encrypted', !(await names()).some((n) => /2020-01-0[1-7]\./.test(n)) && !(await names()).includes('shop-2020-01-06.db.gz'), await names());
+      check('a day that exists in both forms is listed once, as the encrypted one', left.filter((f) => f.day === '2020-01-20').length === 1 && left.find((f) => f.day === '2020-01-20')!.encrypted);
+
+      // off-site: the sealed file is uploaded as it is (not sealed a second time) under the same object name
+      await reset();
+      await ensureDailyBackup();
+      const stored = await readF(nodePath.join(backupsDir(), `shop-${today}.db.gz.enc`));
+      process.env.B2_KEY_ID = 'k'; process.env.B2_APP_KEY = 'a'; process.env.B2_BUCKET = 'bucket-test';
+      const uploads: Array<{ name: string; body: Buffer }> = [];
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('b2_authorize_account')) return new Response(JSON.stringify({ apiUrl: 'https://api.b2.test', authorizationToken: 't', accountId: 'acc' }));
+        if (url.includes('b2_list_buckets')) return new Response(JSON.stringify({ buckets: [{ bucketId: 'b1', bucketName: 'bucket-test' }] }));
+        if (url.includes('b2_list_file_names')) return new Response(JSON.stringify({ files: [], nextFileName: null }));
+        if (url.includes('b2_get_upload_url')) return new Response(JSON.stringify({ uploadUrl: 'https://up.b2.test/file', authorizationToken: 'u' }));
+        if (url.includes('up.b2.test')) {
+          const headers = init?.headers as Record<string, string>;
+          uploads.push({ name: decodeURIComponent(headers['X-Bz-File-Name']!), body: Buffer.from(init!.body as Uint8Array) });
+          return new Response('{}');
+        }
+        return new Response(JSON.stringify({ files: [], nextFileName: null, nextFileId: null }));
+      }) as typeof fetch;
+      try {
+        const result = await ensureOffsiteBackup();
+        check('off-site uploads the stored sealed file byte for byte, under the usual object name', result === 'uploaded' && uploads.length === 1 && uploads[0]!.name === `shop-${today}.db.gz.enc` && uploads[0]!.body.equals(stored), { result, uploads: uploads.map((u) => u.name) });
+        check('…so one decryption opens it (not two)', isSqlite(gunzipSync(decryptBackup(uploads[0]!.body))));
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+
+      // the admin download is still a plain gzip
+      const dl = await writeSnapshot(nodePath.join(backupsDir(), 'download-test.db.gz'), { encrypt: false });
+      check('the admin download (encrypt: false) stays a plain gzip even with a key', !dl.encrypted && dl.file.endsWith('.db.gz') && isSqlite(gunzipSync(await readF(dl.file))));
+    } finally {
+      if (saved.data === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = saved.data;
+      if (saved.key === undefined) delete process.env.BACKUP_ENCRYPTION_KEY; else process.env.BACKUP_ENCRYPTION_KEY = saved.key;
+      [process.env.B2_KEY_ID, process.env.B2_APP_KEY, process.env.B2_BUCKET] = saved.b2;
+      for (const [i, k] of ['B2_KEY_ID', 'B2_APP_KEY', 'B2_BUCKET'].entries()) if (saved.b2[i] === undefined) delete process.env[k];
+    }
+  }
+
   console.log('Request-size boundaries');
   const { readJsonLimited } = await import('../src/lib/form-size');
   const okBody = await readJsonLimited(new Request('http://localhost/x', { method: 'POST', body: JSON.stringify({ lines: [] }), headers: { 'Content-Type': 'application/json' } }), 1024);
