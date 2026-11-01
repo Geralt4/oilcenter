@@ -19,7 +19,7 @@ async function main() {
   // Set BEFORE importing: the flag is read per call, but every module here should see the restricted deployment.
   process.env.COMMERCE_ENABLED = 'false';
   dir = await cloneDatabase('oc-sec-');
-  const { eq } = await import('drizzle-orm');
+  const { eq, sql } = await import('drizzle-orm');
   const { db } = await import('../src/lib/db');
   const { orders } = await import('../src/lib/db/schema');
   const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
@@ -508,6 +508,92 @@ async function main() {
   check('one finished upload does not re-enable save', button.disabled && pendingUploadCount(fakeForm) === 1);
   endUpload(fakeForm);
   check('save is enabled only after the last upload finishes', !button.disabled && pendingUploadCount(fakeForm) === 0);
+
+  console.log('Statistics: visitor input cannot grow the counters table');
+  {
+    const { and: andOp } = await import('drizzle-orm');
+    const { statCounters, products, brands } = await import('../src/lib/db/schema');
+    const { recordEvent, athensDay, statLimits, statSearchKey, forgetStatSlugs, OTHER_SEARCH, OTHER_SOURCE } = await import('../src/lib/stats');
+    const day = athensDay();
+    let visitorNo = 0;
+    const ctx = () => ({ ip: `203.0.113.${++visitorNo % 250}`, userAgent: `Mozilla/5.0 test-${visitorNo}`, host: 'www.oilcenter.gr', ordersEnabled: false });
+    const countOf = async (kind: string, key: string) => (await db.select().from(statCounters).where(andOp(eq(statCounters.day, day), eq(statCounters.kind, kind), eq(statCounters.key, key))))[0]?.count ?? 0;
+    const rowsOf = async (kind: string) => (await db.select().from(statCounters).where(andOp(eq(statCounters.day, day), eq(statCounters.kind, kind)))).length;
+
+    const [product] = await db.select().from(products).where(eq(products.isActive, true)).limit(1);
+    const [brand] = product.brandId ? await db.select().from(brands).where(eq(brands.id, product.brandId)) : [];
+    forgetStatSlugs();
+    const known0 = await countOf('product', product.slug);
+    await recordEvent({ t: 'view', path: `/product/${product.slug}` }, ctx());
+    check('a view of an existing product is counted', (await countOf('product', product.slug)) === known0 + 1);
+    const productRows = await rowsOf('product');
+    const brandRows = await rowsOf('brand');
+    const categoryRows = await rowsOf('category');
+    const cartRows = await rowsOf('cart');
+    for (let i = 0; i < 20; i++) {
+      await recordEvent({ t: 'view', path: `/product/no-such-oil-${i}` }, ctx());
+      await recordEvent({ t: 'view', path: `/brand/no-such-brand-${i}` }, ctx());
+      await recordEvent({ t: 'view', path: `/category/no-such-category-${i}` }, ctx());
+      await recordEvent({ t: 'cart', slug: `no-such-oil-${i}` }, ctx());
+    }
+    check('views of unknown product, brand and category slugs add no rows', (await rowsOf('product')) === productRows && (await rowsOf('brand')) === brandRows && (await rowsOf('category')) === categoryRows, [await rowsOf('product'), productRows]);
+    check('…nor does a cart event for an unknown product', (await rowsOf('cart')) === cartRows);
+    const pv = await countOf('pageview', '/product');
+    await recordEvent({ t: 'view', path: '/product/no-such-oil-x' }, ctx());
+    check('…while the page view itself still counts in its section', (await countOf('pageview', '/product')) === pv + 1);
+    const cart0 = await countOf('cart', product.slug);
+    await recordEvent({ t: 'cart', slug: product.slug }, ctx());
+    check('a cart event for a listed product is counted', (await countOf('cart', product.slug)) === cart0 + 1);
+    if (brand) {
+      const b0 = await countOf('brand', brand.slug);
+      await recordEvent({ t: 'view', path: `/brand/${brand.slug}` }, ctx());
+      check('a view of an existing brand is counted', (await countOf('brand', brand.slug)) === b0 + 1);
+    }
+
+    // the slug list is cached, not read per view: a product switched off still counts until the list is read again
+    await db.update(products).set({ isActive: false }).where(eq(products.id, product.id));
+    const cachedN = await countOf('product', product.slug);
+    await recordEvent({ t: 'view', path: `/product/${product.slug}` }, ctx());
+    check('the slug list is reused between views (no lookup per hit)', (await countOf('product', product.slug)) === cachedN + 1);
+    forgetStatSlugs();
+    await recordEvent({ t: 'view', path: `/product/${product.slug}` }, ctx());
+    check('…and once read again, a product that is gone is no longer counted', (await countOf('product', product.slug)) === cachedN + 1);
+    await db.update(products).set({ isActive: true }).where(eq(products.id, product.id));
+    forgetStatSlugs();
+
+    check('search text is trimmed, lower-cased and its spaces collapsed', statSearchKey('   Castrol    EDGE   5W-30  ') === 'castrol edge 5w 30', statSearchKey('   Castrol    EDGE   5W-30  '));
+    check('…accents and final sigma folded as before', statSearchKey('Λάδι ΚΙΝΗΤΉΡΑ γρασσος') === 'λαδι κινητηρα γρασσοσ', statSearchKey('Λάδι ΚΙΝΗΤΉΡΑ γρασσος'));
+    const long = statSearchKey('motul '.repeat(30));
+    check('…a long search is cut to 60 characters at most', long.length <= 60 && long.startsWith('motul motul'), long.length);
+    check('…text with control characters is dropped', statSearchKey('castrol\u0000edge') === '' && statSearchKey('mobil\n1') === '' && statSearchKey('total\u007f') === '');
+    check('…empty, blank or one-letter text is dropped', statSearchKey('') === '' && statSearchKey('   ') === '' && statSearchKey(' ;; ') === '' && statSearchKey('a') === '');
+    const searchRows0 = await rowsOf('search');
+    await recordEvent({ t: 'search', q: 'motul\u0000injected', n: 3 }, ctx());
+    await recordEvent({ t: 'search', q: '   ', n: 3 }, ctx());
+    check('a dropped search writes nothing', (await rowsOf('search')) === searchRows0);
+    await recordEvent({ t: 'search', q: '  ELF   Evolution ', n: 2 }, ctx());
+    check('a counted search is stored normalised', (await countOf('search', 'elf evolution')) === 1);
+
+    // the daily cap: a small one, so the test does not need hundreds of rows
+    const savedCap = statLimits.dailyNewKeys;
+    const distinctNow = async () => (await db.select().from(statCounters).where(andOp(eq(statCounters.day, day), sql`${statCounters.kind} in ('search', 'search_empty')`, sql`${statCounters.key} <> ${OTHER_SEARCH}`))).length;
+    statLimits.dailyNewKeys = (await distinctNow()) + 3;
+    try {
+      for (let i = 0; i < 10; i++) await recordEvent({ t: 'search', q: `flood text ${i}`, n: i % 2 }, ctx());
+      check('the daily cap of new search keys holds (3 new keys, not 10)', (await distinctNow()) === statLimits.dailyNewKeys, await distinctNow());
+      const overflow = (await countOf('search', OTHER_SEARCH)) + (await countOf('search_empty', OTHER_SEARCH));
+      check(`…the other 7 are counted under «${OTHER_SEARCH}»`, overflow === 7, overflow);
+      const before = await countOf('search', 'elf evolution');
+      await recordEvent({ t: 'search', q: 'elf evolution', n: 2 }, ctx());
+      check('…a search already counted today still adds up after the cap', (await countOf('search', 'elf evolution')) === before + 1);
+      const sourcesNow = await rowsOf('source');
+      statLimits.dailyNewKeys = sourcesNow + 1;
+      for (let i = 0; i < 5; i++) await recordEvent({ t: 'view', path: '/', ref: `https://spam-${i}.example/` }, ctx());
+      check(`referrer hosts have the same cap, the rest under «${OTHER_SOURCE}»`, (await rowsOf('source')) === sourcesNow + 2 && (await countOf('source', OTHER_SOURCE)) === 4, [await rowsOf('source'), sourcesNow, await countOf('source', OTHER_SOURCE)]);
+    } finally {
+      statLimits.dailyNewKeys = savedCap;
+    }
+  }
 }
 
 main()

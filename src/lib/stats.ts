@@ -1,6 +1,7 @@
 import { createHash, createHmac } from 'node:crypto';
-import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { catalogSlugs } from '@/lib/catalog';
 import { db } from '@/lib/db';
 import { statCounters, statVisitors } from '@/lib/db/schema';
 import { normalizeText } from '@/lib/utils';
@@ -31,6 +32,73 @@ async function bump(day: string, kind: string, key = ''): Promise<void> {
     .insert(statCounters)
     .values({ day, kind, key: key.slice(0, 160), count: 1 })
     .onConflictDoUpdate({ target: [statCounters.day, statCounters.kind, statCounters.key], set: { count: sql`${statCounters.count} + 1` } });
+}
+
+/*
+ * Bounded growth. Every counter key that comes from the visitor (a slug in the address, a search, a referrer host) would
+ * otherwise create a new row per distinct value, so anyone could grow the table at will. Slugs are counted only when the
+ * page exists; free text gets at most `dailyNewKeys` distinct keys a day per group, and the rest one shared key.
+ */
+export const statLimits = {
+  /** distinct new keys a day for searches (search + search_empty together) and, separately, for referrer hosts */
+  dailyNewKeys: 300,
+  /** how long the list of existing slugs is reused before it is read again */
+  slugTtlMs: 5 * 60 * 1000,
+};
+export const OTHER_SEARCH = 'άλλη αναζήτηση';
+export const OTHER_SOURCE = 'άλλη πηγή';
+
+type KnownSlugs = Awaited<ReturnType<typeof catalogSlugs>>;
+let knownSlugs: { at: number; slugs: KnownSlugs } | null = null;
+let loadingSlugs: Promise<KnownSlugs> | null = null;
+
+/** The shop's slugs, read once per `slugTtlMs` (one load at a time), not once per page view. */
+async function existingSlugs(): Promise<KnownSlugs> {
+  if (knownSlugs && Date.now() - knownSlugs.at < statLimits.slugTtlMs) return knownSlugs.slugs;
+  loadingSlugs ??= catalogSlugs()
+    .then((slugs) => {
+      knownSlugs = { at: Date.now(), slugs };
+      return slugs;
+    })
+    .finally(() => {
+      loadingSlugs = null;
+    });
+  return loadingSlugs;
+}
+
+/** For tests and after catalogue changes that must show at once: the next view reads the slugs again. */
+export function forgetStatSlugs(): void {
+  knownSlugs = null;
+}
+
+/**
+ * Bumps an existing key, or adds a new one while the day still has room in its group; once the group has
+ * `dailyNewKeys` distinct keys, a new value is counted under `overflow` instead.
+ */
+async function bumpCapped(day: string, kind: string, key: string, group: string[], overflow: string): Promise<void> {
+  const existing = await db
+    .update(statCounters)
+    .set({ count: sql`${statCounters.count} + 1` })
+    .where(and(eq(statCounters.day, day), eq(statCounters.kind, kind), eq(statCounters.key, key)))
+    .returning({ key: statCounters.key });
+  if (existing.length) return;
+  const [{ n }] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(statCounters)
+    .where(and(eq(statCounters.day, day), inArray(statCounters.kind, group), sql`${statCounters.key} <> ${overflow}`));
+  await bump(day, kind, Number(n) < statLimits.dailyNewKeys ? key : overflow);
+}
+
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+
+/**
+ * A search as it is counted: no control characters (dropped, not cleaned), lower case, accents and punctuation gone,
+ * spaces collapsed, at most 60 characters; '' = not counted.
+ */
+export function statSearchKey(raw: string): string {
+  if (CONTROL.test(raw)) return '';
+  const q = normalizeText(raw).slice(0, 60).trim();
+  return q.length < 2 ? '' : q;
 }
 
 const SECTIONS = ['products', 'product', 'category', 'brand', 'brands', 'cart', 'checkout', 'contact', 'about', 'wishlist', 'order-status', 'account', 'login', 'register'];
@@ -78,22 +146,24 @@ export async function recordEvent(event: StatEvent, ctx: { ip: string; userAgent
       if (path.startsWith('/admin') || path.startsWith('/api')) return;
       await bump(day, 'pageview', section(path));
       const [, first, slug] = path.split('/');
-      if (slug && (first === 'product' || first === 'category' || first === 'brand')) await bump(day, first, slug);
+      if (slug && (first === 'product' || first === 'category' || first === 'brand') && (await existingSlugs())[first].has(slug)) await bump(day, first, slug);
       if (first === 'checkout' && !ctx.ordersEnabled) await bump(day, 'checkout_closed');
       if (await isNewVisitorToday(day, ctx.ip, ctx.userAgent)) {
         await bump(day, 'visitor');
         await bump(day, 'device', deviceClass(event.w, ctx.userAgent));
-        await bump(day, 'source', sourceOf(event.ref, ctx.host));
+        await bumpCapped(day, 'source', sourceOf(event.ref, ctx.host), ['source'], OTHER_SOURCE);
       }
       return;
     }
     case 'search': {
-      const q = normalizeText(event.q).slice(0, 60);
-      if (q.length < 2) return;
-      await bump(day, event.n === 0 ? 'search_empty' : 'search', q);
+      const q = statSearchKey(event.q);
+      if (!q) return;
+      await bumpCapped(day, event.n === 0 ? 'search_empty' : 'search', q, ['search', 'search_empty'], OTHER_SEARCH);
       return;
     }
     case 'cart':
+      // the slug of the product added to the cart: counted only for a product the shop lists
+      if (!(await existingSlugs()).product.has(event.slug)) return;
       return bump(day, 'cart', event.slug);
     case 'click':
       return bump(day, 'click', event.what);

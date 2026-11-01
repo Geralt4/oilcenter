@@ -223,6 +223,23 @@ export async function getCategoryBySlug(slug: string): Promise<{ node: CategoryN
   return walk(tree, []);
 }
 
+/**
+ * The slugs that have a page in the shop right now: listed products, brands with products, active categories — the same
+ * lists the product, brand and category pages look themselves up in. The statistics count views only for these.
+ */
+export async function catalogSlugs(): Promise<{ product: Set<string>; brand: Set<string>; category: Set<string> }> {
+  const [index, brandList, tree] = await Promise.all([loadIndex(), getBrands(), getCategoryTree()]);
+  const category = new Set<string>();
+  const walk = (nodes: CategoryNode[]) => {
+    for (const n of nodes) {
+      category.add(n.slug);
+      walk(n.children);
+    }
+  };
+  walk(tree);
+  return { product: new Set(index.map((p) => p.slug)), brand: new Set(brandList.map((b) => b.slug)), category };
+}
+
 export async function getCategoryTrailById(id: number | null): Promise<CategoryNode[]> {
   if (!id) return [];
   const tree = await getCategoryTree();

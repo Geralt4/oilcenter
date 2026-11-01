@@ -325,6 +325,26 @@ async function main() {
     check('all 61 favourites are listed, not only the first 60', (await page.locator('main article').count()) === 61, await page.locator('main article').count());
     await page.evaluate(() => localStorage.removeItem('oilcenter-wishlist'));
 
+    console.log('Statistics page and sign-ups export');
+    {
+      const { statCounters, launchSignups } = await import('../src/lib/db/schema');
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Athens' }).format(new Date());
+      await db
+        .insert(statCounters)
+        .values([
+          { day: today, kind: 'pageview', key: '/', count: 3 },
+          { day: today, kind: 'search', key: 'άλλη αναζήτηση', count: 2 },
+        ])
+        .onConflictDoNothing();
+      await db.insert(launchSignups).values({ email: 'flows-signup@example.com' }).onConflictDoNothing();
+      const statsPage = await page.goto(`${base}/admin/stats`);
+      check('the statistics page renders for the admin', statsPage?.status() === 200 && (await page.getByRole('heading', { name: 'Στατιστικά' }).count()) > 0, statsPage?.status());
+      check('…and lists the shared key for searches over the daily cap', (await page.locator('main').innerText()).includes('άλλη αναζήτηση'));
+      const csv = await page.request.get(`${base}/admin/stats/signups`);
+      const csvText = await csv.text();
+      check('the sign-ups CSV export still downloads', csv.status() === 200 && (csv.headers()['content-type'] ?? '').startsWith('text/csv') && csvText.includes('email;date') && csvText.includes('flows-signup@example.com'), [csv.status(), csvText.slice(0, 80)]);
+    }
+
     console.log('Edits typed while a save is in flight');
     page.on('dialog', (dialog) => void dialog.accept());
     // hold the server action back so there is time to type while it is running
