@@ -464,6 +464,20 @@ async function main() {
       await db.update(mailOutbox).set({ givenUpAt: null }).where(eq(mailOutbox.orderId, o5a.id));
     }
 
+    console.log('  Confirmation of a placed order');
+    {
+      const { sendPlacedOrderConfirmation } = await import('../src/lib/order-mail');
+      const { getOrderByNumber } = await import('../src/lib/orders');
+      const placed = await newCardOrder();
+      const full = await getOrderByNumber(placed.number);
+      const eventsOfOrder = async () => (await db.select().from(orderEvents).where(eq(orderEvents.orderId, placed.id))).map((e) => e.message);
+      const filesBefore = outboxFiles().length;
+      const none = await sendPlacedOrderConfirmation(placed, null, DEFAULT_SETTINGS);
+      check('an order that cannot be read back: not sent (false), no mail written, nothing on the timeline', none === false && outboxFiles().length === filesBefore && !(await eventsOfOrder()).some((m) => m.includes('e-mail επιβεβαίωσης')), [none, await eventsOfOrder()]);
+      const went = await sendPlacedOrderConfirmation(placed, full, DEFAULT_SETTINGS);
+      check('an order that can: sent (true), one mail written, «Στάλθηκε» on the timeline', went === true && outboxFiles().length === filesBefore + 1 && (await eventsOfOrder()).some((m) => m.startsWith('Στάλθηκε e-mail επιβεβαίωσης')), [went, await eventsOfOrder()]);
+    }
+
     console.log('  Payment attempts');
     const o6 = await newCardOrder();
     await recordPaymentAttempt(o6.id, { provider: 'viva', ref: 'att-old-6' });
