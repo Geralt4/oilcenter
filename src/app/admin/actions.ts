@@ -20,6 +20,7 @@ import { buildHazard } from '@/lib/ghs';
 import { isValidGtin, normalizeGtin } from '@/lib/gtin';
 import { isValidIban, normalizeIban } from '@/lib/iban';
 import { addOrderEvent, cancelOrder, flagForReview, getOrderByNumber, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/orders';
+import { resendGivenUpMails } from '@/lib/payments/mail-delivery';
 import { applyPriceChanges } from '@/lib/price-apply';
 import { describePriceImport, MAX_PRICE_CENTS, parseCsv, planPriceImport } from '@/lib/price-csv';
 import { accountFailuresBlocked, clientIp, loginBudgets, peekLimit, rateLimit, recordAccountFailure } from '@/lib/rate-limit';
@@ -416,6 +417,16 @@ export async function resolvePaymentReview(fd: FormData): Promise<void> {
   const cleared = await db.update(orders).set({ paymentFlag: null }).where(and(eq(orders.id, id), eq(orders.paymentFlag, 'review'))).returning({ id: orders.id });
   if (cleared.length > 0) await addOrderEvent(id, 'payment', 'Έλεγχος πληρωμής: ολοκληρώθηκε.', admin.name || admin.email);
   revalidatePath('/admin');
+  revalidatePath(`/admin/orders/${id}`);
+}
+
+/** Order page: the payment mails of this order that were given up are tried again now (after the mail service is fixed). */
+export async function resendOrderMails(fd: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const id = int(fd, 'id');
+  await resendGivenUpMails(id, admin.name || admin.email);
+  revalidatePath('/admin');
+  revalidatePath('/admin/orders');
   revalidatePath(`/admin/orders/${id}`);
 }
 

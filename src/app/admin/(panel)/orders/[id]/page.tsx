@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { asc, eq } from 'drizzle-orm';
 import { ExternalLink, Mail, Phone } from 'lucide-react';
-import { resolvePaymentReview, updateOrder } from '@/app/admin/actions';
+import { resendOrderMails, resolvePaymentReview, updateOrder } from '@/app/admin/actions';
 import { AdminForm } from '@/components/admin/admin-form';
 import { PrintButton } from '@/components/admin/print-button';
 import { Card, Check, Field, PageHeader, PaymentBadge, StatusBadge } from '@/components/admin/ui';
@@ -12,6 +12,7 @@ import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { orderEvents, orders, paymentAttempts, type OrderStatus, type PaymentStatus } from '@/lib/db/schema';
 import { ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/orders';
+import { givenUpMailsOfOrder, MAIL_KIND_LABELS } from '@/lib/payments/mail-delivery';
 import { PAYMENT_LABELS, SHIPPING_LABELS } from '@/lib/pricing';
 import { cn, formatDateTime, formatPrice, formatWeight, vatPortion } from '@/lib/utils';
 
@@ -26,6 +27,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
   const order = await db.query.orders.findFirst({ where: eq(orders.id, id), with: { items: true, events: { orderBy: [asc(orderEvents.id)] } } });
   if (!order) notFound();
   const attempts = await db.select().from(paymentAttempts).where(eq(paymentAttempts.orderId, order.id)).orderBy(asc(paymentAttempts.id));
+  const givenUp = await givenUpMailsOfOrder(order.id);
 
   const pickup = order.shippingMethod === 'pickup';
   // offer only the statuses that make sense for how this order is delivered
@@ -47,6 +49,22 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
           <form action={resolvePaymentReview} className="mt-3">
             <input type="hidden" name="id" value={order.id} />
             <button type="submit" className="cursor-pointer rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800">Το χειρίστηκα</button>
+          </form>
+        </div>
+      )}
+
+      {givenUp.length > 0 && (
+        <div role="alert" className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 print:hidden">
+          <p className="font-bold text-amber-900">{givenUp.length === 1 ? 'Ένα e-mail αυτής της παραγγελίας δεν στάλθηκε' : `${givenUp.length} e-mail αυτής της παραγγελίας δεν στάλθηκαν`}</p>
+          <ul className="mt-1 list-disc pl-5 text-sm text-amber-900">
+            {givenUp.map((m) => (
+              <li key={m.id}>{MAIL_KIND_LABELS[m.kind]}{m.givenUpAt ? ` · σταμάτησαν οι δοκιμές ${formatDateTime(m.givenUpAt)}` : ''}</li>
+            ))}
+          </ul>
+          <p className="mt-1 text-sm text-amber-900">Το site δοκίμαζε για περίπου ένα εικοσιτετράωρο. Αφού διορθωθεί η αποστολή e-mail, πατήστε το κουμπί για να σταλούν ξανά τώρα.</p>
+          <form action={resendOrderMails} className="mt-3">
+            <input type="hidden" name="id" value={order.id} />
+            <button type="submit" className="cursor-pointer rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-800">Επαναποστολή e-mail</button>
           </form>
         </div>
       )}

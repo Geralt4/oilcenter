@@ -1059,6 +1059,80 @@ async function main() {
     for (const group of ['shop', 'storefront', 'payments', 'shipping', 'reviews', 'tax'] as const) await saveSettingsGroup(group, before[group] as never);
   }
 
+  console.log('Resending payment mails that were given up');
+  {
+    const { mailOutbox } = await import('../src/lib/db/schema');
+    const { resendOrderMails } = await import('../src/app/admin/actions');
+    const { readdirSync } = await import('node:fs');
+    process.env.DATA_DIR = path.join(dir, 'data');
+    const outbox = () => {
+      try {
+        return readdirSync(path.join(dir, 'data', 'outbox'));
+      } catch {
+        return [] as string[];
+      }
+    };
+    const mailRow = async (id: number) => (await db.select().from(mailOutbox).where(eq(mailOutbox.id, id)))[0];
+    const resend = (id: number) => resendOrderMails(form({ id: String(id) }));
+    const RESEND_EVENT = 'Επαναποστολή e-mail από διαχειριστή';
+    try {
+      await createSession('admin', admin.id, admin.tokenVersion);
+      const o = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentProvider: 'viva', paymentTransactionId: 'TX-RESEND-1' });
+      const givenUpAt = new Date(Date.now() - 60 * 60 * 1000);
+      const [m1] = await db.insert(mailOutbox).values({ kind: 'order_confirmation', orderId: o.id, attempts: 27, givenUpAt, lastError: 'smtp down' }).returning();
+      const [m2] = await db.insert(mailOutbox).values({ kind: 'order_paid_notice', orderId: o.id, attempts: 27, givenUpAt, lastError: 'smtp down' }).returning();
+      // on the same order: one mail already sent and one still waiting for its next try — neither is the button's business
+      const sentAt = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const [m3] = await db.insert(mailOutbox).values({ kind: 'payment_alert', orderId: o.id, problem: 'amount_mismatch', attempts: 1, sentAt }).returning();
+      const waitUntil = new Date(Date.now() + 30 * 60 * 1000);
+      const [m4] = await db.insert(mailOutbox).values({ kind: 'payment_alert', orderId: o.id, problem: 'amount_mismatch', attempts: 3, nextAttemptAt: waitUntil }).returning();
+
+      cookieJar.clear();
+      check('resendOrderMails redirects to login without a session', await refusedWithoutSession(() => resend(o.id)));
+      const untouched = await mailRow(m1.id);
+      check('…and the given-up mail is untouched', untouched.givenUpAt !== null && untouched.attempts === 27 && untouched.sentAt === null && !(await eventsNow(o.id)).some((e) => e.startsWith(RESEND_EVENT)), untouched);
+
+      await createSession('admin', admin.id, admin.tokenVersion);
+      const before = new Set(outbox());
+      await resend(o.id);
+      const [r1, r2, r3, r4] = await Promise.all([mailRow(m1.id), mailRow(m2.id), mailRow(m3.id), mailRow(m4.id)]);
+      check('the given-up mails are reset and sent at once', [r1, r2].every((r) => r.sentAt !== null && r.givenUpAt === null && r.attempts === 0 && r.nextAttemptAt === null && r.lastError === null), [r1, r2]);
+      check('…through the normal delivery (two mails written, the confirmation noted on the order)', outbox().filter((f) => !before.has(f)).length === 2 && (await eventsNow(o.id)).some((e) => e.startsWith('Στάλθηκε e-mail επιβεβαίωσης')), outbox().filter((f) => !before.has(f)));
+      check('…the sent mail and the waiting one are left as they were', r3.sentAt?.getTime() === sentAt.getTime() && r4.sentAt === null && r4.attempts === 3 && r4.nextAttemptAt?.getTime() === waitUntil.getTime(), [r3, r4]);
+      const [ev] = await db.select().from(orderEvents).where(eq(orderEvents.orderId, o.id)).then((rows) => rows.filter((e) => e.message.startsWith(RESEND_EVENT)));
+      check('…and the order history says the administrator resent them', ev?.message === `${RESEND_EVENT}: στάλθηκαν 2 από 2.` && ev.actor === (admin.name || admin.email), ev);
+
+      const eventsAfter = (await eventsNow(o.id)).length;
+      const filesAfter = outbox().length;
+      await resend(o.id);
+      check('pressing it again does nothing (nothing is given up any more)', (await eventsNow(o.id)).length === eventsAfter && outbox().length === filesAfter);
+
+      const plain = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentProvider: 'viva', paymentTransactionId: 'TX-RESEND-2' });
+      const plainEvents = (await eventsNow(plain.id)).length;
+      await resend(plain.id);
+      check('an order with no given-up mails is a no-op', (await eventsNow(plain.id)).length === plainEvents && outbox().length === filesAfter && (await db.select().from(mailOutbox).where(eq(mailOutbox.orderId, plain.id))).length === 0);
+
+      // the mail service is still down: the mail goes back on the usual back-off instead of being given up again at once
+      const [m5] = await db.insert(mailOutbox).values({ kind: 'order_paid_notice', orderId: plain.id, attempts: 27, givenUpAt }).returning();
+      const savedKey = process.env.RESEND_API_KEY;
+      const savedFetch = globalThis.fetch;
+      process.env.RESEND_API_KEY = 're_test_dummy';
+      globalThis.fetch = (async () => new Response('down', { status: 500 })) as typeof fetch;
+      try {
+        await resend(plain.id);
+      } finally {
+        globalThis.fetch = savedFetch;
+        if (savedKey === undefined) delete process.env.RESEND_API_KEY;
+        else process.env.RESEND_API_KEY = savedKey;
+      }
+      const r5 = await mailRow(m5.id);
+      check('a resend that fails again starts the normal retries (1 attempt, a wait, not given up)', r5.sentAt === null && r5.givenUpAt === null && r5.attempts === 1 && (r5.nextAttemptAt?.getTime() ?? 0) > Date.now(), r5);
+      check('…and the history says none went out', (await eventsNow(plain.id)).some((e) => e.startsWith(`${RESEND_EVENT}: στάλθηκαν 0 από 1.`)), await eventsNow(plain.id));
+    } finally {
+      delete process.env.DATA_DIR;
+    }
+  }
+
   console.log('Login limits (customers and admin)');
   {
     const { customers } = await import('../src/lib/db/schema');

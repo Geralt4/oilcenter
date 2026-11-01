@@ -1,6 +1,6 @@
 import { and, eq, gte, isNotNull, isNull, lt, lte, or, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { mailOutbox, orders, unmatchedPayments } from '@/lib/db/schema';
+import { mailOutbox, orders, unmatchedPayments, type MailKind } from '@/lib/db/schema';
 import { orderConfirmationMail, orderPaidNotificationMail, paymentAlertMail, sendMail, unmatchedPaymentMail } from '@/lib/email';
 import { addOrderEvent, type PaymentOutcome } from '@/lib/orders';
 import { getSettings } from '@/lib/settings.server';
@@ -153,4 +153,46 @@ export async function countGivenUpMails(): Promise<number> {
   const since = new Date(Date.now() - GIVEN_UP_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const [row] = await db.select({ n: count() }).from(mailOutbox).where(and(isNotNull(mailOutbox.givenUpAt), gte(mailOutbox.givenUpAt, since)));
   return row?.n ?? 0;
+}
+
+/** What a queued mail is, in the admin's words. */
+export const MAIL_KIND_LABELS: Record<MailKind, string> = {
+  order_confirmation: 'επιβεβαίωση πληρωμής προς τον πελάτη',
+  order_paid_notice: 'ειδοποίηση πληρωμής προς το κατάστημα',
+  payment_alert: 'ειδοποίηση ελέγχου πληρωμής προς το κατάστημα',
+  unmatched_payment: 'ειδοποίηση για πληρωμή χωρίς παραγγελία',
+};
+
+/** The mails of one order that were given up and never sent (the order page offers to send them again). */
+export async function givenUpMailsOfOrder(orderId: number): Promise<Array<{ id: number; kind: MailKind; givenUpAt: Date | null; lastError: string | null }>> {
+  return db
+    .select({ id: mailOutbox.id, kind: mailOutbox.kind, givenUpAt: mailOutbox.givenUpAt, lastError: mailOutbox.lastError })
+    .from(mailOutbox)
+    .where(and(eq(mailOutbox.orderId, orderId), isNotNull(mailOutbox.givenUpAt), isNull(mailOutbox.sentAt)))
+    .orderBy(mailOutbox.id);
+}
+
+/**
+ * The admin's «send again» for one order: its given-up mails start over (attempts, wait and give-up cleared) and are tried at
+ * once through the normal delivery, so a mail that fails again goes back on the usual back-off. An order without given-up
+ * mails is left alone. Returns how many were reset and how many went out.
+ */
+export async function resendGivenUpMails(orderId: number, actor: string): Promise<{ reset: number; sent: number }> {
+  const rows = await db
+    .update(mailOutbox)
+    .set({ givenUpAt: null, attempts: 0, nextAttemptAt: null, claimedAt: null })
+    .where(and(eq(mailOutbox.orderId, orderId), isNotNull(mailOutbox.givenUpAt), isNull(mailOutbox.sentAt)))
+    .returning({ id: mailOutbox.id });
+  if (rows.length === 0) return { reset: 0, sent: 0 };
+  let sent = 0;
+  for (const { id } of rows) {
+    try {
+      if (await deliverRow(id)) sent++;
+    } catch (err) {
+      console.error(`[mail] resend of queued mail ${id} failed unexpectedly`, err);
+    }
+  }
+  const rest = rows.length - sent;
+  await addOrderEvent(orderId, 'email', `Επαναποστολή e-mail από διαχειριστή: στάλθηκαν ${sent} από ${rows.length}.${rest ? ' Όσα δεν στάλθηκαν θα ξαναδοκιμαστούν αυτόματα.' : ''}`, actor);
+  return { reset: rows.length, sent };
 }

@@ -1,9 +1,9 @@
 import Link from 'next/link';
-import { and, count, desc, eq, like, or, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, isNull, like, or, type SQL } from 'drizzle-orm';
 import { PageHeader, PaymentBadge, StatusBadge, td, th } from '@/components/admin/ui';
 import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { orders, type OrderStatus } from '@/lib/db/schema';
+import { mailOutbox, orders, type OrderStatus } from '@/lib/db/schema';
 import { ORDER_STATUS_LABELS } from '@/lib/orders';
 import { PAYMENT_LABELS, SHIPPING_LABELS } from '@/lib/pricing';
 import { cn, formatDateTime, formatPrice } from '@/lib/utils';
@@ -11,17 +11,20 @@ import { cn, formatDateTime, formatPrice } from '@/lib/utils';
 export const metadata = { title: 'Παραγγελίες' };
 const PER_PAGE = 30;
 
-export default async function AdminOrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string; page?: string; review?: string }> }) {
+export default async function AdminOrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string; page?: string; review?: string; mail?: string }> }) {
   await requireAdmin();
   const sp = await searchParams;
   const status = (Object.keys(ORDER_STATUS_LABELS) as OrderStatus[]).find((s) => s === sp.status);
   const q = (sp.q ?? '').trim().slice(0, 80);
   const page = Math.max(1, Number(sp.page) || 1);
   const review = sp.review === '1';
+  // from the dashboard line «E-mail πληρωμών που δεν στάλθηκαν»: orders with a payment mail that was given up and never sent
+  const mailFailed = sp.mail === 'failed';
 
   const filters: SQL[] = [];
   if (status) filters.push(eq(orders.status, status));
   if (review) filters.push(eq(orders.paymentFlag, 'review'));
+  if (mailFailed) filters.push(inArray(orders.id, db.select({ id: mailOutbox.orderId }).from(mailOutbox).where(and(isNotNull(mailOutbox.givenUpAt), isNull(mailOutbox.sentAt)))));
   if (q) filters.push(or(like(orders.number, `%${q.toUpperCase()}%`), like(orders.email, `%${q.toLowerCase()}%`), like(orders.lastName, `%${q}%`), like(orders.phone, `%${q}%`))!);
   const where = filters.length ? and(...filters) : undefined;
 
@@ -34,7 +37,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
   const counts = new Map(byStatus.map((r) => [r.status, r.n]));
   const href = (params: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
-    for (const [k, v] of Object.entries({ status, q, review: review ? '1' : undefined, ...params })) if (v) p.set(k, v);
+    for (const [k, v] of Object.entries({ status, q, review: review ? '1' : undefined, mail: mailFailed ? 'failed' : undefined, ...params })) if (v) p.set(k, v);
     const s = p.toString();
     return s ? `/admin/orders?${s}` : '/admin/orders';
   };
@@ -46,13 +49,19 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
         <form className="flex gap-2">
           {status && <input type="hidden" name="status" value={status} />}
           {review && <input type="hidden" name="review" value="1" />}
+          {mailFailed && <input type="hidden" name="mail" value="failed" />}
           <input name="q" defaultValue={q} placeholder="Αριθμός, e-mail, επώνυμο, τηλέφωνο" className="field h-10 w-72 max-w-full text-sm" />
           <button type="submit" className="h-10 cursor-pointer rounded-xl bg-ink-900 px-4 text-sm font-semibold text-white hover:bg-ink-700">Αναζήτηση</button>
         </form>
       </PageHeader>
 
       <nav aria-label="Φίλτρο κατάστασης" className="no-scrollbar mb-4 flex gap-1.5 overflow-x-auto">
-        <Link href={href({ status: undefined, review: undefined, page: undefined })} className={cn('shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium', !status && !review ? 'bg-ink-900 text-white' : 'bg-white text-ink-700 ring-1 ring-line hover:bg-ink-50')}>Όλες</Link>
+        <Link href={href({ status: undefined, review: undefined, mail: undefined, page: undefined })} className={cn('shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium', !status && !review && !mailFailed ? 'bg-ink-900 text-white' : 'bg-white text-ink-700 ring-1 ring-line hover:bg-ink-50')}>Όλες</Link>
+        {mailFailed && (
+          <Link href={href({ mail: undefined, page: undefined })} className="shrink-0 rounded-full bg-amber-700 px-3.5 py-1.5 text-sm font-medium text-white" title="Αφαίρεση φίλτρου">
+            E-mail που δεν στάλθηκαν ✕
+          </Link>
+        )}
         <Link href={href({ status: undefined, review: '1', page: undefined })} className={cn('shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium', review ? 'bg-red-700 text-white' : 'bg-white text-red-700 ring-1 ring-red-200 hover:bg-red-50')}>
           Χρειάζονται έλεγχο <span className="tabular opacity-60">{needReview}</span>
         </Link>

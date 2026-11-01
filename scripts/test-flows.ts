@@ -345,6 +345,27 @@ async function main() {
       check('the sign-ups CSV export still downloads', csv.status() === 200 && (csv.headers()['content-type'] ?? '').startsWith('text/csv') && csvText.includes('email;date') && csvText.includes('flows-signup@example.com'), [csv.status(), csvText.slice(0, 80)]);
     }
 
+    console.log('Resending a payment mail that was given up');
+    {
+      const { orders, mailOutbox } = await import('../src/lib/db/schema');
+      const [mailOrder] = await db
+        .insert(orders)
+        .values({ number: 'OC-FLOWS-MAIL', accessToken: 'flows-mail-token', paymentMethod: 'card', shippingMethod: 'courier', email: 'buyer@example.com', phone: '6900000000', firstName: 'Τεστ', lastName: 'Αγοραστής', subtotalCents: 1999, totalCents: 1999, status: 'confirmed', paymentStatus: 'paid', paidAt: new Date() })
+        .returning();
+      const [given] = await db.insert(mailOutbox).values({ kind: 'order_confirmation', orderId: mailOrder.id, attempts: 27, givenUpAt: new Date() }).returning();
+      await page.goto(`${base}/admin/orders?mail=failed`);
+      check('the «not sent» filter lists the order with a given-up mail', (await page.locator('main a', { hasText: 'OC-FLOWS-MAIL' }).count()) === 1);
+      await page.goto(`${base}/admin/orders/${mailOrder.id}`);
+      const resendButton = page.getByRole('button', { name: 'Επαναποστολή e-mail' });
+      check('the order page offers «Επαναποστολή e-mail»', (await resendButton.count()) === 1);
+      await resendButton.click();
+      await page.waitForLoadState('networkidle');
+      await delay(1000);
+      const [after] = await db.select().from(mailOutbox).where(eq(mailOutbox.id, given.id));
+      check('…pressing it sends the mail and the button goes away', after.sentAt !== null && after.givenUpAt === null && (await page.getByRole('button', { name: 'Επαναποστολή e-mail' }).count()) === 0, [after.sentAt, after.givenUpAt]);
+      check('…and the history shows the resend', (await page.locator('main').innerText()).includes('Επαναποστολή e-mail από διαχειριστή: στάλθηκαν 1 από 1.'));
+    }
+
     console.log('Edits typed while a save is in flight');
     page.on('dialog', (dialog) => void dialog.accept());
     // hold the server action back so there is time to type while it is running
