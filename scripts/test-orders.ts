@@ -24,7 +24,7 @@ async function main() {
   const { migrate } = await import('drizzle-orm/libsql/migrator');
   await migrate(db, { migrationsFolder: './drizzle' });
   const { coupons, orderEvents, orders, variants } = await import('../src/lib/db/schema');
-  const { cancelOrder, createOrder, markOrderPaid } = await import('../src/lib/orders');
+  const { cancelOrder, createOrder, recordPayment } = await import('../src/lib/orders');
   const { deliverPendingMail } = await import('../src/lib/payments/mail-delivery');
   const { computeTotals, courierRateCents } = await import('../src/lib/pricing');
   const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
@@ -59,13 +59,16 @@ async function main() {
   check('order number format', /^OC-\d{5,}$/.test(first.order.number), first.order.number);
 
   console.log('Payment settlement');
-  check('wrong amount is rejected', (await markOrderPaid(first.order.id, { provider: 'test', ref: 'x', amountCents: 100 })) === false);
+  const mismatchOutcome = await recordPayment(first.order.id, { provider: 'test', ref: 'x', amountCents: 100 });
+  check('wrong amount is rejected', mismatchOutcome === 'amount_mismatch', mismatchOutcome);
   const afterMismatch = (await db.select().from(orders).where(eq(orders.id, first.order.id)))[0];
   check('…and the order stays unpaid', afterMismatch.paymentStatus === 'pending', afterMismatch.paymentStatus);
   const warned = (await db.select().from(orderEvents).where(eq(orderEvents.orderId, first.order.id))).some((e) => e.message.includes('ΠΡΟΣΟΧΗ'));
   check('…and the mismatch is written to the order timeline', warned);
-  check('correct amount settles the order', (await markOrderPaid(first.order.id, { provider: 'test', ref: 'tx1', amountCents: 2590 })) === true);
-  check('duplicate callback is a no-op (idempotent)', (await markOrderPaid(first.order.id, { provider: 'test', ref: 'tx1', amountCents: 2590 })) === false);
+  const settleOutcome = await recordPayment(first.order.id, { provider: 'test', ref: 'tx1', amountCents: 2590 });
+  check('correct amount settles the order', settleOutcome === 'paid', settleOutcome);
+  const repeatOutcome = await recordPayment(first.order.id, { provider: 'test', ref: 'tx1', amountCents: 2590 });
+  check('duplicate callback is a no-op (idempotent)', repeatOutcome === 'already_paid', repeatOutcome);
   const paid = (await db.select().from(orders).where(eq(orders.id, first.order.id)))[0];
   check('paid order moves pending → confirmed', paid.paymentStatus === 'paid' && paid.status === 'confirmed', [paid.paymentStatus, paid.status]);
 
@@ -392,15 +395,21 @@ async function main() {
     check('…the owner alert is written to the outbox', newFiles.length === 1, newFiles);
     check('…and no file was addressed to the buyer', !newFiles.some((f) => f.includes(base.email)), newFiles);
 
-    console.log('  markOrderPaid wrapper');
+    console.log('  recordPayment outcomes');
     const o5a = await newCardOrder();
-    check('markOrderPaid is true on the first correct payment', (await markOrderPaid(o5a.id, { provider: 'viva', ref: 'w-1', amountCents: o5a.totalCents })) === true);
-    check('…false on a repeat', (await markOrderPaid(o5a.id, { provider: 'viva', ref: 'w-2', amountCents: o5a.totalCents })) === false);
+    const first5 = await recordPayment(o5a.id, { provider: 'viva', ref: 'w-1', amountCents: o5a.totalCents });
+    check('the first correct payment → paid', first5 === 'paid', first5);
+    const again5 = await recordPayment(o5a.id, { provider: 'viva', ref: 'w-1', amountCents: o5a.totalCents });
+    check('…the same payment again → already_paid', again5 === 'already_paid', again5);
+    const other5 = await recordPayment(o5a.id, { provider: 'viva', ref: 'w-2', amountCents: o5a.totalCents });
+    check('…another reference without a checkout reference on a paid order → already_paid (duplicate_payment needs an attemptRef, see below)', other5 === 'already_paid', other5);
     const o5b = await newCardOrder();
-    check('…false on an amount mismatch', (await markOrderPaid(o5b.id, { provider: 'viva', ref: 'w-3', amountCents: o5b.totalCents + 5 })) === false);
+    const mis5 = await recordPayment(o5b.id, { provider: 'viva', ref: 'w-3', amountCents: o5b.totalCents + 5 });
+    check('…an amount mismatch → amount_mismatch', mis5 === 'amount_mismatch', mis5);
     const o5c = await newCardOrder();
     await cancelOrder(o5c.id, 'test');
-    check('…false on a late (cancelled) payment', (await markOrderPaid(o5c.id, { provider: 'viva', ref: 'w-4', amountCents: o5c.totalCents })) === false);
+    const late5 = await recordPayment(o5c.id, { provider: 'viva', ref: 'w-4', amountCents: o5c.totalCents });
+    check('…a late (cancelled) payment → late_cancelled', late5 === 'late_cancelled', late5);
 
     console.log('  Payment attempts');
     const o6 = await newCardOrder();

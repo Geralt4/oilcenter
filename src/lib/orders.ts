@@ -388,11 +388,6 @@ export async function recordPayment(orderId: number, info: PaymentInfo): Promise
   });
 }
 
-/** True the first time a payment is settled as an ordinary sale. */
-export async function markOrderPaid(orderId: number, info: PaymentInfo): Promise<boolean> {
-  return (await recordPayment(orderId, info)) === 'paid';
-}
-
 /** Puts reserved stock and the coupon use back. Safe to call once per order: guarded by the status transition. */
 export async function cancelOrder(orderId: number, actor: string, reason?: string, opts: { requireUnpaid?: boolean; noAttemptSince?: Date } = {}, exec?: Executor): Promise<boolean> {
   // exec: the transaction of a caller that has more to write with it (the order editor); alone, cancelling opens its own
