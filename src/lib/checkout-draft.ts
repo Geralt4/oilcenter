@@ -4,7 +4,7 @@ import type { DocType, PaymentMethod, ShippingMethod } from '@/lib/db/schema';
  * What the customer has typed into the checkout form, kept in sessionStorage (this tab only, gone when it closes) so that
  * coming back from the card payment page without paying — the Back button — does not leave an empty form. Nothing about a
  * card is ever in the form (the card page belongs to the payment provider), and the terms checkbox is NOT kept: consent is
- * given again on each visit. The order page clears the draft when it opens (components/store/clear-cart.tsx).
+ * given again on each visit. The order page clears the draft when it opens (components/store/clear-cart.tsx), except for an order cancelled because the card payment could not start.
  * Every access to the storage is guarded: it can be missing, blocked or full (private windows, blocked site data).
  */
 

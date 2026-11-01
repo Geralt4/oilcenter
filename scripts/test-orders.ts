@@ -516,6 +516,59 @@ async function main() {
     await recordPaymentAttempt(oD.id, { provider: 'viva', ref: 'rel-D' });
     check('…nor one whose buyer opened a new checkout in the meantime', (await cancelOrder(oD.id, 'system', undefined, { requireUnpaid: true, noAttemptSince: new Date(Date.now() - 60_000) })) === false && (await row(oD.id)).status === 'pending');
 
+    console.log('  Card payment that cannot start');
+    const { releaseUnstartedCardOrder } = await import('../src/lib/orders');
+    const couponUsed = async () => (await db.select().from(coupons).where(eq(coupons.code, 'WELCOME5')))[0].usedCount;
+    await db.update(coupons).set({ isActive: true, type: 'percent', value: 5, minSubtotalCents: 0, maxUses: 5, usedCount: 0 }).where(eq(coupons.code, 'WELCOME5'));
+    const stockBeforeU = await stock();
+    const uOrder = await createOrder({ ...base, paymentMethod: 'card', couponCode: 'WELCOME5', lines: [{ variantId: variant.id, quantity: 2 }] }, settings, cardOpts);
+    if (!uOrder.ok) throw new Error(`order with coupon not created: ${uOrder.message}`);
+    const u = uOrder.order;
+    check('the card order with a coupon reserved 2 units and used the coupon', (await stock()) === stockBeforeU - 2 && (await couponUsed()) === 1, [await stock(), stockBeforeU, await couponUsed()]);
+    check('releasing an order whose payment could not start cancels it', (await releaseUnstartedCardOrder(u.id)) === true && (await row(u.id)).status === 'cancelled');
+    check('…the stock it reserved is back, exactly', (await stock()) === stockBeforeU, [await stock(), stockBeforeU]);
+    check('…the coupon use is back', (await couponUsed()) === 0, await couponUsed());
+    check('…the timeline names the reason', (await eventsOf(u.id)).some((e) => e.message.startsWith('Η παραγγελία ακυρώθηκε: η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει')), (await eventsOf(u.id)).map((e) => e.message));
+    check('…and the payment stays unpaid, nothing is marked refunded', (await row(u.id)).paymentStatus === 'pending', (await row(u.id)).paymentStatus);
+    check('a second release changes nothing (false) and does not restock twice', (await releaseUnstartedCardOrder(u.id)) === false && (await stock()) === stockBeforeU, await stock());
+    {
+      // the owner's notice is saved WITH the cancellation, once, and is sent afterwards (the checkout action does that; the sweep retries)
+      const { mailOutbox } = await import('../src/lib/db/schema');
+      const noticesOf = (orderId: number) => db.select().from(mailOutbox).where(and(eq(mailOutbox.orderId, orderId), eq(mailOutbox.kind, 'order_cancelled_notice')));
+      const queued = await noticesOf(u.id);
+      check('the cancellation queued exactly one owner notice, not yet sent', queued.length === 1 && queued[0]!.sentAt === null && queued[0]!.givenUpAt === null, queued);
+      check('…the second (refused) release queued no second one', (await noticesOf(u.id)).length === 1);
+      const uFiles = new Set(outboxFiles());
+      const uSent = await deliverPendingMail({ orderId: u.id });
+      const uNew = outboxFiles().filter((f) => !uFiles.has(f));
+      const uSubject = uNew.length === 1 ? (readFileSync(path.join(outbox, uNew[0]!), 'utf8').match(/subject: (.*?) -->/s)?.[1] ?? '') : '';
+      check('sending it writes one mail to the shop, not to the buyer', uSent === 1 && uNew.length === 1 && !uNew[0]!.includes(base.email), [uSent, uNew]);
+      check('…its subject says the order was cancelled because the payment did not start', uSubject.startsWith(`Ακυρώθηκε: ${u.number}`) && uSubject.includes('η πληρωμή δεν ξεκίνησε'), uSubject);
+      const uBody = uNew.length === 1 ? readFileSync(path.join(outbox, uNew[0]!), 'utf8') : '';
+      check('…and says nothing was charged and the stock is back', uBody.includes('Δεν έγινε καμία χρέωση') && uBody.includes('το απόθεμα επανήλθε'));
+      check('…the notice is marked sent and sending again writes nothing more', (await noticesOf(u.id))[0]!.sentAt !== null && (await deliverPendingMail({ orderId: u.id })) === 0 && outboxFiles().length === uFiles.size + 1);
+    }
+    const uPaid = await newCardOrder();
+    await recordPaymentAttempt(uPaid.id, { provider: 'viva', ref: 'unstarted-paid' });
+    await recordPayment(uPaid.id, { provider: 'viva', ref: 'T-unstarted-paid', amountCents: uPaid.totalCents, attemptRef: 'unstarted-paid' });
+    const stockPaid = await stock();
+    check('a paid order is never released', (await releaseUnstartedCardOrder(uPaid.id)) === false && (await row(uPaid.id)).status !== 'cancelled' && (await stock()) === stockPaid);
+    const { mailOutbox: outboxTable } = await import('../src/lib/db/schema');
+    const noticeCount = async (orderId: number) => (await db.select().from(outboxTable).where(and(eq(outboxTable.orderId, orderId), eq(outboxTable.kind, 'order_cancelled_notice')))).length;
+    check('…and no cancellation notice is queued for it', (await noticeCount(uPaid.id)) === 0);
+    const uFlag = await newCardOrder();
+    await db.update(orders).set({ paymentFlag: 'review' }).where(eq(orders.id, uFlag.id));
+    check('…nor one flagged for the owner (and no notice)', (await releaseUnstartedCardOrder(uFlag.id)) === false && (await row(uFlag.id)).status === 'pending' && (await noticeCount(uFlag.id)) === 0);
+    const uProc = await newCardOrder();
+    await recordPaymentAttempt(uProc.id, { provider: 'viva', ref: 'unstarted-proc' });
+    await setAttemptStatus('viva', 'unstarted-proc', 'processing', null);
+    check('…nor one with a delayed payment on its way (and no notice)', (await releaseUnstartedCardOrder(uProc.id)) === false && (await row(uProc.id)).status === 'pending' && (await noticeCount(uProc.id)) === 0);
+    await db.update(variants).set({ trackStock: false }).where(eq(variants.id, variant.id));
+    const uUntracked = await newCardOrder();
+    await db.update(variants).set({ trackStock: true, stock: stockBeforeU }).where(eq(variants.id, variant.id));
+    check('a size that was not counted when the order was placed gets nothing added', (await releaseUnstartedCardOrder(uUntracked.id)) === true && (await stock()) === stockBeforeU, await stock());
+    await db.update(coupons).set({ isActive: false }).where(eq(coupons.code, 'WELCOME5'));
+
     console.log('  Card minimum');
     const { CARD_MIN_CENTS } = await import('../src/lib/pricing');
     await db.update(coupons).set({ isActive: true, type: 'fixed', value: 100000, minSubtotalCents: 0, maxUses: null }).where(eq(coupons.code, 'WELCOME5'));

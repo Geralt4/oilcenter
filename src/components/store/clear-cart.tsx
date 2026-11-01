@@ -16,7 +16,10 @@ export function ClearCart() {
   return null;
 }
 
-/** The order page forgets what was typed in the checkout form: that order exists now (or its page is open), the draft is stale. */
+/**
+ * The order page forgets what was typed in the checkout form: that order exists now (or its page is open), the draft is stale.
+ * Not rendered when the card payment could not start and the order was cancelled: the buyer goes back to the checkout and finds the form filled.
+ */
 export function ClearCheckoutDraft() {
   useEffect(() => {
     clearDraft();

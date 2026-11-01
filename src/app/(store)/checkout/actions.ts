@@ -5,10 +5,11 @@ import { getCustomer } from '@/lib/auth/session';
 import { canOrderNow } from '@/lib/catalogue-mode';
 import { resolveCartLines } from '@/lib/catalog';
 import { newOrderNotificationMail, sendMail } from '@/lib/email';
-import { addOrderEvent, CheckoutSchema, createOrder, findCoupon, getOrderByNumber } from '@/lib/orders';
+import { addOrderEvent, CheckoutSchema, createOrder, findCoupon, getOrderByNumber, releaseUnstartedCardOrder } from '@/lib/orders';
 import { sendPlacedOrderConfirmation } from '@/lib/order-mail';
 import { cardProvider, startCardPayment } from '@/lib/payments';
 import { hasProcessingPayment, recordPaymentAttempt } from '@/lib/payments/attempts';
+import { deliverPendingMail } from '@/lib/payments/mail-delivery';
 import type { AppliedCoupon } from '@/lib/pricing';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 import { getSettings } from '@/lib/settings.server';
@@ -59,7 +60,15 @@ export async function placeOrder(raw: unknown): Promise<PlaceOrderResult> {
     } catch (err) {
       console.error('[checkout] could not start card payment', err);
       await addOrderEvent(order.id, 'payment', 'Δεν ήταν δυνατή η έναρξη της πληρωμής με κάρτα.');
-      return { ok: true, redirectUrl: `${orderUrl}&payment=failed`, external: false };
+      // Nothing can be paid on this order: cancel it and give the stock back now. If that does not work, the order stays payable
+      // (the retry button) and the two-hour sweep remains the safety net.
+      const released = await releaseUnstartedCardOrder(order.id).catch((releaseErr) => {
+        console.error('[checkout] could not release the order after a failed card start', releaseErr);
+        return false;
+      });
+      // the owner's notice that the order was cancelled was saved with the cancellation: send it now (the sweep retries a failure)
+      if (released) await deliverPendingMail({ orderId: order.id });
+      return { ok: true, redirectUrl: `${orderUrl}&payment=${released ? 'unavailable' : 'failed'}`, external: false };
     }
   }
 

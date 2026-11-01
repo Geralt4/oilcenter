@@ -48,6 +48,9 @@ export default async function OrderPage({ params, searchParams }: Props) {
   // any other order's was sent while placing it, and a failure comes back as mail=0.
   const mailState: ConfirmationMailState = !justPlaced ? 'none' : order.paymentMethod === 'card' ? await confirmationMailState(order.id) : sp.mail === '0' ? 'failed' : 'sent';
   const paymentProblem = sp.payment === 'failed' || sp.payment === 'cancelled';
+  // placeOrder cancelled the order because the card payment could not even be started (nothing was charged): it says so
+  // and sends the buyer back to the checkout, where the cart is still filled. No retry button: the order is cancelled.
+  const cardUnavailable = sp.payment === 'unavailable' && order.paymentMethod === 'card' && order.status === 'cancelled' && order.paymentStatus === 'pending';
   // the gateway took the payment but has not settled it yet (e.g. SEPA Debit): no retry button, or the buyer pays twice
   const paymentProcessing = sp.payment === 'pending';
   // only a payment that is still open asks for a card: a REFUNDED order must not offer to be paid again
@@ -61,7 +64,8 @@ export default async function OrderPage({ params, searchParams }: Props) {
 
   return (
     <div className="container-page max-w-4xl py-8 sm:py-12">
-      <ClearCheckoutDraft />
+      {/* what the buyer typed stays when the card payment could not start: «Ολοκλήρωση παραγγελίας» opens a filled form */}
+      {!cardUnavailable && <ClearCheckoutDraft />}
       {clearCart && <ClearCart />}
       {justPlaced && !unpaidCard && (
         // green for «all went well»; amber when the confirmation mail could not be sent (the order itself is fine, the buyer needs to keep its number)
@@ -77,7 +81,17 @@ export default async function OrderPage({ params, searchParams }: Props) {
         </div>
       )}
 
-      {order.status === 'cancelled' && (
+      {cardUnavailable && (
+        <div role="alert" className="mb-8 rounded-3xl border border-amber-200 bg-amber-50 p-6">
+          <h2 className="flex items-center gap-2 font-bold text-amber-950"><CircleAlert className="h-5 w-5" />Η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει</h2>
+          <p className="mt-1.5 text-sm text-amber-900">Δεν μπορέσαμε να συνδεθούμε με την υπηρεσία πληρωμών και η παραγγελία <strong className="tabular">{order.number}</strong> ακυρώθηκε. Δεν έγινε καμία χρέωση. Τα προϊόντα είναι ακόμη στο καλάθι σας: ολοκληρώστε ξανά την παραγγελία με κάρτα ή με άλλον τρόπο πληρωμής ή καλέστε μας.</p>
+          <div className="mt-4 flex flex-wrap items-start gap-3">
+            <Link href="/checkout" className={buttonClass()}>Ολοκλήρωση παραγγελίας</Link>
+            <a href={telHref(shop.phone)} className={buttonClass({ variant: 'outline', className: 'tabular' })}><Phone className="h-4 w-4" />{shop.phone}</a>
+          </div>
+        </div>
+      )}
+      {order.status === 'cancelled' && !cardUnavailable && (
         <p className="mb-6 rounded-2xl bg-ink-50 p-4 text-sm text-ink-800">
           Η παραγγελία ακυρώθηκε.
           {order.paymentStatus === 'paid' ? ' Η πληρωμή σας θα επιστραφεί: θα επικοινωνήσουμε μαζί σας.' : order.paymentStatus === 'refunded' ? ' Η πληρωμή σας έχει επιστραφεί.' : ' Δεν υπάρχει οφειλή.'}

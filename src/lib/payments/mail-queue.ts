@@ -25,6 +25,11 @@ export async function enqueuePaymentMails(orderId: number, outcome: string, exec
   await exec.insert(mailOutbox).values(kinds.map((kind) => ({ kind, orderId, problem: kind === 'payment_alert' ? outcome : null })));
 }
 
+/** Call inside the transaction that cancels a card order whose payment could not start: the owner's notice is saved with the cancellation or not at all. */
+export async function enqueueOrderCancelledNotice(orderId: number, exec: Executor): Promise<void> {
+  await exec.insert(mailOutbox).values({ kind: 'order_cancelled_notice', orderId });
+}
+
 /** Call inside the transaction that saves an unmatched payment. */
 export async function enqueueUnmatchedPaymentMail(unmatchedId: number, exec: Executor): Promise<void> {
   await exec.insert(mailOutbox).values({ kind: 'unmatched_payment', unmatchedId });

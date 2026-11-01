@@ -204,6 +204,15 @@ export function orderPaidNotificationMail(order: OrderWithItems, settings: ShopS
   return { to: process.env.ORDERS_NOTIFY_EMAIL || settings.shop.email, subject: `Πληρώθηκε με κάρτα: ${order.number} · ${formatPrice(order.totalCents)}`, html: layout(settings.shop, `Πληρώθηκε ${order.number}`, body) };
 }
 
+/**
+ * The shop heard about this card order («Νέα παραγγελία») before the payment was tried; the payment could not even start, so the
+ * order was cancelled and its stock released. Short on purpose: nothing for the owner to do, but the buyer may call.
+ */
+export function orderCancelledNotificationMail(order: OrderWithItems, settings: ShopSettings): Mail {
+  const body = `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;"><strong>Η παραγγελία ακυρώθηκε επειδή η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει.</strong></p><p style="margin:0;font-size:15px;line-height:1.6;">${esc(order.firstName)} ${esc(order.lastName)} · ${esc(order.email)} · ${esc(order.phone)}<br>Σύνολο παραγγελίας <strong>${formatPrice(order.totalCents)}</strong>${order.isTest ? ' · <strong>ΔΟΚΙΜΑΣΤΙΚΗ</strong>' : ''}<br>Δεν έγινε καμία χρέωση και το απόθεμα επανήλθε.</p>${button(`${siteUrl()}/admin/orders/${order.id}`, 'Άνοιγμα στη διαχείριση')}`;
+  return { to: process.env.ORDERS_NOTIFY_EMAIL || settings.shop.email, subject: `Ακυρώθηκε: ${order.number} · η πληρωμή δεν ξεκίνησε`, html: layout(settings.shop, `Ακυρώθηκε ${order.number}`, body) };
+}
+
 /** Tells the owner a card payment needs a human: the money and the order do not agree. */
 export function paymentAlertMail(order: OrderWithItems, problem: string, settings: ShopSettings): Mail {
   const body = `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;"><strong>${esc(problem)}</strong></p><p style="margin:0;font-size:15px;line-height:1.6;">${esc(order.firstName)} ${esc(order.lastName)} · ${esc(order.email)} · ${esc(order.phone)}<br>Σύνολο παραγγελίας <strong>${formatPrice(order.totalCents)}</strong>${order.isTest ? ' · <strong>ΔΟΚΙΜΑΣΤΙΚΗ</strong>' : ''}</p>${button(`${siteUrl()}/admin/orders/${order.id}`, 'Άνοιγμα στη διαχείριση')}`;

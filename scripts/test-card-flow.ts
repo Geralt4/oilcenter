@@ -411,17 +411,47 @@ async function main() {
     const s6 = async () => {
       console.log('S6 Viva refuses to create the checkout');
       fake.failCreateOrder = true;
+      // count this size for the scenario, so the reservation and its release are visible
+      await db.update(variants).set({ trackStock: true, stock: 10 }).where(eq(variants.id, pick.variantId));
+      const stockOfPick = async () => (await db.select({ s: variants.stock }).from(variants).where(eq(variants.id, pick.variantId)))[0]!.s;
       const { ctx, page } = await newPage();
       try {
+        const before = snapshot();
         await startCheckout(page);
         await submitCardCheckout(page);
         await page.waitForURL((url) => url.pathname.startsWith('/order/'), { timeout: 30_000 });
         check('the buyer lands on the order page', page.url().includes('/order/'), page.url());
-        check('the order page says the payment did not complete', await alertShows(page, 'Η πληρωμή δεν ολοκληρώθηκε'));
-        const retry = page.getByRole('button', { name: 'Πληρωμή με κάρτα' });
-        check('the order page offers the card retry', await retry.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true, () => false));
+        check('the address says the payment is unavailable (not the gateway\'s own «failed»)', new URL(page.url()).searchParams.get('payment') === 'unavailable', page.url());
+        check('the order page says the card payment could not start and the order was cancelled', await alertShows(page, 'Η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει'));
+        const text = ((await page.getByRole('alert').filter({ hasText: 'Η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει' }).first().textContent()) ?? '').replace(/\s+/g, ' ');
+        check('…it says nothing was charged and the products are still in the cart', text.includes('ακυρώθηκε') && text.includes('Δεν έγινε καμία χρέωση') && text.includes('ακόμη στο καλάθι σας'), text);
+        check('there is no card retry button: the order is cancelled', (await page.getByRole('button', { name: 'Πληρωμή με κάρτα' }).count()) === 0);
+        const back = page.getByRole('link', { name: 'Ολοκλήρωση παραγγελίας' }).first();
+        check('…and a link back to the checkout', (await back.getAttribute('href')) === '/checkout');
+
+        const number = decodeURIComponent(new URL(page.url()).pathname.split('/')[2] ?? '');
+        const cancelled = await orderByNumber(number);
+        check('the order is cancelled and unpaid, with no payment flag', cancelled.status === 'cancelled' && cancelled.paymentStatus === 'pending' && cancelled.paymentFlag === null, { status: cancelled.status, paymentStatus: cancelled.paymentStatus, flag: cancelled.paymentFlag });
+        check('its stock went back at once (not after two hours)', (await stockOfPick()) === 10, await stockOfPick());
+        const s6Mails = mailsSince(before).filter((mail) => mail.subject.includes(cancelled.number));
+        const s6Cancelled = s6Mails.filter((mail) => mail.subject.startsWith('Ακυρώθηκε:'));
+        check('the owner got exactly one «Ακυρώθηκε:» mail for it, saying the payment did not start', s6Cancelled.length === 1 && s6Cancelled[0]!.subject.includes('η πληρωμή δεν ξεκίνησε'), s6Mails.map((mail) => mail.subject));
+        check('…it went to the shop and nothing at all to the buyer', s6Mails.every((mail) => !mail.to.includes('card-test@example.invalid')), s6Mails.map((mail) => mail.to));
+        check('…and the order\'s earlier «Νέα παραγγελία» mail is the only other one', s6Mails.length === 2 && s6Mails.some((mail) => mail.subject.startsWith('Νέα παραγγελία')), s6Mails.map((mail) => mail.subject));
+        const s6Queue = await db.select().from(mailOutbox).where(eq(mailOutbox.orderId, cancelled.id));
+        check('the queued notice is marked sent', s6Queue.length === 1 && s6Queue[0]!.kind === 'order_cancelled_notice' && s6Queue[0]!.sentAt !== null, s6Queue);
+        const events = (await eventsOf(cancelled.id)).map((event) => event.message);
+        check('the timeline has the failed start and the cancellation with its reason', events.some((m) => m.includes('Δεν ήταν δυνατή η έναρξη')) && events.some((m) => m.startsWith('Η παραγγελία ακυρώθηκε: η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει')), events);
+        const cartLines = await page.evaluate(() => (JSON.parse(localStorage.getItem('oilcenter-cart') ?? '{}') as { state?: { lines?: unknown[] } }).state?.lines?.length ?? 0);
+        check('the cart still has its lines, so the buyer can check out again', cartLines === 1, cartLines);
+        check('the checkout form typed by the buyer is still kept in the tab', ((await page.evaluate(() => sessionStorage.getItem('oilcenter-checkout'))) ?? '').includes('card-test@example.invalid'));
+        await back.click();
+        await page.waitForURL((url) => url.pathname === '/checkout', { timeout: 20_000 });
+        await page.locator('#email').waitFor({ timeout: 20_000 });
+        check('…and the checkout opens with that form filled in again', (await page.locator('#email').inputValue()) === 'card-test@example.invalid' && (await page.locator('#firstName').inputValue()) === 'Ελένη');
       } finally {
         fake.failCreateOrder = false;
+        await db.update(variants).set({ trackStock: false, stock: 0 }).where(eq(variants.id, pick.variantId));
         await ctx.close();
       }
     };
@@ -683,7 +713,7 @@ async function main() {
         check('on the card page, not paid, back in the shop: the cart still holds the product', (await cartLines()) === 1, await cartLines());
         await page.goto(`${base}/cookies`);
         const cookiesText = ((await page.locator('main').textContent()) ?? '').replace(/\s+/g, ' ');
-        check('the cookies page says the checkout form is kept in the tab\'s session storage and when it is deleted', cookiesText.includes('oilcenter-checkout') && cookiesText.includes('session storage') && cookiesText.includes('όταν αποσυνδεθείτε') && cookiesText.includes('όταν αδειάσει το καλάθι'), cookiesText.slice(0, 200));
+        check('the cookies page says the checkout form is kept in the tab\'s session storage and when it is deleted', cookiesText.includes('oilcenter-checkout') && cookiesText.includes('session storage') && cookiesText.includes('όταν αποσυνδεθείτε') && cookiesText.includes('όταν αδειάσει το καλάθι') && cookiesText.includes('δεν μπόρεσε να ξεκινήσει'), cookiesText.slice(0, 200));
       } finally {
         await ctx.close();
       }
