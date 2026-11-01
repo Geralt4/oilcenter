@@ -229,6 +229,9 @@ async function main() {
         await page.waitForURL(succeeded, { timeout: 30_000 });
         const thanked = await page.getByRole('heading', { name: /Ευχαριστούμε/ }).waitFor({ timeout: 20_000 }).then(() => true, () => false);
         check('after «Πληρωμή» the browser lands on the success page', thanked && page.url().includes(placed.number), page.url());
+        const cartLines = () => page.evaluate(() => (JSON.parse(localStorage.getItem('oilcenter-cart') ?? '{}') as { state?: { lines?: unknown[] } }).state?.lines?.length ?? 0);
+        await delay(500);
+        check('…and only now is the cart emptied (the order page does it)', (await cartLines()) === 0, await cartLines());
 
         const paid = await orderByNumber(placed.number);
         check('the order is paid and confirmed', paid.paymentStatus === 'paid' && paid.status === 'confirmed', { paymentStatus: paid.paymentStatus, status: paid.status });
@@ -606,6 +609,56 @@ async function main() {
       }
     };
 
+    // ── S14 ────────────────────────────────────────────────────────────────────
+    const s14 = async () => {
+      console.log('S14 checkout: errors for every field, and the cart survives a card page that is never paid');
+      const { ctx, page } = await newPage();
+      try {
+        await startCheckout(page);
+        const cartLines = () => page.evaluate(() => (JSON.parse(localStorage.getItem('oilcenter-cart') ?? '{}') as { state?: { lines?: unknown[] } }).state?.lines?.length ?? 0);
+        await page.locator('#firstName').fill('Ελένη');
+        await page.locator('#lastName').fill('Δοκιμή');
+        await page.locator('#email').fill('field-errors@example.invalid');
+        await page.locator('#phone').fill('6912345678');
+        await page.locator('input[name="shippingMethod"][value="courier"]').check();
+        await page.locator('#street').fill('Οδός 1');
+        await page.locator('#city').fill('Θεσσαλονίκη');
+        await page.locator('#postalCode').fill('54624');
+        await page.locator('#region').fill('Ν'.repeat(100));
+        await page.getByRole('button', { name: 'Τιμολόγιο', exact: true }).click();
+        await page.locator('#companyName').fill('Δοκιμή ΕΠΕ');
+        await page.locator('#vatNumber').fill('123456783');
+        await page.locator('#taxOffice').fill('Α΄ Θεσσαλονίκης');
+        await page.locator('#companyActivity').fill('Εμπορία');
+        await page.locator('#companyAddress').fill('Έ'.repeat(250));
+        // typing stops at the textarea's maxlength, so the value is set the way a script or an odd browser would: past it
+        await page.locator('#notes').evaluate((el: HTMLTextAreaElement, text) => {
+          Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, text);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        }, 'σ'.repeat(1100));
+        await page.locator('input[name="paymentMethod"][value="card"]').check();
+        await page.locator('#acceptTerms').check();
+        await page.getByRole('button', { name: /^Συνέχεια στην πληρωμή/ }).click();
+        for (const id of ['region', 'companyAddress', 'notes']) {
+          const shown = await page.locator(`#${id}-err`).waitFor({ state: 'visible', timeout: 15_000 }).then(() => true, () => false);
+          check(`a refused value in «${id}» shows its error under the field`, shown && (await page.locator(`#${id}`).getAttribute('aria-invalid')) === 'true');
+        }
+        check('…and nothing was ordered, the cart is intact', (await cartLines()) === 1 && page.url().includes('/checkout'), [await cartLines(), page.url()]);
+
+        // a valid card order: the buyer is on the card page, never pays, and goes back to the shop
+        await page.locator('#region').fill('Θεσσαλονίκη');
+        await page.locator('#companyAddress').fill('Έδρα 1');
+        await page.locator('#notes').fill('');
+        await page.getByRole('button', { name: /^Συνέχεια στην πληρωμή/ }).click();
+        await page.waitForURL((url) => url.toString().startsWith(`${fake.baseUrl}/web/checkout?`), { timeout: 30_000 });
+        await page.goto(`${base}/cart`);
+        await page.waitForLoadState('domcontentloaded');
+        check('on the card page, not paid, back in the shop: the cart still holds the product', (await cartLines()) === 1, await cartLines());
+      } finally {
+        await ctx.close();
+      }
+    };
+
     const run = async (fn: () => Promise<void>, label: string) => {
       // placeOrder allows 8 orders per 10 minutes per IP: each scenario starts with fresh limits
       await db.delete(rateLimits);
@@ -627,6 +680,7 @@ async function main() {
     await run(s10, 'S10');
     await run(s12, 'S12');
     await run(s13, 'S13');
+    await run(s14, 'S14');
   } finally {
     await browser?.close().catch(() => undefined);
     if (server && server.exitCode === null) {

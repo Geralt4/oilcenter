@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Check, CircleAlert, CircleCheck, Navigation, Phone } from 'lucide-react';
 import { AvailabilityTag } from '@/components/store/availability';
+import { ClearCart } from '@/components/store/clear-cart';
 import { RetryPayment } from '@/components/store/retry-payment';
 import { buttonClass } from '@/components/ui/button';
 import { getCustomer } from '@/lib/auth/session';
@@ -55,8 +56,12 @@ export default async function OrderPage({ params, searchParams }: Props) {
   const paymentUnderReview = unpaidCard && order.paymentFlag !== null;
   const awaitingCard = unpaidCard && !paymentUnderReview && !paymentProcessing;
 
+  // The cart is emptied here, not in the checkout form: only when the order is shown as placed or paid, or paid and still settling.
+  const clearCart = (justPlaced && !unpaidCard) || (paymentProcessing && unpaidCard);
+
   return (
     <div className="container-page max-w-4xl py-8 sm:py-12">
+      {clearCart && <ClearCart />}
       {justPlaced && !unpaidCard && (
         <div className="mb-8 rounded-3xl bg-emerald-50 p-6 text-center sm:p-8">
           <CircleCheck className="mx-auto h-12 w-12 text-emerald-600" />

@@ -68,7 +68,7 @@ export function CheckoutForm({ prefill, pickupAddress }: { prefill: CheckoutPref
   const router = useRouter();
   const config = useStoreConfig();
   const hydrated = useHydrated();
-  const { lines, setCoupon, clear } = useCart();
+  const { lines, setCoupon } = useCart();
   const [pending, startTransition] = useTransition();
 
   const [form, setForm] = useState({
@@ -138,7 +138,8 @@ export function CheckoutForm({ prefill, pickupAddress }: { prefill: CheckoutPref
     startTransition(async () => {
       const result = await placeOrder({ ...form, lines: payload(), couponCode: coupon?.code, shippingMethod, paymentMethod, docType, acceptTerms });
       if (result.ok) {
-        clear();
+        // The cart is NOT emptied here: the order page does it once it shows the order as placed or paid (components/store/clear-cart.tsx).
+        // Emptying it before the card page would lose the cart of a customer who never pays and comes back.
         if (result.external) window.location.assign(result.redirectUrl);
         else router.push(result.redirectUrl);
         return;
@@ -197,7 +198,7 @@ export function CheckoutForm({ prefill, pickupAddress }: { prefill: CheckoutPref
               <Field className="sm:col-span-6" label="Οδός & αριθμός" name="street" value={form.street} onChange={set('street')} error={errors.street} autoComplete="street-address" required />
               <Field className="sm:col-span-3" label="Πόλη / περιοχή" name="city" value={form.city} onChange={set('city')} error={errors.city} autoComplete="address-level2" required />
               <Field className="sm:col-span-1" label="Τ.Κ." name="postalCode" inputMode="numeric" value={form.postalCode} onChange={set('postalCode')} error={errors.postalCode} autoComplete="postal-code" maxLength={6} required />
-              <Field className="sm:col-span-2" label="Νομός" name="region" value={form.region} onChange={set('region')} autoComplete="address-level1" optional />
+              <Field className="sm:col-span-2" label="Νομός" name="region" value={form.region} onChange={set('region')} autoComplete="address-level1" error={errors.region} optional />
             </div>
           )}
         </Section>
@@ -229,13 +230,14 @@ export function CheckoutForm({ prefill, pickupAddress }: { prefill: CheckoutPref
               <Field label="ΑΦΜ" name="vatNumber" inputMode="numeric" maxLength={9} value={form.vatNumber} onChange={set('vatNumber')} error={errors.vatNumber} required />
               <Field label="ΔΟΥ" name="taxOffice" value={form.taxOffice} onChange={set('taxOffice')} error={errors.taxOffice} required />
               <Field label="Δραστηριότητα" name="companyActivity" value={form.companyActivity} onChange={set('companyActivity')} error={errors.companyActivity} required />
-              <Field label="Έδρα" name="companyAddress" value={form.companyAddress} onChange={set('companyAddress')} optional />
+              <Field label="Έδρα" name="companyAddress" value={form.companyAddress} onChange={set('companyAddress')} error={errors.companyAddress} optional />
             </div>
           )}
 
           <div className="mt-5">
             <label htmlFor="notes" className="label">Σχόλια παραγγελίας <span className="font-normal text-ink-500">(προαιρετικό)</span></label>
-            <textarea id="notes" name="notes" rows={3} value={form.notes} onChange={set('notes')} maxLength={1000} placeholder="π.χ. μοντέλο & έτος οχήματος, ώρες παράδοσης…" className="field resize-y" />
+            <textarea id="notes" name="notes" rows={3} value={form.notes} onChange={set('notes')} maxLength={1000} aria-invalid={Boolean(errors.notes)} aria-describedby={errors.notes ? 'notes-err' : undefined} placeholder="π.χ. μοντέλο & έτος οχήματος, ώρες παράδοσης…" className="field resize-y" />
+            {errors.notes && <p id="notes-err" className="mt-1.5 text-sm font-medium text-red-600">{errors.notes}</p>}
           </div>
         </Section>
       </div>
