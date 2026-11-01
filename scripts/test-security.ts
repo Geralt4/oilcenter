@@ -646,6 +646,46 @@ async function main() {
     check('…the failure is logged', logged.some((l) => l.includes('[mail] failed to send')), logged);
     check('…without the recipient\'s address', !logged.some((l) => l.includes('customer.name@example.gr')) && logged.some((l) => l.includes('c***@example.gr')), logged);
     check('redactEmail keeps the first letter and the domain only', redactEmail('a@b.gr') === 'a***@b.gr' && redactEmail('no-at-sign') === '***' && redactEmail('') === '***');
+
+    // A mail server that refuses the recipient usually quotes it: that text is logged too, and must not carry the address either.
+    const { redactAddressIn } = await import('../src/lib/email');
+    check('redactAddressIn replaces every occurrence, in any letter case, and leaves other text alone', redactAddressIn('550 <Ann.Lee@Example.gr>: rejected; ann.lee@example.gr again', 'ann.lee@example.gr') === '550 <a***@example.gr>: rejected; a***@example.gr again' && redactAddressIn('no address here', 'ann.lee@example.gr') === 'no address here' && redactAddressIn('x', '') === 'x');
+    const { createServer } = await import('node:net');
+    const refuser = createServer((socket) => {
+      socket.write('220 test ESMTP\r\n');
+      let pending = '';
+      socket.on('data', (chunk) => {
+        pending += chunk;
+        for (let end = pending.indexOf('\r\n'); end >= 0; end = pending.indexOf('\r\n')) {
+          const line = pending.slice(0, end);
+          pending = pending.slice(end + 2);
+          if (/^(EHLO|HELO)/i.test(line)) socket.write('250-test\r\n250 OK\r\n');
+          else if (/^MAIL FROM/i.test(line) || /^RSET/i.test(line)) socket.write('250 OK\r\n');
+          else if (/^RCPT TO/i.test(line)) socket.write(`550 5.1.1 ${line.slice(8)}: Recipient address rejected\r\n`);
+          else if (/^QUIT/i.test(line)) socket.end('221 bye\r\n');
+        }
+      });
+    });
+    await new Promise<void>((resolve) => refuser.listen(0, '127.0.0.1', resolve));
+    const refuserPort = (refuser.address() as { port: number }).port;
+    process.env.SMTP_HOST = '127.0.0.1';
+    process.env.SMTP_PORT = String(refuserPort);
+    delete process.env.RESEND_API_KEY;
+    const refusedLog: string[] = [];
+    console.error = (...args: unknown[]) => void refusedLog.push(args.map(String).join(' '));
+    let refused: boolean;
+    try {
+      refused = await sendMail({ to: 'Customer.Name@Example.gr', subject: 'Παραγγελία', html: '<p>x</p>' });
+    } finally {
+      console.error = realError;
+      refuser.close();
+      for (const [key, value] of [['SMTP_HOST', saved.host], ['SMTP_PORT', saved.port], ['RESEND_API_KEY', saved.resend]] as const) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+    }
+    const refusedText = refusedLog.join('\n');
+    check('a server that refuses the recipient: the send fails and the refusal is logged', refused === false && /Recipient address rejected/.test(refusedText), refusedText.slice(0, 300));
+    check('…the logged refusal does not contain the address, in any letter case', !/customer\.name@example\.gr/i.test(refusedText) && refusedText.includes('C***@Example.gr'), refusedText.slice(0, 300));
   }
 
   console.log('Test database guard');

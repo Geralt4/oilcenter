@@ -83,11 +83,20 @@ export function redactEmail(address: string): string {
   return at < 1 ? '***' : `${address[0]}***${address.slice(at)}`;
 }
 
-let transport: Transporter | null = null;
+/** The same for a text that may quote the address (a mail server's refusal often does): every occurrence, in any letter case. */
+export function redactAddressIn(text: string, address: string): string {
+  if (!address) return text;
+  return text.replace(new RegExp(address.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), redactEmail(address));
+}
+
+// one transport per set of options: a changed SMTP setting (or a test) gets a fresh one
+let transport: { key: string; client: Transporter } | null = null;
 function smtp(): Transporter | null {
   if (!process.env.SMTP_HOST) return null;
-  transport ??= nodemailer.createTransport(smtpOptions());
-  return transport;
+  const options = smtpOptions();
+  const key = JSON.stringify(options);
+  if (transport?.key !== key) transport = { key, client: nodemailer.createTransport(options) };
+  return transport.client;
 }
 
 export async function sendMail(mail: Mail): Promise<boolean> {
@@ -117,7 +126,9 @@ export async function sendMail(mail: Mail): Promise<boolean> {
     console.log(`[mail] no mail service configured → wrote ${path.join('outbox', file)} ("${mail.subject}")`);
     return true;
   } catch (err) {
-    console.error(`[mail] failed to send "${mail.subject}" to ${redactEmail(mail.to)}:`, err);
+    // the error text is logged too, but a refusal usually quotes the recipient: it goes through the same redaction
+    const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    console.error(`[mail] failed to send "${mail.subject}" to ${redactEmail(mail.to)}:`, redactAddressIn(detail, mail.to));
     return false;
   }
 }
