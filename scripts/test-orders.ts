@@ -569,6 +569,115 @@ async function main() {
     check('a size that was not counted when the order was placed gets nothing added', (await releaseUnstartedCardOrder(uUntracked.id)) === true && (await stock()) === stockBeforeU, await stock());
     await db.update(coupons).set({ isActive: false }).where(eq(coupons.code, 'WELCOME5'));
 
+    console.log('  Bank-transfer expiry and the age flag');
+    {
+      const { releaseExpiredBankTransferOrders, staleOpenOrders, staleOpenOrderCount, getOrderByNumber } = await import('../src/lib/orders');
+      const { mailOutbox } = await import('../src/lib/db/schema');
+      const { BANK_TRANSFER_EXPIRY_DAYS, OPEN_ORDER_FLAG_DAYS, DAY_MS, bankTransferExpiryNotice, BANK_TRANSFER_EXPIRY_GENERAL } = await import('../src/lib/order-ageing');
+      const { orderConfirmationMail } = await import('../src/lib/email');
+      const { formatDate } = await import('../src/lib/utils');
+      check('the parameters are 5 days for a transfer and 7 days for the age flag', BANK_TRANSFER_EXPIRY_DAYS === 5 && OPEN_ORDER_FLAG_DAYS === 7);
+      const make = async (method: 'bank_transfer' | 'cod' | 'pay_in_store' | 'card', extra: Record<string, unknown> = {}, quantity = 1) => {
+        const shipping = method === 'pay_in_store' ? { shippingMethod: 'pickup' as const } : {};
+        const r = await createOrder({ ...base, ...shipping, ...extra, paymentMethod: method, lines: [{ variantId: variant.id, quantity }] } as Parameters<typeof createOrder>[0], settings, method === 'card' ? cardOpts : opts);
+        if (!r.ok) throw new Error(`order not created: ${r.message}`);
+        await db.update(orders).set({ isTest: false }).where(eq(orders.id, r.order.id)); // the age flag is about real orders
+        return r.order;
+      };
+      const age = (id: number, ms: number) => db.update(orders).set({ createdAt: new Date(Date.now() - ms) }).where(eq(orders.id, id));
+      const notices = (orderId: number) => db.select().from(mailOutbox).where(and(eq(mailOutbox.orderId, orderId), eq(mailOutbox.kind, 'order_expired_notice')));
+      const H = 3600 * 1000;
+      await db.update(variants).set({ trackStock: true, stock: 40 }).where(eq(variants.id, variant.id));
+      await releaseExpiredBankTransferOrders(); // (setup) orders of the copied database that are already old
+      const staleBefore = await staleOpenOrderCount();
+
+      // ── bank transfer expiry ──
+      await db.update(coupons).set({ isActive: true, type: 'percent', value: 5, minSubtotalCents: 0, maxUses: 20, usedCount: 0 }).where(eq(coupons.code, 'WELCOME5'));
+      const young = await make('bank_transfer');
+      await age(young.id, 4 * DAY_MS + 23 * H);
+      const late = await make('bank_transfer', { couponCode: 'WELCOME5' }, 2);
+      await age(late.id, 5 * DAY_MS + 1 * H);
+      const paid = await make('bank_transfer');
+      await db.update(orders).set({ paymentStatus: 'paid' }).where(eq(orders.id, paid.id));
+      await age(paid.id, 6 * DAY_MS);
+      const confirmed = await make('bank_transfer');
+      await db.update(orders).set({ status: 'confirmed' }).where(eq(orders.id, confirmed.id));
+      await age(confirmed.id, 6 * DAY_MS);
+      const flagged = await make('bank_transfer');
+      await db.update(orders).set({ paymentFlag: 'review' }).where(eq(orders.id, flagged.id));
+      await age(flagged.id, 6 * DAY_MS);
+      const cod = await make('cod');
+      await age(cod.id, 10 * DAY_MS);
+      const card = await make('card');
+      await age(card.id, 10 * DAY_MS);
+      const stockBefore = await stock();
+      const couponBefore = (await db.select().from(coupons).where(eq(coupons.code, 'WELCOME5')))[0]!.usedCount;
+
+      const released = await releaseExpiredBankTransferOrders();
+      check('exactly the transfer order older than 5 days is cancelled', released === 1 && (await row(late.id)).status === 'cancelled', released);
+      check('…one that is 4 days 23 hours old is not', (await row(young.id)).status === 'pending');
+      check('…nor one that was paid, confirmed or flagged for the owner', (await row(paid.id)).status === 'pending' && (await row(confirmed.id)).status === 'confirmed' && (await row(flagged.id)).status === 'pending' && (await row(flagged.id)).paymentFlag === 'review');
+      check('…nor cash on delivery or card orders (they have their own rules)', (await row(cod.id)).status === 'pending' && (await row(card.id)).status === 'pending');
+      check('the stock it reserved is back, exactly', (await stock()) === stockBefore + 2, [await stock(), stockBefore]);
+      check('…and so is the coupon use', (await db.select().from(coupons).where(eq(coupons.code, 'WELCOME5')))[0]!.usedCount === couponBefore - 1);
+      check('…the order stays unpaid (nothing marked refunded) and the timeline names the reason', (await row(late.id)).paymentStatus === 'pending' && (await eventsOf(late.id)).some((e) => e.message.startsWith('Η παραγγελία ακυρώθηκε: η κατάθεση δεν εισπράχθηκε μέσα σε 5 ημέρες')), (await eventsOf(late.id)).map((e) => e.message));
+      const queued = await notices(late.id);
+      check('one notice for the customer was queued with the cancellation, none for any other order', queued.length === 1 && queued[0]!.sentAt === null && (await notices(young.id)).length + (await notices(paid.id)).length + (await notices(confirmed.id)).length + (await notices(flagged.id)).length + (await notices(cod.id)).length + (await notices(card.id)).length === 0);
+      check('running the sweep again changes nothing (no second restock, no second notice)', (await releaseExpiredBankTransferOrders()) === 0 && (await stock()) === stockBefore + 2 && (await notices(late.id)).length === 1);
+
+      const filesBefore = new Set(outboxFiles());
+      const sent = await deliverPendingMail({ orderId: late.id });
+      const newFiles = outboxFiles().filter((f) => !filesBefore.has(f));
+      const mailText = newFiles.length === 1 ? readFileSync(path.join(outbox, newFiles[0]!), 'utf8') : '';
+      check('the notice goes to the CUSTOMER (not the shop) with the order number in the subject', sent === 1 && newFiles.length === 1 && newFiles[0]!.includes(base.email) && /subject: Η παραγγελία OC-\d+ ακυρώθηκε/.test(mailText), [sent, newFiles]);
+      check('…it says the transfer did not arrive in 5 days, that the stock is back, and what to do if they did pay', mailText.includes('5 ημέρες') && mailText.includes('επέστρεψαν στο απόθεμα') && mailText.includes('Αν έχετε ήδη κάνει την κατάθεση'));
+      check('…and the timeline records that it was sent', (await eventsOf(late.id)).some((e) => e.message.startsWith('Στάλθηκε e-mail ακύρωσης')) && (await notices(late.id))[0]!.sentAt !== null);
+
+      // customers are told up front
+      const full = (await getOrderByNumber(young.number))!;
+      const confirmation = orderConfirmationMail({ ...full, paymentMethod: 'bank_transfer' }, settings).html;
+      const promise = bankTransferExpiryNotice(full.createdAt, formatDate); // the date counts from the order's stored time (this one was aged above)
+      check('the confirmation e-mail says when an unpaid transfer order is cancelled, with the date', confirmation.includes('5 ημέρες') && confirmation.includes(formatDate(new Date(full.createdAt.getTime() + 5 * DAY_MS))) && confirmation.includes(promise), promise);
+      check('…counted from when the order was placed, not from today', promise !== bankTransferExpiryNotice(new Date(), formatDate), promise);
+      check('the sentence for pages without an order names the same 5 days', BANK_TRANSFER_EXPIRY_GENERAL.includes('5 ημέρες'));
+
+      // the dashboard calls the release on every visit: a failure there is logged, never thrown into the page
+      const { releaseExpiredBankTransferOrdersQuietly } = await import('../src/lib/orders');
+      const quietErrors: string[] = [];
+      const realConsoleError = console.error;
+      console.error = (...a: unknown[]) => void quietErrors.push(a.map(String).join(' '));
+      const thrown = await releaseExpiredBankTransferOrdersQuietly(async () => { throw new Error('database is locked'); }).then((n) => ({ n }), (err: Error) => ({ err: err.message }));
+      console.error = realConsoleError;
+      check('a failing release is answered as «nothing released» and logged, not thrown', 'n' in thrown && thrown.n === 0 && quietErrors.some((e) => e.includes('database is locked')), [thrown, quietErrors]);
+      check('…and the quiet form does the real release when nothing fails', typeof (await releaseExpiredBankTransferOrdersQuietly()) === 'number');
+
+      // ── the age flag for cash on delivery and pay in store ──
+      const codYoung = await make('cod');
+      await age(codYoung.id, 6 * DAY_MS + 23 * H);
+      const codOld = await make('cod');
+      await age(codOld.id, 7 * DAY_MS + 1 * H);
+      const shopOld = await make('pay_in_store');
+      await age(shopOld.id, 9 * DAY_MS);
+      const codConfirmed = await make('cod');
+      await db.update(orders).set({ status: 'confirmed' }).where(eq(orders.id, codConfirmed.id));
+      await age(codConfirmed.id, 12 * DAY_MS);
+      const codCancelled = await make('cod');
+      await cancelOrder(codCancelled.id, 'test');
+      await age(codCancelled.id, 12 * DAY_MS);
+      const codTest = await make('cod');
+      await db.update(orders).set({ isTest: true }).where(eq(orders.id, codTest.id));
+      await age(codTest.id, 12 * DAY_MS);
+      const flagged7 = await staleOpenOrders(7, 50);
+      const mine = flagged7.filter((o) => [codYoung.id, codOld.id, shopOld.id, codConfirmed.id, codCancelled.id, codTest.id, cod.id].includes(o.id)).map((o) => o.id);
+      check('the flag lists a cash-on-delivery order from 7 days 1 hour and a pay-in-store one, not one from 6 days 23 hours', mine.includes(codOld.id) && mine.includes(shopOld.id) && !mine.includes(codYoung.id), mine);
+      check('…not a confirmed one, a cancelled one, or a test order', !mine.includes(codConfirmed.id) && !mine.includes(codCancelled.id) && !mine.includes(codTest.id));
+      check('…and the 10-day-old cash-on-delivery order from the sweep section above is in it', mine.includes(cod.id));
+      check('…the oldest first, with the whole days they have waited', flagged7.findIndex((o) => o.id === cod.id) < flagged7.findIndex((o) => o.id === shopOld.id) && flagged7.find((o) => o.id === codOld.id)?.ageDays === 7 && flagged7.find((o) => o.id === shopOld.id)?.ageDays === 9);
+      check('the count agrees with the list (and a transfer order is never in it)', (await staleOpenOrderCount()) === staleBefore + 3 && !flagged7.some((o) => o.id === young.id), [await staleOpenOrderCount(), staleBefore]);
+      check('the flag never cancels anything: all of them are still pending', (await row(codOld.id)).status === 'pending' && (await row(shopOld.id)).status === 'pending' && (await row(cod.id)).status === 'pending');
+      await db.update(coupons).set({ isActive: false }).where(eq(coupons.code, 'WELCOME5'));
+    }
+
     console.log('  Card minimum');
     const { CARD_MIN_CENTS } = await import('../src/lib/pricing');
     await db.update(coupons).set({ isActive: true, type: 'fixed', value: 100000, minSubtotalCents: 0, maxUses: null }).where(eq(coupons.code, 'WELCOME5'));

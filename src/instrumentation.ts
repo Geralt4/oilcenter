@@ -62,6 +62,24 @@ export async function register() {
   setTimeout(releaseCardOrders, 60_000).unref();
   setInterval(releaseCardOrders, 60 * 60 * 1000).unref();
 
+  // Bank-transfer orders hold stock until the money arrives: after BANK_TRANSFER_EXPIRY_DAYS (lib/order-ageing.ts) the order is
+  // cancelled, the stock goes back and the customer is told. The notice is saved with the cancellation and sent right after here;
+  // if sending fails the mail sweep below retries it.
+  const { releaseExpiredBankTransferOrders } = await import('@/lib/orders');
+  const releaseBankOrders = () => {
+    if (!commerceEnabled()) return;
+    releaseExpiredBankTransferOrders()
+      .then(async (released) => {
+        if (released === 0) return;
+        console.log(`[orders] cancelled ${released} bank-transfer order(s) whose transfer did not arrive in time`);
+        const { deliverPendingMail } = await import('@/lib/payments/mail-delivery');
+        await deliverPendingMail();
+      })
+      .catch((err) => console.error('[orders] release of expired bank-transfer orders failed', err instanceof Error ? err.message : err));
+  };
+  setTimeout(releaseBankOrders, 75_000).unref();
+  setInterval(releaseBankOrders, 60 * 60 * 1000).unref();
+
   // Mails that follow a payment are saved with it and sent right after; this sweep sends the ones that did not go out (the
   // process died in between, or the mail service was down). Each mail waits 1, 5, 15 and 60 minutes and then an hour between
   // attempts, and is given up at the 27th failure, about a day after the first (payments/mail-delivery.ts).

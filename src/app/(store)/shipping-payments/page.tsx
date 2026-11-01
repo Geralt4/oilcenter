@@ -5,6 +5,7 @@ import { fullAddress } from '@/lib/settings';
 import { getSettings } from '@/lib/settings.server';
 import { formatPrice } from '@/lib/utils';
 import { requireOrdering } from '@/lib/catalogue-mode';
+import { BANK_TRANSFER_EXPIRY_GENERAL } from '@/lib/order-ageing';
 
 export const metadata: Metadata = { title: 'Αποστολές & πληρωμές', description: 'Κόστος και χρόνοι αποστολής, παραλαβή από το κατάστημα και τρόποι πληρωμής στο Oil Center.', alternates: { canonical: '/shipping-payments' } };
 
@@ -43,7 +44,7 @@ export default async function ShippingPaymentsPage() {
       <ul>
         {payments.cod && <li><strong>Αντικαταβολή:</strong> πληρώνετε στον courier κατά την παράδοση{shipping.codFeeCents > 0 ? <>, με επιβάρυνση {formatPrice(shipping.codFeeCents)}</> : null}.</li>}
         {payments.card && <li><strong>Πιστωτική / χρεωστική κάρτα:</strong> η πληρωμή γίνεται σε ασφαλές περιβάλλον πιστοποιημένου παρόχου πληρωμών. Δεν βλέπουμε και δεν αποθηκεύουμε τα στοιχεία της κάρτας σας.</li>}
-        {payments.bankTransfer && <li><strong>Τραπεζική κατάθεση:</strong> τα στοιχεία του λογαριασμού αποστέλλονται με το e-mail επιβεβαίωσης. Η παραγγελία αποστέλλεται μόλις επιβεβαιωθεί η κατάθεση. Τυχόν έξοδα εμβάσματος βαρύνουν τον πελάτη.</li>}
+        {payments.bankTransfer && <li><strong>Τραπεζική κατάθεση:</strong> τα στοιχεία του λογαριασμού αποστέλλονται με το e-mail επιβεβαίωσης. Η παραγγελία αποστέλλεται μόλις επιβεβαιωθεί η κατάθεση. {BANK_TRANSFER_EXPIRY_GENERAL} Τυχόν έξοδα εμβάσματος βαρύνουν τον πελάτη.</li>}
         {payments.payInStore && <li><strong>Πληρωμή στο κατάστημα:</strong> για παραγγελίες που παραλαμβάνετε οι ίδιοι.</li>}
       </ul>
       <p>Όλες οι τιμές περιλαμβάνουν ΦΠΑ. Για κάθε παραγγελία εκδίδεται απόδειξη λιανικής ή, εφόσον το ζητήσετε στο ταμείο, τιμολόγιο.</p>

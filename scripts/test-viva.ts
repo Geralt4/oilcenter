@@ -218,6 +218,7 @@ async function main() {
   check('key request is GET https://demo.vivapayments.com/api/messages/config/token', keyCall?.method === 'GET' && keyCall?.url === 'https://demo.vivapayments.com/api/messages/config/token', keyCall?.url);
   check("key request uses Basic auth 'test-merchant:test-key'", keyCall?.headers.authorization === basic('test-merchant', 'test-key'), keyCall?.headers);
   canned.keyStatus = 500;
+  viva.clearVivaWebhookKeyCache(); // the key found above is kept for ten minutes: forget it to see what a failing lookup answers
   const failedGet = await webhook.GET();
   check('when the key request fails the GET answers 503', failedGet.status === 503, failedGet.status);
   canned.keyStatus = 200;
@@ -707,15 +708,67 @@ async function main() {
   console.log('D. Webhook verification key shapes');
   const savedKeyBody = canned.keyBody;
   canned.keyBody = '{"key":"abc"}';
+  viva.clearVivaWebhookKeyCache();
   const keyLower = await webhook.GET();
   check('D: {"key":"abc"} is answered as {"Key":"abc"}', keyLower.status === 200 && JSON.stringify(await keyLower.json()) === '{"Key":"abc"}');
   canned.keyBody = '{"Key":"abc"}';
+  viva.clearVivaWebhookKeyCache();
   const keyUpper = await webhook.GET();
   check('D: {"Key":"abc"} is answered as {"Key":"abc"}', keyUpper.status === 200 && JSON.stringify(await keyUpper.json()) === '{"Key":"abc"}');
   canned.keyBody = '{}';
+  viva.clearVivaWebhookKeyCache();
   const keyEmpty = await webhook.GET();
   check('D: a reply with no key answers 503', keyEmpty.status === 503, keyEmpty.status);
   canned.keyBody = savedKeyBody;
+  viva.clearVivaWebhookKeyCache();
+
+  console.log('R9. Webhook verification GET: limited per address, key kept for ten minutes');
+  {
+    const { rateLimits } = await import('../src/lib/db/schema');
+    await db.delete(rateLimits);
+    viva.clearVivaWebhookKeyCache();
+    calls.length = 0;
+    const first = await webhook.GET();
+    const second = await webhook.GET();
+    check('R9: two verification requests in a row both answer the key', first.status === 200 && second.status === 200 && JSON.stringify(await second.json()) === '{"Key":"verify-key-123"}');
+    check('R9: …and make ONE call to Viva (the key is kept)', callsOf('webhook-key').length === 1, callsOf('webhook-key').length);
+    let lastOk = 2;
+    let refused: Response | null = null;
+    for (let i = 3; i <= 12 && !refused; i++) {
+      const res = await webhook.GET();
+      if (res.status === 429) refused = res; else lastOk = i;
+    }
+    check('R9: the 11th request within a minute is refused with 429', lastOk === 10 && refused?.status === 429, { lastOk, refused: refused?.status });
+    check('R9: …with a Retry-After header', Number(refused?.headers.get('Retry-After')) >= 1, refused?.headers.get('Retry-After'));
+    check('R9: …and the refused requests made no further call to Viva', callsOf('webhook-key').length === 1, callsOf('webhook-key').length);
+
+    await db.delete(rateLimits);
+    viva.clearVivaWebhookKeyCache();
+    calls.length = 0;
+    canned.keyStatus = 500;
+    const down1 = await webhook.GET();
+    canned.keyStatus = 200;
+    const up = await webhook.GET();
+    check('R9: a failed lookup answers 503 and is not kept: the next request asks Viva again and gets the key', down1.status === 503 && up.status === 200 && callsOf('webhook-key').length === 2, [down1.status, up.status, callsOf('webhook-key').length]);
+
+    viva.clearVivaWebhookKeyCache();
+    const savedKey = process.env.VIVA_API_KEY;
+    await webhook.GET(); // kept under the current credentials
+    process.env.VIVA_API_KEY = 'another-key';
+    calls.length = 0;
+    await webhook.GET();
+    check('R9: a key found with other credentials is not reused', callsOf('webhook-key').length === 1, callsOf('webhook-key').length);
+    process.env.VIVA_API_KEY = savedKey;
+
+    const savedCommerce = process.env.COMMERCE_ENABLED;
+    process.env.COMMERCE_ENABLED = 'false';
+    const off = await webhook.GET();
+    if (savedCommerce === undefined) delete process.env.COMMERCE_ENABLED; else process.env.COMMERCE_ENABLED = savedCommerce;
+    check('R9: with COMMERCE_ENABLED=false the verification GET still answers 503', off.status === 503, off.status);
+
+    await db.delete(rateLimits);
+    viva.clearVivaWebhookKeyCache();
+  }
 
   console.log('E. Webhook IP allow-list: CIDR, plain IPv4, IPv6');
   const savedIpsE = process.env.VIVA_WEBHOOK_IPS;

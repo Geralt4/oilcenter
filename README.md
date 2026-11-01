@@ -21,21 +21,24 @@ Admin login = `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env.local`. Change the pas
 | Script | What it does |
 | --- | --- |
 | `npm run dev` / `build` / `start` | development server / production build / production server |
+| `npm run db:snapshot` | the first step of the container start: when migrations are pending, write a verified snapshot of the database first (`DATA_DIR/backups/pre-migrate-…`, newest 5 kept) and stop the start if that fails; with nothing pending it does nothing. `SKIP_PREMIGRATE_SNAPSHOT=1` skips it for one start |
 | `npm run db:migrate` | apply SQL migrations in `drizzle/` (idempotent) |
 | `npm run db:seed` | load `catalog/catalog.json` into an **empty** catalogue + create the first admin. `-- --force` replaces the catalogue in one transaction, on a local `file:` database only (never touches orders or customers) |
 | `npm run db:reset` | **local only** — delete the SQLite file, migrate, seed |
 | `npm run db:generate` | create a new migration after editing `src/lib/db/schema.ts` |
 | `npm run admin:create -- <email> <password> [name]` | add an admin or reset a password |
 | `npm run catalog:build` | rebuild `catalog/catalog.json` + `public/catalog/*.webp` from the client's photos |
-| `npm run test:orders` | order logic, incl. availability and payment outcomes, the confirmation-mail state the order page reads, the checkout's length limits and the footer's service line (runs on a throwaway snapshot of the DB) — 324 checks |
-| `npm run test:viva` | Viva adapter with a mocked `fetch`: create, return, webhook, IP allow-list, unmatched payments — 190 checks |
-| `npm run test:admin` | admin actions: prices and CSV round trip, sales, coupons, orders and payment review, categories, product sizes, IBANs, customer and admin sign-in and password-reset limits, given-up payment mails, registration and account activation, products with history kept, `create-admin`, `skroutz-prices --force`, and the data patches (a failing one, their order, a retry giving the result of a clean run, the dashboard record) — 357 checks |
+| `npm run test:orders` | order logic, incl. availability and payment outcomes, the confirmation-mail state the order page reads, the checkout's length limits and the footer's service line (runs on a throwaway snapshot of the DB) — 348 checks |
+| `npm run test:viva` | Viva adapter with a mocked `fetch`: create, return, webhook, IP allow-list, unmatched payments — 198 checks |
+| `npm run test:admin` | admin actions: prices and CSV round trip, sales, coupons, orders and payment review, categories, product sizes, IBANs, customer and admin sign-in and password-reset limits, given-up payment mails, registration and account activation, products with history kept, `create-admin`, `skroutz-prices --force`, and the data patches (a failing one, their order, a retry giving the result of a clean run, the dashboard record) — 387 checks |
 | `npm run test:catalog` | catalogue data, search, sizes and hazard tables, the saved cart and favourites (tabs, migration) and the checkout draft — 136 checks |
-| `npm run test:security` | commerce switch, MFA, limits, upload tokens/deadline/rollback, backup encryption, statistics limits, mail transport (file fallback, SMTP timeouts, address redaction), `seed --force` and `package.json` — 168 checks |
+| `npm run test:security` | commerce switch, MFA, limits, upload tokens/deadline/rollback, backup encryption, statistics limits, mail transport (file fallback, SMTP timeouts, address redaction), `seed --force` and `package.json` — 241 checks |
 | `npm run test:feed` | Skroutz feed regression test: what is listed, valid XML, barcodes, cache and rate limit (same throwaway snapshot) — 104 checks |
-| `npm run test:flows` | real browser flow on a throwaway DB: login + TOTP, confirmed database download, CSV import, photo/SDS save, statistics page, resending a payment mail, the favourites error and retry, the dashboard's data-update line (builds first) — 72 checks |
-| `npm run test:card` | whole card journey in a browser against a fake Viva server, the checkout's field errors and its draft after Back, the order page's confirmation-mail notice, plus registration, activation and sign-out of a customer account (builds first) — 99 checks |
+| `npm run test:flows` | real browser flow on a throwaway DB: login + TOTP, confirmed database download, CSV import, photo/SDS save, statistics page, resending a payment mail, the favourites error and retry, the dashboard's data-update line (builds first) — 84 checks |
+| `npm run test:card` | whole card journey in a browser against a fake Viva server, the checkout's field errors and its draft after Back, the order page's confirmation-mail notice, plus registration, activation and sign-out of a customer account (builds first) — 96 checks |
 | `npm run lint` / `typecheck` | ESLint / TypeScript |
+
+The counts above are the checks each script prints itself. `test:flows` and `test:card` build first, and the three build lines that start with a tick (compile, static pages, config) are not checks.
 
 ## ⚠️ Before going live
 
@@ -155,7 +158,12 @@ What the deployment-level protections do and where they live — read together w
 - **Non-root container:** `docker/entrypoint.sh` starts as root only to `chown` the persistent volume to `node`, then
   re-execs migrations and the server as uid 1000 via gosu; the Dockerfile pre-creates Next's runtime image cache owned by
   `node`, so optimized images are cached without permission errors.
-- **Off-site backups:** every night's local snapshot (`shop-*.db.gz`) is encrypted with AES-256-GCM and uploaded to a
+- **Stored snapshots are encrypted too:** with `BACKUP_ENCRYPTION_KEY` set, the daily snapshots kept on the volume are
+  `shop-YYYY-MM-DD.db.gz.enc` (same AES-256-GCM, same key), so a copy of the volume does not give away customer data or
+  password hashes. Plain `.db.gz` files left by older versions are encrypted at the next run, verified by reading them back,
+  and only then removed. The admin «download a backup» stays a plain gzip behind the identity confirmation. Open a stored
+  copy with `npm run backup:decrypt -- shop-2026-11-02.db.gz.enc ./restore/shop.db`.
+- **Off-site backups:** every night's local snapshot (`shop-*.db.gz.enc`) is uploaded as it is (already encrypted with AES-256-GCM) to a
   private Backblaze B2 bucket as `shop-YYYY-MM-DD.db.gz.enc`, together with a daily archive of uploaded photos and safety
   data sheets. Fourteen versions of each family are kept; pruning uses `b2_list_file_versions`, so superseded versions
   are deleted too, not just the visible filename. **Every deploy also writes a fresh uniquely named snapshot and uploads
@@ -175,6 +183,9 @@ What the deployment-level protections do and where they live — read together w
 4. Photos/SDS: `npm run backup:pull -- uploads-2026-10-17.tar.gz.enc ./restore/uploads.tar`, then
    `tar -xf uploads.tar -C DATA_DIR`.
 5. Sign in to `/admin` and spot-check products, orders and settings. A restore that has never been tried is not a backup.
+
+A snapshot that is still on the volume (not in B2) is opened with `npm run backup:decrypt -- <file>.db.gz.enc ./restore/shop.db`
+(same key, same steps from 3).
 - **Dependency audit (2026-10-17):** production dependencies report **0 known vulnerabilities**. The flagged packages in
   a full-lockfile audit are all dev tooling, none shipped in the runtime request path: `braces@3.0.3` (via the Next ESLint
   plugin; the advisory CVE-2026-93687 has **no fixed release yet** — newest version IS 3.0.3), and `drizzle-kit`'s legacy
@@ -318,6 +329,12 @@ src/lib/            db/ (schema, client) · catalog (read model) · orders · pr
   and checkout re-prices everything from the database, then re-runs the same pure functions in `src/lib/pricing.ts`.
 - **Stock** is reserved with an atomic `UPDATE … WHERE stock >= qty`, so the last unit cannot be sold twice. Cancelling
   an order restocks exactly once. Variants are sold freely until the owner opts them into stock tracking.
+- **Orders that nobody settles do not hold stock for ever.** An unpaid card order is released after 2 hours (or at once when
+  the card payment cannot even start). A **bank-transfer** order still unpaid and untouched **5 days** after it was placed is
+  cancelled by the hourly sweep: the stock and coupon use go back and the customer gets an e-mail; the order page, the
+  confirmation e-mail and the shipping page say so up front. **Cash-on-delivery and pay-in-store** orders are never cancelled
+  by themselves; one still «pending» after **7 days** is listed on the admin dashboard (and under Orders → the link in that
+  box). The two periods are constants in `src/lib/order-ageing.ts`.
 - **Products have size variants** (1L / 4L / 5L / 20L …), each with its own price, SKU, weight, stock and photo.
 - **Search** is accent- and case-insensitive for Greek via a normalised `search_text` column (SQLite's `LIKE` only folds ASCII).
 - **Listings** are filtered from a per-request in-memory index with exact facet counts; filter state lives in the URL.

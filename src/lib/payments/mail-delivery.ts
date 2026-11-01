@@ -1,7 +1,7 @@
 import { and, eq, gte, isNotNull, isNull, lt, lte, or, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { mailOutbox, orders, unmatchedPayments, type MailKind } from '@/lib/db/schema';
-import { orderCancelledNotificationMail, orderConfirmationMail, orderPaidNotificationMail, paymentAlertMail, sendMail, unmatchedPaymentMail } from '@/lib/email';
+import { orderCancelledNotificationMail, orderConfirmationMail, orderExpiredMail, orderPaidNotificationMail, paymentAlertMail, sendMail, unmatchedPaymentMail } from '@/lib/email';
 import { addOrderEvent, type PaymentOutcome } from '@/lib/orders';
 import { getSettings } from '@/lib/settings.server';
 
@@ -53,6 +53,13 @@ async function sendRow(row: Row): Promise<{ sent: boolean; successEvent?: string
       sent: await sendMail(orderConfirmationMail(order, settings)),
       successEvent: `Στάλθηκε e-mail επιβεβαίωσης στο ${order.email}.`,
       failureEvent: `ΑΠΟΤΥΧΙΑ αποστολής e-mail επιβεβαίωσης στο ${order.email}.`,
+    };
+  }
+  if (row.kind === 'order_expired_notice') {
+    return {
+      sent: await sendMail(orderExpiredMail(order, settings)),
+      successEvent: `Στάλθηκε e-mail ακύρωσης (δεν εισπράχθηκε η κατάθεση) στο ${order.email}.`,
+      failureEvent: `ΑΠΟΤΥΧΙΑ αποστολής e-mail ακύρωσης στο ${order.email}.`,
     };
   }
   if (row.kind === 'order_cancelled_notice') {
@@ -179,6 +186,7 @@ export const MAIL_KIND_LABELS: Record<MailKind, string> = {
   payment_alert: 'ειδοποίηση ελέγχου πληρωμής προς το κατάστημα',
   unmatched_payment: 'ειδοποίηση για πληρωμή χωρίς παραγγελία',
   order_cancelled_notice: 'ειδοποίηση ακύρωσης (η πληρωμή δεν ξεκίνησε) προς το κατάστημα',
+  order_expired_notice: 'ειδοποίηση ακύρωσης (δεν εισπράχθηκε η κατάθεση) προς τον πελάτη',
 };
 
 /** The mails of one order that were given up and never sent (the order page offers to send them again). */

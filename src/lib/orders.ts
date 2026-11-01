@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { coupons, orderEvents, orderItems, orders, variants, type Coupon, type Order, type OrderStatus } from '@/lib/db/schema';
 import { randomToken } from '@/lib/auth/password';
-import { enqueueOrderCancelledNotice, enqueuePaymentMails } from '@/lib/payments/mail-queue';
+import { enqueueOrderCancelledNotice, enqueueOrderExpiredNotice, enqueuePaymentMails } from '@/lib/payments/mail-queue';
+import { BANK_TRANSFER_EXPIRY_DAYS, DAY_MS, OPEN_ORDER_FLAG_DAYS } from '@/lib/order-ageing';
 import { claimAttemptStatus, setAttemptStatus, type Executor } from '@/lib/payments/attempts';
 import { resolveCartLines, type ResolvedCartLine } from '@/lib/catalog';
 import { commerceEnabled } from '@/lib/commerce-flag';
@@ -487,6 +488,83 @@ export async function releaseUnstartedCardOrder(orderId: number): Promise<boolea
     if (cancelled) await enqueueOrderCancelledNotice(orderId, tx);
     return cancelled;
   });
+}
+
+/**
+ * Bank-transfer orders hold their stock until the money arrives. One that is still unpaid and untouched (status «pending», no payment
+ * flag) BANK_TRANSFER_EXPIRY_DAYS after it was placed is cancelled: the reserved stock and the coupon use go back (cancelOrder, exactly
+ * what the order took) and the customer is told by e-mail. The notice is saved in the same transaction as the cancellation, so both
+ * happen or neither; the caller sends it afterwards (mail-delivery.ts) and the periodic sweep retries a failure.
+ *
+ * An order the owner has moved on (confirmed, paid, flagged) is never touched: cancelOrder's guards repeat the selection inside the
+ * statement, so one that changes between the select and the cancel is left alone too. Card orders have their own release, and
+ * cash-on-delivery and pay-in-store orders are only flagged (staleOpenOrders).
+ */
+export async function releaseExpiredBankTransferOrders(): Promise<number> {
+  const cutoff = new Date(Date.now() - BANK_TRANSFER_EXPIRY_DAYS * DAY_MS);
+  const stale = await db
+    .select({ id: orders.id })
+    .from(orders)
+    .where(
+      and(
+        eq(orders.paymentMethod, 'bank_transfer'),
+        eq(orders.paymentStatus, 'pending'),
+        eq(orders.status, 'pending'),
+        // an order with a payment problem waits for the owner: never auto-cancelled
+        isNull(orders.paymentFlag),
+        lt(orders.createdAt, cutoff),
+      ),
+    );
+  let released = 0;
+  for (const o of stale) {
+    const cancelled = await db.transaction(async (tx) => {
+      const done = await cancelOrder(o.id, 'system', `η κατάθεση δεν εισπράχθηκε μέσα σε ${BANK_TRANSFER_EXPIRY_DAYS} ημέρες`, { requireUnpaid: true }, tx);
+      if (done) await enqueueOrderExpiredNotice(o.id, tx);
+      return done;
+    });
+    if (cancelled) released++;
+  }
+  return released;
+}
+
+/**
+ * The same release for a caller that must not fail because of it (the admin dashboard renders on every visit): an error is logged
+ * and answered as «nothing released». The hourly job has its own catch; `run` is only there so a test can make it fail.
+ */
+export async function releaseExpiredBankTransferOrdersQuietly(run: () => Promise<number> = releaseExpiredBankTransferOrders): Promise<number> {
+  try {
+    return await run();
+  } catch (err) {
+    console.error('[orders] release of expired bank-transfer orders failed', err instanceof Error ? err.message : err);
+    return 0;
+  }
+}
+
+/** Cash-on-delivery and pay-in-store orders nobody has acted on for OPEN_ORDER_FLAG_DAYS (still «pending»). Test orders are not real obligations. */
+export function staleOpenOrdersCondition(days = OPEN_ORDER_FLAG_DAYS) {
+  return and(
+    inArray(orders.paymentMethod, ['cod', 'pay_in_store']),
+    eq(orders.status, 'pending'),
+    eq(orders.isTest, false),
+    lt(orders.createdAt, new Date(Date.now() - days * DAY_MS)),
+  );
+}
+
+export async function staleOpenOrderCount(days = OPEN_ORDER_FLAG_DAYS): Promise<number> {
+  const [row] = await db.select({ n: sql<number>`count(*)` }).from(orders).where(staleOpenOrdersCondition(days));
+  return Number(row?.n ?? 0);
+}
+
+/** The oldest first, with how many whole days each has waited. */
+export async function staleOpenOrders(days = OPEN_ORDER_FLAG_DAYS, limit = 10) {
+  const rows = await db
+    .select({ id: orders.id, number: orders.number, paymentMethod: orders.paymentMethod, createdAt: orders.createdAt, totalCents: orders.totalCents })
+    .from(orders)
+    .where(staleOpenOrdersCondition(days))
+    .orderBy(orders.createdAt)
+    .limit(limit);
+  const now = Date.now();
+  return rows.map((o) => ({ ...o, ageDays: Math.floor((now - o.createdAt.getTime()) / DAY_MS) }));
 }
 
 export async function getOrderByNumber(number: string) {

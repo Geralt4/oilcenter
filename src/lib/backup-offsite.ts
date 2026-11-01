@@ -1,26 +1,20 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { backupsDir, backupsSupported, writeSnapshot } from '@/lib/backup';
+import { decryptBackup, ENCRYPTED_SUFFIX, encryptBackup } from '@/lib/backup-crypto';
 
 /*
  * Off-site backups to Backblaze B2, encrypted before they leave the machine.
  *
- *   DATA_DIR/backups/shop-YYYY-MM-DD.db.gz          local snapshot (src/lib/backup.ts)
+ *   DATA_DIR/backups/shop-YYYY-MM-DD.db.gz.enc      local snapshot, encrypted with the same key (src/lib/backup.ts); a plain .db.gz only without a key
  *   B2: shop-YYYY-MM-DD.db.gz.enc                   encrypted full-database copy, 14 newest kept
  *   B2: shop-YYYY-MM-DD-HHMMSS.db.gz.enc            snapshot taken at boot / «backup now», 7 newest kept
  *   B2: uploads-YYYY-MM-DD.tar.gz.enc               product photos + safety data sheets, newest copy of 14 days kept
  *
- * Encryption: AES-256-GCM (OpenSSL, via node:crypto), random 96-bit nonce per file. File layout:
- *
- *   "OCBK1" | 12-byte nonce | 16-byte GCM tag | ciphertext
- *
- * BACKUP_ENCRYPTION_KEY is a base64 32-byte key. It lives in the Railway variables (the app must encrypt
- * with it) AND in two offline copies (owner + developer) — the app copy is lost with the platform, the
- * offline copies are what make a restore possible after losing everything. The key must NOT be kept in
- * the B2 account: whoever reads the bucket must still not be able to read customer data.
+ * Encryption: see backup-crypto.ts. The key must NOT be kept in the B2 account: whoever reads the bucket must still not be able to read customer data.
  *
  * The uploader is deliberately dumb: it never deletes a local file, never runs without full configuration,
  * and its failures only log — they must never take the shop down. Every B2 call has a deadline (offsiteLimits), so a
@@ -28,34 +22,10 @@ import { backupsDir, backupsSupported, writeSnapshot } from '@/lib/backup';
  * is taken for dead.
  */
 
-const MAGIC = Buffer.from('OCBK1');
-const NONCE = 12;
-const TAG = 16;
-
 export const offsiteConfigured = () => Boolean(process.env.B2_KEY_ID && process.env.B2_APP_KEY && process.env.B2_BUCKET && process.env.BACKUP_ENCRYPTION_KEY);
 
-function encryptionKey(): Buffer {
-  const raw = process.env.BACKUP_ENCRYPTION_KEY ?? '';
-  const key = Buffer.from(raw, 'base64');
-  if (key.length !== 32) throw new Error('BACKUP_ENCRYPTION_KEY must be 32 bytes base64 (generate: openssl rand -base64 32)');
-  return key;
-}
-
-export function encryptBackup(plain: Buffer): Buffer {
-  const nonce = randomBytes(NONCE);
-  const cipher = createCipheriv('aes-256-gcm', encryptionKey(), nonce);
-  const body = Buffer.concat([cipher.update(plain), cipher.final()]);
-  return Buffer.concat([MAGIC, nonce, cipher.getAuthTag(), body]);
-}
-
-export function decryptBackup(sealed: Buffer): Buffer {
-  if (sealed.length < MAGIC.length + NONCE + TAG || !sealed.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error('Not an Oil Center backup file (magic header missing).');
-  const nonce = sealed.subarray(MAGIC.length, MAGIC.length + NONCE);
-  const tag = sealed.subarray(MAGIC.length + NONCE, MAGIC.length + NONCE + TAG);
-  const decipher = createDecipheriv('aes-256-gcm', encryptionKey(), nonce);
-  decipher.setAuthTag(tag); // authenticated: a flipped byte anywhere fails here, never returns wrong plaintext
-  return Buffer.concat([decipher.update(sealed.subarray(MAGIC.length + NONCE + TAG)), decipher.final()]);
-}
+// the encryption itself lives in backup-crypto.ts (shared with the copies stored on the volume); re-exported for the restore script and the tests
+export { decryptBackup, encryptBackup };
 
 // ─── Backblaze B2 (native API v2, plain fetch — no SDK) ─────────────────────
 /** Which part of a run a B2 failure belongs to. Named in the error message, so the one log line says where it went wrong. */
@@ -264,11 +234,23 @@ export function offsiteIsFresh(status: OffsiteStatus | null): boolean {
   return last !== null && Date.now() - last < 26 * 3600 * 1000;
 }
 
-/** Newest local database snapshot, if any. */
-async function newestLocalSnapshot(): Promise<{ name: string; file: string } | null> {
-  const names = (await readdir(backupsDir()).catch(() => [] as string[])).filter((n) => /^shop-\d{4}-\d{2}-\d{2}\.db\.gz$/.test(n)).sort();
+/**
+ * Newest local daily database snapshot, if any. `encrypted`: the file on the volume is already sealed with the backup key, so it is
+ * uploaded as it is (sealing it again would make a file only a double decryption could open). The B2 name is the same either way.
+ */
+async function newestLocalSnapshot(): Promise<{ name: string; file: string; encrypted: boolean; object: string } | null> {
+  // '.db.gz' sorts before '.db.gz.enc' of the same day, so the sealed copy wins when both exist
+  const names = (await readdir(backupsDir()).catch(() => [] as string[])).filter((n) => /^shop-\d{4}-\d{2}-\d{2}\.db\.gz(\.enc)?$/.test(n)).sort();
   const name = names.at(-1);
-  return name ? { name, file: path.join(backupsDir(), name) } : null;
+  if (!name) return null;
+  const encrypted = name.endsWith(ENCRYPTED_SUFFIX);
+  return { name, file: path.join(backupsDir(), name), encrypted, object: encrypted ? name : `${name}${ENCRYPTED_SUFFIX}` };
+}
+
+/** What goes to B2 for a local snapshot file: the bytes as stored if they are sealed already, else sealed now. */
+async function sealedBytes(file: string, alreadyEncrypted: boolean): Promise<Buffer> {
+  const bytes = await readFile(file);
+  return alreadyEncrypted ? bytes : encryptBackup(bytes);
 }
 
 /** Photos + SDS as one tarball. Returns null when there is nothing to archive. */
@@ -318,10 +300,10 @@ export async function ensureOffsiteBackup(): Promise<'uploaded' | 'exists' | 'un
 
     const snapshot = await newestLocalSnapshot();
     if (!snapshot) return 'no-snapshot';
-    const dbObject = `${snapshot.name}.enc`;
+    const dbObject = snapshot.object;
     let uploaded = false;
     if (!remote.some((f) => f.fileName === dbObject)) {
-      await b2Upload(auth, bucketId, dbObject, encryptBackup(await readFile(snapshot.file)));
+      await b2Upload(auth, bucketId, dbObject, await sealedBytes(snapshot.file, snapshot.encrypted));
       uploaded = true;
     }
 
@@ -363,13 +345,12 @@ export async function pushSnapshotNow(): Promise<{ object: string }> {
   const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Athens' }).format(new Date());
   const time = new Date().toISOString().slice(11, 19).replace(/:/g, '');
   const name = `shop-${day}-${time}.db.gz`;
-  const file = path.join(backupsDir(), name);
-  await writeSnapshot(file);
+  const written = await writeSnapshot(path.join(backupsDir(), name));
   try {
     const auth = await b2Auth();
     const bucketId = await b2BucketId(auth);
-    const object = `${name}.enc`;
-    await b2Upload(auth, bucketId, object, encryptBackup(await readFile(file)));
+    const object = `${name}${ENCRYPTED_SUFFIX}`;
+    await b2Upload(auth, bucketId, object, await sealedBytes(written.file, written.encrypted));
     // A database snapshot without its matching files is not a complete recovery set: refresh the uploads
     // archive in the same run (same object name, new version — pruning understands versions).
     const pack = await packUploads();
@@ -380,7 +361,7 @@ export async function pushSnapshotNow(): Promise<{ object: string }> {
     await pruneRemote(auth, bucketId);
     await writeStatus({ at: Date.now(), ok: true, object });
     // keep the local manual snapshots bounded too
-    const manual = (await readdir(backupsDir())).filter((n) => /^shop-\d{4}-\d{2}-\d{2}-\d{6}\.db\.gz$/.test(n)).sort();
+    const manual = (await readdir(backupsDir())).filter((n) => /^shop-\d{4}-\d{2}-\d{2}-\d{6}\.db\.gz(\.enc)?$/.test(n)).sort();
     for (const old of manual.slice(0, Math.max(0, manual.length - 7))) await rm(path.join(backupsDir(), old), { force: true });
     return { object };
   } catch (err) {

@@ -10,7 +10,8 @@ import { mailConfigured } from '@/lib/email';
 import { adminUsers, categories, orderEvents, orders, products, unmatchedPayments, variants } from '@/lib/db/schema';
 import { hazardPriorityCategoryIds, needsHazardCheck } from '@/lib/ghs';
 import { commerceEnabled } from '@/lib/commerce-flag';
-import { releaseAbandonedCardOrders } from '@/lib/orders';
+import { releaseAbandonedCardOrders, releaseExpiredBankTransferOrdersQuietly, staleOpenOrderCount, staleOpenOrders } from '@/lib/orders';
+import { OPEN_ORDER_FLAG_DAYS } from '@/lib/order-ageing';
 import { isValidIban } from '@/lib/iban';
 import { resendConfigured, resendWithoutSender } from '@/lib/startup-check';
 import { cardProvider } from '@/lib/payments';
@@ -18,6 +19,7 @@ import { countGivenUpMails, GIVEN_UP_WINDOW_DAYS } from '@/lib/payments/mail-del
 import { describePatchProblems, readPatchProblems } from '@/lib/patch-problems';
 import { getSettings } from '@/lib/settings.server';
 import { cn, formatDateTime, formatPrice } from '@/lib/utils';
+import { PAYMENT_LABELS } from '@/lib/pricing';
 import { backupStatus } from '@/lib/backup';
 import { lastOffsiteSuccess, offsiteConfigured, offsiteIsFresh, offsiteStatus } from '@/lib/backup-offsite';
 
@@ -27,8 +29,13 @@ const daysAgo = (days: number) => new Date(Date.now() - days * DAY);
 export default async function AdminDashboard() {
   const me = await requireAdmin();
   // like the hourly job: nothing to release (and nothing to touch) while the shop is a website only
-  if (commerceEnabled()) await releaseAbandonedCardOrders();
+  if (commerceEnabled()) {
+    await releaseAbandonedCardOrders();
+    await releaseExpiredBankTransferOrdersQuietly(); // its customer notices are sent by the mail sweep; a failure here must not break the dashboard
+  }
   const settings = await getSettings();
+  // orders paid on delivery or in the shop that nobody has acted on for a week (they are never cancelled by themselves)
+  const [staleOrders, staleTotal] = await Promise.all([staleOpenOrders(), staleOpenOrderCount()]);
   const real = and(eq(orders.isTest, false), ne(orders.status, 'cancelled'));
   const since = daysAgo;
   const sum = sql<number>`coalesce(sum(${orders.totalCents}), 0)`;
@@ -153,6 +160,24 @@ export default async function AdminDashboard() {
             ))}
           </ul>
           {hiddenProblems > 0 && <p className="mt-3 text-sm text-ink-600">… και {hiddenProblems} ακόμη. Οι παραγγελίες βρίσκονται στις Παραγγελίες → «Χρειάζονται έλεγχο».</p>}
+        </Card>
+      )}
+
+      {staleTotal > 0 && (
+        <Card title={`Παραγγελίες σε αναμονή πάνω από ${OPEN_ORDER_FLAG_DAYS} ημέρες`} description="Αντικαταβολή ή πληρωμή στο κατάστημα που δεν έχετε ακόμη επιβεβαιώσει ή ακυρώσει. Δεσμεύουν απόθεμα και δεν ακυρώνονται μόνες τους: επιβεβαιώστε ή ακυρώστε κάθε μία." className="mt-6 border-amber-200">
+          <ul className="divide-y divide-line">
+            {staleOrders.map((o) => (
+              <li key={o.id} className="flex flex-wrap items-center gap-3 py-3 text-sm">
+                <Link href={`/admin/orders/${o.id}`} className="tabular font-semibold text-petrol-500 hover:underline">{o.number}</Link>
+                <span className="text-ink-700">{PAYMENT_LABELS[o.paymentMethod]} · {formatPrice(o.totalCents)}</span>
+                <span className="min-w-0 flex-1 basis-40 font-medium text-amber-800">{o.ageDays} ημέρες από την παραγγελία</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-sm text-ink-600">
+            {staleTotal > staleOrders.length ? `… και ${staleTotal - staleOrders.length} ακόμη. ` : ''}
+            <Link href="/admin/orders?stale=1" className="font-semibold text-petrol-500 hover:underline">Δείτε όλες στις Παραγγελίες</Link>
+          </p>
         </Card>
       )}
 

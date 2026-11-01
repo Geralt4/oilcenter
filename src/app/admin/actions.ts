@@ -121,15 +121,27 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
 }
 
 // ─── Admin second factor (TOTP) ─────────────────────────────────────────────
-/** Step 1: create (or replace) an unconfirmed secret. The owner scans the QR on the settings page. */
+/**
+ * Step 1: create (or replace) an unconfirmed secret. The owner scans the QR on the settings page.
+ * Starting needs proof that the person at the keyboard is the account's owner, not just whoever holds the session cookie: the
+ * current code while a factor is active, the current PASSWORD while there is none (the identity confirmation cannot be used
+ * here: it needs a factor, and a factor is what is being created).
+ */
 export async function beginTotpEnrollment(fd: FormData): Promise<void> {
   const me = await requireAdmin();
-  const limited = await rateLimit(`mfa:${await clientIp()}:${me.id}`, 8, 15 * 60 * 1000);
+  // its own budget: wrong passwords here must not use up the attempts of confirmTotpEnrollment (key `mfa:`), or a few typos would
+  // lock the owner out of confirming the code he has just scanned
+  const limited = await rateLimit(`mfa-start:${await clientIp()}:${me.id}`, 8, 15 * 60 * 1000);
   if (!limited.ok) redirect('/admin/settings?mfa=rate');
-  const [row] = await db.select({ secret: adminUsers.totpSecret, confirmedAt: adminUsers.totpConfirmedAt }).from(adminUsers).where(eq(adminUsers.id, me.id));
-  // Replacing an ACTIVE secret silently would let a stolen session swap in its own authenticator. Require a
-  // current code first (the UI only offers "enable" when nothing is active; this guards direct action calls).
-  if (row?.confirmedAt && (!row.secret || !(await consumeTotp(me.id, row.secret, me.email, str(fd, 'totp'))))) redirect('/admin/settings?mfa=wrong');
+  const [row] = await db.select({ secret: adminUsers.totpSecret, confirmedAt: adminUsers.totpConfirmedAt, passwordHash: adminUsers.passwordHash }).from(adminUsers).where(eq(adminUsers.id, me.id));
+  if (row?.confirmedAt) {
+    // Replacing an ACTIVE secret silently would let a stolen session swap in its own authenticator. Require a
+    // current code first (the UI only offers "enable" when nothing is active; this guards direct action calls).
+    if (!row.secret || !(await consumeTotp(me.id, row.secret, me.email, str(fd, 'totp')))) redirect('/admin/settings?mfa=wrong');
+  } else if (!row || !(await verifyPassword(String(fd.get('currentPassword') ?? ''), row.passwordHash))) {
+    // No factor yet: a stolen session must not be able to enrol its own authenticator without the password
+    redirect('/admin/settings?mfa=password');
+  }
   await db.update(adminUsers).set({ totpSecret: newTotpSecret(), totpConfirmedAt: null, totpLastStep: null }).where(eq(adminUsers.id, me.id));
   revalidatePath('/admin/settings');
 }
@@ -365,6 +377,13 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
           refunded: 'Σημειώθηκε ως επιστραφείσα (χειροκίνητη επιστροφή από τον πάροχο πληρωμών).',
         }[payment];
         await addOrderEvent(id, 'payment', message, actor, tx);
+        // Money marked as received for an order that is ALREADY cancelled (a bank transfer that arrived after the order expired, a
+        // payment against a cancelled order): nothing is re-reserved and the status stays, because a cancelled order does not come
+        // back. It goes on the owner's list (dashboard, order list) until he refunds it or places a new order for the customer.
+        if (payment === 'paid' && order.status === 'cancelled') {
+          await flagForReview(id, tx);
+          await addOrderEvent(id, 'payment', 'ΠΡΟΣΟΧΗ: σημειώθηκε εξοφλημένη μια παραγγελία που είναι ήδη ακυρωμένη (π.χ. η κατάθεση ήρθε μετά τη λήξη της). Το απόθεμα δεν δεσμεύεται ξανά και η κατάσταση δεν αλλάζει. Επιστρέψτε τα χρήματα στον πελάτη και σημειώστε «Επιστροφή χρημάτων», ή δημιουργήστε νέα παραγγελία για τον πελάτη.', actor, tx);
+        }
       }
 
       if (status === 'cancelled' && order.status !== 'cancelled') {
@@ -1244,6 +1263,18 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
   // whole percentages only (orders store the rate as an integer): «13,5» is refused, never quietly saved as 14
   if (vatRaw && (!/^\d{1,2}([.,]0+)?$/.test(vatRaw) || vatRate > 50)) problems.push(`ΦΠΑ: «${vatRaw}» δεν είναι ακέραιο ποσοστό`);
   if (problems.length) return { ok: false, message: `Δεν αποθηκεύτηκε τίποτα. ${problems.slice(0, 3).join(' · ')}${problems.length > 3 ? ` · και ${problems.length - 3} ακόμη` : ''}.` };
+
+  // Two settings decide where customers' money goes and whether they can order at all: the bank accounts shown for transfers and
+  // the online-orders switch. A stolen session alone must not change them (an IBAN swapped in the middle of the night), so they
+  // need the identity confirmation (password + authenticator code, five minutes) like the administrator changes. Everything else in
+  // this form saves without it. Nothing is saved when the confirmation is missing, as with every other refusal here.
+  const accountKey = (list: BankAccount[]) => JSON.stringify(list.map((a) => [a.bank.trim(), normalizeIban(a.iban), a.holder.trim()]));
+  const guarded: string[] = [];
+  if (accountKey(bankAccounts) !== accountKey(current.payments.bankAccounts)) guarded.push('τους τραπεζικούς λογαριασμούς');
+  if (bool(fd, 'ordersEnabled') !== current.storefront.ordersEnabled) guarded.push('το άνοιγμα ή το κλείσιμο των online παραγγελιών');
+  if (guarded.length && !(await hasSudoSession())) {
+    return { ok: false, message: `Δεν αποθηκεύτηκε τίποτα. Για να αλλάξετε ${guarded.join(' και ')} χρειάζεται πρώτα επιβεβαίωση ταυτότητας (κωδικός και κωδικός εφαρμογής) στην ενότητα «Επιβεβαίωση ταυτότητας» στην κορυφή της σελίδας.` };
+  }
 
   await saveSettingsGroup('shop', shop);
   await saveSettingsGroup('storefront', { demoMode: bool(fd, 'demoMode'), ordersEnabled: bool(fd, 'ordersEnabled'), launchSignup: bool(fd, 'launchSignup'), announcement: str(fd, 'announcement'), lowStockThreshold: int(fd, 'lowStockThreshold', 3), b2bPage: bool(fd, 'b2bPage') });

@@ -110,6 +110,55 @@ async function main() {
   const freshKey = probe('check', 'restart-probe-untouched');
   check('a different key still has its own budget after the restart', freshKey.ok, freshKey);
 
+  console.log('Client address (X-Forwarded-For)');
+  {
+    const { pickClientIp, proxyHops } = await import('../src/lib/rate-limit');
+    const chain = '203.0.113.9, 198.51.100.7, 192.0.2.1'; // forged by the client, then what two proxies appended
+    check('hops 0 takes the leftmost entry (right when the edge overwrites the header)', pickClientIp(chain, 0, null) === '203.0.113.9');
+    check('hops 1 takes the last entry: what the one proxy saw, not what the client wrote', pickClientIp(chain, 1, null) === '192.0.2.1');
+    check('hops 2 takes the second from the end', pickClientIp(chain, 2, null) === '198.51.100.7');
+    check('a chain shorter than the hops falls back to the first entry', pickClientIp('203.0.113.9', 2, null) === '203.0.113.9' && pickClientIp(chain, 9, null) === '203.0.113.9');
+    check('with one proxy a forged leftmost entry changes nothing', pickClientIp('1.1.1.1, 192.0.2.1', 1, null) === pickClientIp('2.2.2.2, 192.0.2.1', 1, null));
+    check('no header: x-real-ip, then «local»', pickClientIp(null, 0, '192.0.2.50') === '192.0.2.50' && pickClientIp(null, 1, null) === 'local' && pickClientIp('', 0, null) === 'local');
+    check('a header of only commas and spaces counts as no header', pickClientIp(' , ,', 1, '192.0.2.50') === '192.0.2.50');
+    check('spaces around entries are ignored', pickClientIp(' 203.0.113.9 ,198.51.100.7 ', 0, null) === '203.0.113.9' && pickClientIp(' 203.0.113.9 ,198.51.100.7 ', 1, null) === '198.51.100.7');
+    check('TRUSTED_PROXY_HOPS: empty, text, negative and fractions become whole numbers of at least 0', proxyHops(undefined) === 0 && proxyHops('') === 0 && proxyHops('abc') === 0 && proxyHops('-2') === 0 && proxyHops('1') === 1 && proxyHops('2.9') === 2);
+  }
+
+  console.log('Session secret');
+  {
+    const { resolveAuthSecret } = await import('../src/lib/auth/secret');
+    // the secret the code used to fall back to: published in the repository history, so it must never sign anything again
+    const OLD_PUBLISHED_SECRET = new TextEncoder().encode('dev-only-insecure-secret-do-not-use-in-production');
+    const text = (key: Uint8Array | null) => (key ? new TextDecoder().decode(key) : null);
+    const good = 'k'.repeat(40);
+    check('a secret of 32 characters or more is used as it is', text(resolveAuthSecret({ AUTH_SECRET: good, NODE_ENV: 'production' })) === good);
+    check('…in development as well', text(resolveAuthSecret({ AUTH_SECRET: good })) === good);
+    check('a missing secret gives no key, also outside production (no built-in fallback)', resolveAuthSecret({}) === null && resolveAuthSecret({ NODE_ENV: 'development' }) === null);
+    check('a short secret gives no key', resolveAuthSecret({ AUTH_SECRET: 'k'.repeat(31) }) === null);
+    check('the development secret needs ALLOW_DEV_AUTH_SECRET=1 and a non-production NODE_ENV', text(resolveAuthSecret({ ALLOW_DEV_AUTH_SECRET: '1' })) === text(OLD_PUBLISHED_SECRET));
+    check('…any other value of the opt-in does not count', resolveAuthSecret({ ALLOW_DEV_AUTH_SECRET: 'true' }) === null && resolveAuthSecret({ ALLOW_DEV_AUTH_SECRET: '0' }) === null);
+    check('…and in production the opt-in is ignored', resolveAuthSecret({ NODE_ENV: 'production', ALLOW_DEV_AUTH_SECRET: '1' }) === null);
+    check('a real secret wins over the opt-in', text(resolveAuthSecret({ AUTH_SECRET: good, ALLOW_DEV_AUTH_SECRET: '1' })) === good);
+
+    // the session code and the proxy both use that helper: sign without a secret and it must refuse, not fall back
+    const savedEnv = { secret: process.env.AUTH_SECRET, opt: process.env.ALLOW_DEV_AUTH_SECRET };
+    delete process.env.AUTH_SECRET;
+    delete process.env.ALLOW_DEV_AUTH_SECRET;
+    const { SignJWT } = await import('jose');
+    const forged = await new SignJWT({ role: 'admin', ver: 0 }).setProtectedHeader({ alg: 'HS256' }).setSubject('1').setExpirationTime('1h').sign(OLD_PUBLISHED_SECRET);
+    const { proxy } = await import('../src/proxy');
+    const { NextRequest } = await import('next/server');
+    const gated = await proxy(new NextRequest('http://localhost:3000/admin/orders', { headers: { cookie: `oc_admin=${forged}` } }));
+    check('with no AUTH_SECRET a cookie signed with the old published development secret does not open /admin', gated.status >= 300 && gated.status < 400 && (gated.headers.get('location') ?? '').includes('/admin/login'), [gated.status, gated.headers.get('location')]);
+    process.env.AUTH_SECRET = good;
+    const signedWithGood = await new SignJWT({ role: 'admin', ver: 0 }).setProtectedHeader({ alg: 'HS256' }).setSubject('1').setExpirationTime('1h').sign(new TextEncoder().encode(good));
+    const passed = await proxy(new NextRequest('http://localhost:3000/admin/orders', { headers: { cookie: `oc_admin=${signedWithGood}` } }));
+    check('…while a cookie signed with the real secret still passes the gate', passed.status === 200 || passed.headers.get('x-middleware-next') === '1', [passed.status, passed.headers.get('location')]);
+    if (savedEnv.secret === undefined) delete process.env.AUTH_SECRET; else process.env.AUTH_SECRET = savedEnv.secret;
+    if (savedEnv.opt === undefined) delete process.env.ALLOW_DEV_AUTH_SECRET; else process.env.ALLOW_DEV_AUTH_SECRET = savedEnv.opt;
+  }
+
   console.log('Startup configuration checks');
   const { checkProductionConfig } = await import('../src/lib/startup-check');
   const saved = { secret: process.env.AUTH_SECRET, site: process.env.SITE_URL, commerce: process.env.COMMERCE_ENABLED };
@@ -374,6 +423,283 @@ async function main() {
       if (saved.key === undefined) delete process.env.BACKUP_ENCRYPTION_KEY; else process.env.BACKUP_ENCRYPTION_KEY = saved.key;
       delete process.env.B2_KEY_ID; delete process.env.B2_APP_KEY; delete process.env.B2_BUCKET;
     }
+  }
+
+  console.log('Stored snapshots are encrypted');
+  {
+    const nodePath = (await import('node:path')).default;
+    const { readFile: readF, readdir: readD, rm: rmF } = await import('node:fs/promises');
+    const { gunzipSync, gzipSync } = await import('node:zlib');
+    const { createClient } = await import('@libsql/client');
+    const { ensureDailyBackup, encryptStoredSnapshots, listBackups, writeSnapshot, backupsDir } = await import('../src/lib/backup');
+    const { decryptBackup, encryptBackup } = await import('../src/lib/backup-crypto');
+    const { ensureOffsiteBackup } = await import('../src/lib/backup-offsite');
+    const saved = { data: process.env.DATA_DIR, key: process.env.BACKUP_ENCRYPTION_KEY, b2: [process.env.B2_KEY_ID, process.env.B2_APP_KEY, process.env.B2_BUCKET] };
+    const dataDir = nodePath.join(dir, 'stored-data');
+    process.env.DATA_DIR = dataDir;
+    const KEY_A = Buffer.alloc(32, 7).toString('base64');
+    const KEY_B = Buffer.alloc(32, 9).toString('base64');
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Athens' }).format(new Date());
+    const names = async () => (await readD(backupsDir()).catch(() => [] as string[])).sort();
+    const reset = async () => { await rmF(backupsDir(), { recursive: true, force: true }); await mkdir(backupsDir(), { recursive: true }); };
+    const isSqlite = (buf: Buffer) => buf.subarray(0, 15).toString() === 'SQLite format 3';
+    try {
+      // without a key nothing changes: a plain .db.gz, as before
+      delete process.env.BACKUP_ENCRYPTION_KEY;
+      await reset();
+      check('without a backup key the daily snapshot is a plain .db.gz, as before', (await ensureDailyBackup()) === 'created' && (await names()).join() === `shop-${today}.db.gz`, await names());
+      const plainFile = nodePath.join(backupsDir(), `shop-${today}.db.gz`);
+      check('…and it is a gzip of a SQLite file', isSqlite(gunzipSync(await readF(plainFile))));
+      check('…listed as not encrypted', (await listBackups())[0]?.encrypted === false);
+
+      // with a key the stored file is sealed and no plain copy is left behind
+      process.env.BACKUP_ENCRYPTION_KEY = KEY_A;
+      await reset();
+      check('with a key the daily snapshot is created sealed', (await ensureDailyBackup()) === 'created');
+      check('…as .db.gz.enc only: no plain .db.gz, no raw .db, no partial file is left in the folder', (await names()).join() === `shop-${today}.db.gz.enc`, await names());
+      const sealedFile = nodePath.join(backupsDir(), `shop-${today}.db.gz.enc`);
+      const sealed = await readF(sealedFile);
+      check('…it starts with the backup header and does not contain the database text', sealed.subarray(0, 5).toString() === 'OCBK1' && !sealed.includes('SQLite format 3') && !sealed.includes('CREATE TABLE'));
+      check('…it decrypts to a gzip of a SQLite file', isSqlite(gunzipSync(decryptBackup(sealed))));
+      check('…listed as encrypted, and a second run the same day does nothing', (await listBackups())[0]?.encrypted === true && (await ensureDailyBackup()) === 'exists' && (await names()).length === 1);
+      const flipped = Buffer.from(sealed); flipped[flipped.length - 1] ^= 0xff;
+      check('a flipped byte in the stored file is refused', (() => { try { decryptBackup(flipped); return false; } catch { return true; } })());
+      process.env.BACKUP_ENCRYPTION_KEY = KEY_B;
+      check('…and so is the wrong key', (() => { try { decryptBackup(sealed); return false; } catch { return true; } })());
+      process.env.BACKUP_ENCRYPTION_KEY = KEY_A;
+
+      // restore drill: open the stored copy with the developer tool and compare it with the live database
+      const out = nodePath.join(dir, 'restored', 'shop.db');
+      const run = spawnSync('npx', ['tsx', 'scripts/backup-decrypt.ts', sealedFile, out], { encoding: 'utf8', env: { ...process.env, BACKUP_ENCRYPTION_KEY: KEY_A } });
+      check('npm run backup:decrypt writes a SQLite file from the stored copy', run.status === 0 && isSqlite(await readF(out)), run.stderr || run.stdout);
+      const restored = createClient({ url: `file:${out}` });
+      const live = createClient({ url: process.env.DATABASE_URL! });
+      const counts = async (c: typeof live) => Object.fromEntries(await Promise.all(['products', 'variants', 'orders', 'customers', 'settings', '__drizzle_migrations'].map(async (t) => [t, Number((await c.execute(`select count(*) as n from ${t}`)).rows[0]!.n)] as const)));
+      const integrity = String((await restored.execute('pragma integrity_check')).rows[0]![0]);
+      const [rc, lc] = [await counts(restored), await counts(live)];
+      check('…the restored copy passes the integrity check and has the same rows as the live database', integrity === 'ok' && JSON.stringify(rc) === JSON.stringify(lc), { integrity, rc, lc });
+      restored.close(); live.close();
+      const wrongKeyRun = spawnSync('npx', ['tsx', 'scripts/backup-decrypt.ts', sealedFile, nodePath.join(dir, 'restored', 'bad.db')], { encoding: 'utf8', env: { ...process.env, BACKUP_ENCRYPTION_KEY: KEY_B } });
+      check('…and with the wrong key it fails with a message and writes nothing', wrongKeyRun.status !== 0 && /Decrypt failed/.test(wrongKeyRun.stderr) && !existsSync(nodePath.join(dir, 'restored', 'bad.db')), wrongKeyRun.stderr.slice(0, 200));
+
+      // plain snapshots from an older version are sealed once, verified, and only then removed
+      await reset();
+      delete process.env.BACKUP_ENCRYPTION_KEY;
+      const oldDaily = nodePath.join(backupsDir(), 'shop-2020-01-01.db.gz');
+      const oldManual = nodePath.join(backupsDir(), 'shop-2020-01-02-030405.db.gz');
+      await writeSnapshot(oldDaily);
+      await writeSnapshot(oldManual);
+      const originals = { daily: await readF(oldDaily), manual: await readF(oldManual) };
+      process.env.BACKUP_ENCRYPTION_KEY = KEY_A;
+      const converted = await encryptStoredSnapshots();
+      check('plain snapshots of an older version (daily and boot / «backup now») are encrypted', converted.converted === 2 && converted.kept.length === 0 && (await names()).join() === 'shop-2020-01-01.db.gz.enc,shop-2020-01-02-030405.db.gz.enc', { converted, names: await names() });
+      check('…each decrypts to exactly what the plain file held', decryptBackup(await readF(`${oldDaily}.enc`)).equals(originals.daily) && decryptBackup(await readF(`${oldManual}.enc`)).equals(originals.manual));
+      check('…and running it again changes nothing', (await encryptStoredSnapshots()).converted === 0 && (await names()).length === 2);
+
+      // a plain file whose sealed twin cannot be verified is NOT removed
+      await reset();
+      const keep = nodePath.join(backupsDir(), 'shop-2020-01-03.db.gz');
+      await writeSnapshot(keep, { encrypt: false });
+      await writeFile(`${keep}.enc`, 'garbage that is not a backup');
+      const errors: string[] = [];
+      const realError = console.error; console.error = (...a: unknown[]) => void errors.push(a.map(String).join(' '));
+      const unverified = await encryptStoredSnapshots();
+      console.error = realError;
+      check('a plain snapshot whose encrypted twin does not verify stays, and the problem is logged', unverified.converted === 0 && unverified.kept.join() === 'shop-2020-01-03.db.gz' && (await names()).includes('shop-2020-01-03.db.gz') && errors.some((e) => e.includes('shop-2020-01-03.db.gz')), { unverified, errors });
+      process.env.BACKUP_ENCRYPTION_KEY = KEY_B;
+      const keptByWrongKey = await encryptStoredSnapshots();
+      check('…and a key that does not match an existing encrypted copy keeps the plain one too', keptByWrongKey.kept.length === 1 && (await names()).includes('shop-2020-01-03.db.gz'));
+      process.env.BACKUP_ENCRYPTION_KEY = KEY_A;
+      delete process.env.BACKUP_ENCRYPTION_KEY;
+      check('without a key the conversion does nothing', (await encryptStoredSnapshots()).converted === 0);
+
+      // retention counts both forms: 14 days stay, older ones go in either form
+      process.env.BACKUP_ENCRYPTION_KEY = KEY_A;
+      await reset();
+      const stub = encryptBackup(gzipSync(Buffer.from('SQLite format 3\0x')));
+      for (let d = 1; d <= 20; d++) {
+        const day = `2020-01-${String(d).padStart(2, '0')}`;
+        await writeFile(nodePath.join(backupsDir(), `shop-${day}.db.gz.enc`), stub);
+        if (d % 2 === 0) await writeFile(nodePath.join(backupsDir(), `shop-${day}.db.gz`), 'plain twin'); // never converted: the twin exists
+      }
+      const quiet = console.error; console.error = () => undefined; // the unverifiable plain twins log, as intended
+      await ensureDailyBackup();
+      console.error = quiet;
+      const left = await listBackups();
+      check('retention keeps the newest 14 days (today and 13 older ones)', left.length === 14 && left[0]!.day === today && left[13]!.day === '2020-01-08', left.map((f) => f.day));
+      check('…and removes every file of an older day, plain and encrypted', !(await names()).some((n) => /2020-01-0[1-7]\./.test(n)) && !(await names()).includes('shop-2020-01-06.db.gz'), await names());
+      check('a day that exists in both forms is listed once, as the encrypted one', left.filter((f) => f.day === '2020-01-20').length === 1 && left.find((f) => f.day === '2020-01-20')!.encrypted);
+
+      // off-site: the sealed file is uploaded as it is (not sealed a second time) under the same object name
+      await reset();
+      await ensureDailyBackup();
+      const stored = await readF(nodePath.join(backupsDir(), `shop-${today}.db.gz.enc`));
+      process.env.B2_KEY_ID = 'k'; process.env.B2_APP_KEY = 'a'; process.env.B2_BUCKET = 'bucket-test';
+      const uploads: Array<{ name: string; body: Buffer }> = [];
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('b2_authorize_account')) return new Response(JSON.stringify({ apiUrl: 'https://api.b2.test', authorizationToken: 't', accountId: 'acc' }));
+        if (url.includes('b2_list_buckets')) return new Response(JSON.stringify({ buckets: [{ bucketId: 'b1', bucketName: 'bucket-test' }] }));
+        if (url.includes('b2_list_file_names')) return new Response(JSON.stringify({ files: [], nextFileName: null }));
+        if (url.includes('b2_get_upload_url')) return new Response(JSON.stringify({ uploadUrl: 'https://up.b2.test/file', authorizationToken: 'u' }));
+        if (url.includes('up.b2.test')) {
+          const headers = init?.headers as Record<string, string>;
+          uploads.push({ name: decodeURIComponent(headers['X-Bz-File-Name']!), body: Buffer.from(init!.body as Uint8Array) });
+          return new Response('{}');
+        }
+        return new Response(JSON.stringify({ files: [], nextFileName: null, nextFileId: null }));
+      }) as typeof fetch;
+      try {
+        const result = await ensureOffsiteBackup();
+        check('off-site uploads the stored sealed file byte for byte, under the usual object name', result === 'uploaded' && uploads.length === 1 && uploads[0]!.name === `shop-${today}.db.gz.enc` && uploads[0]!.body.equals(stored), { result, uploads: uploads.map((u) => u.name) });
+        check('…so one decryption opens it (not two)', isSqlite(gunzipSync(decryptBackup(uploads[0]!.body))));
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+
+      // the admin download is still a plain gzip
+      const dl = await writeSnapshot(nodePath.join(backupsDir(), 'download-test.db.gz'), { encrypt: false });
+      check('the admin download (encrypt: false) stays a plain gzip even with a key', !dl.encrypted && dl.file.endsWith('.db.gz') && isSqlite(gunzipSync(await readF(dl.file))));
+    } finally {
+      if (saved.data === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = saved.data;
+      if (saved.key === undefined) delete process.env.BACKUP_ENCRYPTION_KEY; else process.env.BACKUP_ENCRYPTION_KEY = saved.key;
+      [process.env.B2_KEY_ID, process.env.B2_APP_KEY, process.env.B2_BUCKET] = saved.b2;
+      for (const [i, k] of ['B2_KEY_ID', 'B2_APP_KEY', 'B2_BUCKET'].entries()) if (saved.b2[i] === undefined) delete process.env[k];
+    }
+  }
+
+  console.log('Snapshot before pending migrations');
+  {
+    const nodePath = (await import('node:path')).default;
+    const { readdir: readD, readFile: readF } = await import('node:fs/promises');
+    const { gunzipSync } = await import('node:zlib');
+    const { createClient } = await import('@libsql/client');
+    const { decryptBackup } = await import('../src/lib/backup-crypto');
+    const { pendingMigrations, preMigrateName, expiredPreMigrate, readJournal } = await import('../src/lib/pre-migrate');
+    const KEY = Buffer.alloc(32, 5).toString('base64');
+    // this block switches the key on and off, and leaves the environment as it found it: it starts from a known value so the check below can fail
+    const originalKey = process.env.BACKUP_ENCRYPTION_KEY;
+    const keyBefore = 'a-value-this-block-must-give-back';
+    process.env.BACKUP_ENCRYPTION_KEY = keyBefore;
+
+    // ── the decision, without starting anything ──
+    const journal = await readJournal();
+    const last = journal.at(-1)!;
+    check('the journal of this repository is readable and has entries', journal.length > 20 && last.tag.length > 0, journal.length);
+    check('nothing is pending when the newest recorded migration is the newest in the journal', pendingMigrations(journal, last.when).length === 0);
+    check('one is pending when the newest recorded one is the one before the last', pendingMigrations(journal, journal.at(-2)!.when).map((e) => e.tag).join() === last.tag);
+    check('everything is pending when nothing is recorded', pendingMigrations(journal, null).length === journal.length);
+    check('a database NEWER than the code (a rollback) has nothing pending', pendingMigrations(journal, last.when + 1).length === 0);
+    check('the file name says when and from which migration count to which', preMigrateName(new Date('2026-11-02T10:15:30Z'), 23, 24) === 'pre-migrate-20261102-101530-23to24.db.gz');
+    const fakeNames = ['pre-migrate-20261101-000001-20to21.db.gz.enc', 'pre-migrate-20261102-000001-21to22.db.gz', 'pre-migrate-20261102-000001-21to22.db.gz.enc', 'pre-migrate-20261103-000001-22to23.db.gz.enc', 'shop-2026-11-01.db.gz.enc'];
+    check('retention counts a plain and a sealed copy of one snapshot once and never touches other files', expiredPreMigrate(fakeNames, 2).join() === 'pre-migrate-20261101-000001-20to21.db.gz.enc' && expiredPreMigrate(fakeNames, 5).length === 0);
+
+    // ── the script, as the Docker CMD runs it ──
+    const root = nodePath.join(dir, 'premigrate');
+    let n = 0;
+    /** a copy of the (fully migrated) test database in its own data folder; `behind` = how many of the newest migrations to forget */
+    const makeInstall = async (behind: number) => {
+      const home = nodePath.join(root, `i${++n}`);
+      mkdirSync(nodePath.join(home, 'data'), { recursive: true });
+      const file = nodePath.join(home, 'data', 'shop.db');
+      const source = createClient({ url: process.env.DATABASE_URL! });
+      await source.execute(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+      source.close();
+      if (behind > 0) {
+        const c = createClient({ url: `file:${file}` });
+        await c.execute(`DELETE FROM __drizzle_migrations WHERE created_at IN (SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT ${behind})`);
+        c.close();
+      }
+      return { home, file, data: nodePath.join(home, 'data'), backups: nodePath.join(home, 'data', 'backups') };
+    };
+    const run = (install: { data: string; file: string }, extra: Record<string, string> = {}, chain = false) => {
+      const env: NodeJS.ProcessEnv = { ...process.env, DATABASE_URL: `file:${install.file}`, DATA_DIR: install.data, BACKUP_ENCRYPTION_KEY: '', ...extra };
+      if (!chain) return spawnSync('npx', ['tsx', 'scripts/pre-migrate-snapshot.ts'], { encoding: 'utf8', env });
+      // the same && chain as the Docker CMD: what follows the snapshot only runs when it succeeds
+      return spawnSync('sh', ['-c', 'npx tsx scripts/pre-migrate-snapshot.ts && echo THE-NEXT-STEP-RAN'], { encoding: 'utf8', env });
+    };
+    const filesIn = async (folder: string) => (await readD(folder).catch(() => [] as string[])).sort();
+    const rowsOf = async (file: string, sql: string) => {
+      const c = createClient({ url: `file:${file}` });
+      const out = (await c.execute(sql)).rows[0]!;
+      c.close();
+      return Number(out[0]);
+    };
+
+    // 1. nothing to migrate: no snapshot, and the start does not depend on the snapshot machinery at all
+    const clean = await makeInstall(0);
+    writeFileSync(clean.backups, 'a FILE where the folder should be: any attempt to write a snapshot would fail'); // data/backups is not a folder
+    const quiet = run(clean, { BACKUP_ENCRYPTION_KEY: 'not-a-valid-key' }, true);
+    check('nothing pending: the script succeeds and the next step runs', quiet.status === 0 && quiet.stdout.includes('THE-NEXT-STEP-RAN') && quiet.stdout.includes('nothing to migrate'), [quiet.status, quiet.stdout, quiet.stderr.slice(0, 200)]);
+    check('…even with an unusable backups folder and a broken backup key (they are never touched)', quiet.stderr === '' || !/FAILED/.test(quiet.stderr), quiet.stderr.slice(0, 200));
+    check('…and nothing was written', (await readF(clean.backups, 'utf8')).startsWith('a FILE'));
+    const overrideQuiet = run(clean, { SKIP_PREMIGRATE_SNAPSHOT: '1' });
+    check('…the escape hatch makes no noise when there is nothing to skip', overrideQuiet.status === 0 && !/WARNING/.test(overrideQuiet.stdout + overrideQuiet.stderr), overrideQuiet.stdout);
+    const newer = await makeInstall(0);
+    const c0 = createClient({ url: `file:${newer.file}` });
+    await c0.execute(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('from-a-newer-release', ${last.when + 1000})`);
+    c0.close();
+    check('a database newer than the code (rollback): nothing pending, success', run(newer).status === 0 && (await filesIn(newer.backups)).length === 0);
+
+    // 2. a new install: nothing to protect
+    const fresh = await makeInstall(0);
+    rmSync(fresh.file); // no database file at all
+    const noFile = run(fresh, { BACKUP_ENCRYPTION_KEY: 'not-a-valid-key' });
+    check('no database file yet (a new install): success, and the script does not create one', noFile.status === 0 && !existsSync(fresh.file) && noFile.stdout.includes('new install'), [noFile.status, noFile.stdout]);
+    const emptyDb = await makeInstall(0);
+    const c1 = createClient({ url: `file:${emptyDb.file}` });
+    await c1.execute('DROP TABLE __drizzle_migrations');
+    c1.close();
+    const noTable = run(emptyDb);
+    check('a database without a migrations table (new): success, no snapshot', noTable.status === 0 && noTable.stdout.includes('new database') && (await filesIn(emptyDb.backups)).length === 0, noTable.stdout);
+    const hosted = run(await makeInstall(0), { DATABASE_URL: 'libsql://example.invalid' });
+    check('a hosted database: success, nothing to do here', hosted.status === 0 && hosted.stdout.includes('hosted database'), hosted.stdout + hosted.stderr);
+
+    // 3. migrations pending: a snapshot of the state BEFORE them, verified
+    const pending = await makeInstall(1);
+    const before = await rowsOf(pending.file, 'SELECT count(*) FROM __drizzle_migrations');
+    const taken = run(pending, {}, true);
+    const took = (await filesIn(pending.backups)).filter((f) => f.startsWith('pre-migrate-'));
+    const total = journal.length;
+    check('one pending migration: a snapshot is taken and the next step runs', taken.status === 0 && took.length === 1 && taken.stdout.includes('THE-NEXT-STEP-RAN'), [taken.status, took, taken.stderr.slice(0, 200)]);
+    check(`…named with the counts (${total - 1}to${total}) and plain without a key`, took[0]?.endsWith(`-${total - 1}to${total}.db.gz`) === true, took);
+    const snapDb = gunzipSync(await readF(nodePath.join(pending.backups, took[0]!)));
+    const snapFile = nodePath.join(root, 'snap-plain.db');
+    writeFileSync(snapFile, snapDb);
+    check('…it holds the database as it was BEFORE the migration (one fewer migration recorded) and passes the integrity check', (await rowsOf(snapFile, 'SELECT count(*) FROM __drizzle_migrations')) === before && String((await (async () => { const c = createClient({ url: `file:${snapFile}` }); const r = (await c.execute('PRAGMA integrity_check')).rows[0]![0]; c.close(); return r; })())) === 'ok');
+    check('…and the migrate step later finds the same pending migration (the script did not migrate)', (await rowsOf(pending.file, 'SELECT count(*) FROM __drizzle_migrations')) === before);
+
+    const sealedRun = await makeInstall(2);
+    const sealed = run(sealedRun, { BACKUP_ENCRYPTION_KEY: KEY });
+    const sealedName = (await filesIn(sealedRun.backups)).find((f) => f.startsWith('pre-migrate-'));
+    check('with a backup key the snapshot is encrypted', sealed.status === 0 && sealedName?.endsWith(`-${total - 2}to${total}.db.gz.enc`) === true && sealed.stdout.includes('encrypted'), [sealed.status, sealedName, sealed.stderr.slice(0, 200)]);
+    process.env.BACKUP_ENCRYPTION_KEY = KEY;
+    check('…and one decryption opens it to a SQLite file', gunzipSync(decryptBackup(await readF(nodePath.join(sealedRun.backups, sealedName!)))).subarray(0, 15).toString() === 'SQLite format 3');
+    process.env.BACKUP_ENCRYPTION_KEY = keyBefore;
+
+    // 4. pending and the snapshot cannot be made: the boot stops, the migration does not run
+    const stuck = await makeInstall(1);
+    writeFileSync(stuck.backups, 'a FILE where the snapshot folder should be');
+    const failed = run(stuck, {}, true);
+    check('pending + no snapshot possible: the script fails with exit 1', failed.status === 1, [failed.status, failed.stderr.slice(0, 300)]);
+    check('…the next step (the migration) does NOT run', !failed.stdout.includes('THE-NEXT-STEP-RAN'), failed.stdout);
+    check('…and the message says so and names the escape hatch', failed.stderr.includes('no snapshot, no migration') && failed.stderr.includes('SKIP_PREMIGRATE_SNAPSHOT=1'), failed.stderr.slice(0, 400));
+    check('…the database was not touched', (await rowsOf(stuck.file, 'SELECT count(*) FROM __drizzle_migrations')) === (await rowsOf(pending.file, 'SELECT count(*) FROM __drizzle_migrations')));
+    const skipped = run(stuck, { SKIP_PREMIGRATE_SNAPSHOT: '1' }, true);
+    check('with SKIP_PREMIGRATE_SNAPSHOT=1 the same start goes on, with a loud warning that names the migration', skipped.status === 0 && skipped.stdout.includes('THE-NEXT-STEP-RAN') && skipped.stderr.includes('WARNING') && skipped.stderr.includes(last.tag), [skipped.status, skipped.stderr.slice(0, 300)]);
+
+    // 5. only the newest 5 are kept
+    const many = await makeInstall(1);
+    mkdirSync(many.backups, { recursive: true });
+    for (let i = 1; i <= 7; i++) writeFileSync(nodePath.join(many.backups, `pre-migrate-2026010${i}-000000-1to2.db.gz`), 'old');
+    writeFileSync(nodePath.join(many.backups, 'shop-2026-01-01.db.gz'), 'another kind of file');
+    const pruned = run(many);
+    const after = await filesIn(many.backups);
+    check('older pre-migration snapshots are pruned to the newest 5 (the new one included)', pruned.status === 0 && after.filter((f) => f.startsWith('pre-migrate-')).length === 5, after);
+    check('…the oldest went first and the daily snapshot was left alone', !after.includes('pre-migrate-20260101-000000-1to2.db.gz') && after.includes('pre-migrate-20260107-000000-1to2.db.gz') && after.includes('shop-2026-01-01.db.gz'), after);
+    check('the block leaves BACKUP_ENCRYPTION_KEY as it found it', process.env.BACKUP_ENCRYPTION_KEY === keyBefore, process.env.BACKUP_ENCRYPTION_KEY);
+    if (originalKey === undefined) delete process.env.BACKUP_ENCRYPTION_KEY; else process.env.BACKUP_ENCRYPTION_KEY = originalKey;
   }
 
   console.log('Request-size boundaries');

@@ -1,6 +1,7 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { jwtVerify } from 'jose';
 import { NextResponse, type NextRequest } from 'next/server';
+import { resolveAuthSecret } from '@/lib/auth/secret';
 
 /*
  * Four gates run before any page is rendered:
@@ -36,13 +37,8 @@ const same = (a: string, b: string) => timingSafeEqual(digest(a), digest(b));
 // Must match COOKIE.admin.name in src/lib/auth/session.ts.
 const ADMIN_COOKIE = 'oc_admin';
 
-function authSecret(): Uint8Array | null {
-  const secret = process.env.AUTH_SECRET;
-  if (secret && secret.length >= 32) return new TextEncoder().encode(secret);
-  // Mirrors src/lib/auth/session.ts: a fixed dev secret off production, nothing in production.
-  if (process.env.NODE_ENV !== 'production') return new TextEncoder().encode('dev-only-insecure-secret-do-not-use-in-production');
-  return null;
-}
+// The same helper as the session code (lib/auth/secret.ts): no secret, no admin session, in every environment.
+const authSecret = () => resolveAuthSecret(process.env);
 
 /** Signature-only check that a request carries an admin session cookie. Not authoritative — see requireAdmin(). */
 async function hasAdminSession(request: NextRequest): Promise<boolean> {

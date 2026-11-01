@@ -385,6 +385,61 @@ async function main() {
       check('…and the history shows the resend', (await page.locator('main').innerText()).includes('Επαναποστολή e-mail από διαχειριστή: στάλθηκαν 1 από 1.'));
     }
 
+    console.log('Orders that wait too long, and the transfer deadline');
+    {
+      const { orders } = await import('../src/lib/db/schema');
+      const person = { email: 'buyer@example.com', phone: '6900000000', firstName: 'Τεστ', lastName: 'Αγοραστής', shippingMethod: 'courier' as const, subtotalCents: 1999, totalCents: 1999, isTest: false };
+      const DAY = 24 * 60 * 60 * 1000;
+      const [waiting] = await db.insert(orders).values({ ...person, number: 'OC-FLOWS-WAIT', accessToken: 'flows-wait-token', paymentMethod: 'cod', createdAt: new Date(Date.now() - 8 * DAY) }).returning();
+      await db.insert(orders).values({ ...person, number: 'OC-FLOWS-FRESH', accessToken: 'flows-fresh-token', paymentMethod: 'cod', createdAt: new Date(Date.now() - 2 * DAY) });
+      const [transfer] = await db.insert(orders).values({ ...person, number: 'OC-FLOWS-BANK', accessToken: 'flows-bank-token', paymentMethod: 'bank_transfer', createdAt: new Date(Date.now() - 1 * DAY) }).returning();
+
+      await page.goto(`${base}/admin`);
+      const box = page.locator('section', { has: page.getByRole('heading', { name: /Παραγγελίες σε αναμονή πάνω από 7 ημέρες/ }) });
+      check('the dashboard shows the box for an order that has waited more than 7 days', (await box.count()) === 1);
+      const boxText = await box.innerText();
+      check('…it lists that order with its method and its age, and not the 2-day-old one', boxText.includes('OC-FLOWS-WAIT') && boxText.includes('8 ημέρες') && boxText.includes('Αντικαταβολή') && !boxText.includes('OC-FLOWS-FRESH'), boxText);
+      check('…and says nothing cancels them by itself', boxText.includes('δεν ακυρώνονται μόνες τους'));
+      await box.getByRole('link', { name: /Δείτε όλες/ }).click();
+      await page.waitForURL((url) => url.searchParams.get('stale') === '1', { timeout: 20_000 });
+      const listed = await page.locator('main a', { hasText: /^OC-FLOWS-/ }).allInnerTexts();
+      check('the link opens the orders list filtered to those orders', listed.includes('OC-FLOWS-WAIT') && !listed.includes('OC-FLOWS-FRESH') && !listed.includes('OC-FLOWS-BANK'), listed);
+      check('…with a chip that removes the filter', (await page.getByRole('link', { name: /Σε αναμονή πάνω από 7 ημέρες/ }).count()) === 1);
+      await page.getByRole('link', { name: /Σε αναμονή πάνω από 7 ημέρες/ }).click();
+      await page.waitForURL((url) => !url.searchParams.has('stale'), { timeout: 20_000 });
+      check('…and with the filter off the list has the other orders again', (await page.locator('main a', { hasText: 'OC-FLOWS-FRESH' }).count()) === 1);
+      await db.update(orders).set({ status: 'confirmed' }).where(eq(orders.id, waiting.id));
+      await page.goto(`${base}/admin`);
+      check('once the order is confirmed the box is gone', (await page.getByRole('heading', { name: /Παραγγελίες σε αναμονή πάνω από 7 ημέρες/ }).count()) === 0);
+
+      // a transfer that arrives after the order expired: marking it paid flags it for the owner, and nothing else moves
+      const [expired] = await db.insert(orders).values({ ...person, number: 'OC-FLOWS-LATE', accessToken: 'flows-late-token', paymentMethod: 'bank_transfer', status: 'cancelled', paymentStatus: 'pending', createdAt: new Date(Date.now() - 6 * DAY) }).returning();
+      await page.goto(`${base}/admin/orders/${expired.id}`);
+      await page.locator('select[name="paymentStatus"]').selectOption('paid');
+      await page.getByRole('button', { name: 'Ενημέρωση παραγγελίας' }).click();
+      await page.waitForLoadState('networkidle');
+      await delay(800);
+      await page.goto(`${base}/admin/orders/${expired.id}`);
+      const notices = (await page.getByRole('alert').allInnerTexts()).join(' | ');
+      check('the order page says it is cancelled but marked as paid, and still needs a check', notices.includes('Η παραγγελία είναι ακυρωμένη, αλλά σημειωμένη ως εξοφλημένη') && notices.includes('Χρειάζεται έλεγχο η πληρωμή αυτής της παραγγελίας'), notices);
+      check('…the status stays «Ακυρώθηκε»', (await page.locator('select[name="status"]').inputValue()) === 'cancelled');
+      await page.goto(`${base}/admin`);
+      const review = page.locator('section', { has: page.getByRole('heading', { name: 'Πληρωμές που θέλουν έλεγχο' }) });
+      const reviewText = (await review.count()) === 1 ? await review.innerText() : '';
+      check('the dashboard lists it in «Πληρωμές που θέλουν έλεγχο» with the reason', reviewText.includes('OC-FLOWS-LATE') && reviewText.includes('ήδη ακυρωμένη'), reviewText.slice(0, 300));
+      // handled: «Το χειρίστηκα» clears the flag and the row goes (the flag also shows as a count in the sidebar, so it must not be left behind)
+      await review.locator('li', { hasText: 'OC-FLOWS-LATE' }).getByRole('button', { name: 'Το χειρίστηκα' }).click();
+      await page.waitForLoadState('networkidle');
+      await delay(800);
+      await page.goto(`${base}/admin`);
+      check('«Το χειρίστηκα» clears it: the row is gone and the order is no longer flagged', (await page.getByRole('heading', { name: 'Πληρωμές που θέλουν έλεγχο' }).count()) === 0 && (await db.select().from(orders).where(eq(orders.id, expired.id)))[0]!.paymentFlag === null);
+
+      // the buyer is told up front (order page)
+      await page.goto(`${base}/order/${transfer.number}?t=${transfer.accessToken}`);
+      const orderText = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+      check('a transfer order page says it is cancelled automatically after 5 days, with the date', orderText.includes('Αν η κατάθεση δεν εισπραχθεί μέσα σε 5 ημέρες (έως') && orderText.includes('η παραγγελία ακυρώνεται αυτόματα'), orderText.slice(0, 300));
+    }
+
     console.log('Edits typed while a save is in flight');
     page.on('dialog', (dialog) => void dialog.accept());
     // hold the server action back so there is time to type while it is running
@@ -567,6 +622,17 @@ async function main() {
     check('it cannot obtain the privileged confirmation', ((await secondAlert.textContent()) ?? '').includes('2FA'));
     const secondDownload = await secondContext.request.get(`${base}/admin/backup`, { maxRedirects: 0 });
     check('…so it cannot download the database either', secondDownload.status() === 307 && Boolean(secondDownload.headers().location?.includes('sudo=1')));
+
+    // starting the enrolment asks for the password (a stolen session must not be able to enrol its own authenticator)
+    const mfaBox = secondPage.locator('#mfa');
+    check('its 2FA section asks for the current password before enabling', (await mfaBox.locator('input[name="currentPassword"]').count()) === 1);
+    await mfaBox.locator('input[name="currentPassword"]').fill('λάθος-κωδικός');
+    await mfaBox.getByRole('button', { name: 'Ενεργοποίηση' }).click();
+    await secondPage.waitForURL((url) => url.searchParams.get('mfa') === 'password', { timeout: 20_000 });
+    check('a wrong password is turned away with a message and no QR code', (await secondPage.getByRole('alert').filter({ hasText: 'Ο κωδικός που γράψατε δεν ήταν σωστός' }).count()) === 1 && (await secondPage.locator('img[alt^="QR"]').count()) === 0);
+    await secondPage.locator('#mfa input[name="currentPassword"]').fill(password);
+    await secondPage.locator('#mfa').getByRole('button', { name: 'Ενεργοποίηση' }).click();
+    check('the right password starts the enrolment: the QR code appears', await secondPage.locator('img[alt^="QR"]').waitFor({ timeout: 20_000 }).then(() => true, () => false));
     await secondContext.close();
   } finally {
     await browser?.close().catch(() => undefined);

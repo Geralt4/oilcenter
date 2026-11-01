@@ -21,7 +21,8 @@ export async function GET() {
 
   const temp = path.join(backupsDir(), `download-${randomToken(8).toLowerCase()}.db.gz`);
   try {
-    await writeSnapshot(temp);
+    // the download stays a plain gzip: it sits behind the identity confirmation, and the owner opens it himself
+    await writeSnapshot(temp, { encrypt: false });
     const body = await readFile(temp);
     const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
     return new Response(new Uint8Array(body), {

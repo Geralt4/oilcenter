@@ -30,6 +30,11 @@ export async function enqueueOrderCancelledNotice(orderId: number, exec: Executo
   await exec.insert(mailOutbox).values({ kind: 'order_cancelled_notice', orderId });
 }
 
+/** Call inside the transaction that cancels a bank-transfer order whose money never came: the CUSTOMER's notice is saved with the cancellation. */
+export async function enqueueOrderExpiredNotice(orderId: number, exec: Executor): Promise<void> {
+  await exec.insert(mailOutbox).values({ kind: 'order_expired_notice', orderId });
+}
+
 /** Call inside the transaction that saves an unmatched payment. */
 export async function enqueueUnmatchedPaymentMail(unmatchedId: number, exec: Executor): Promise<void> {
   await exec.insert(mailOutbox).values({ kind: 'unmatched_payment', unmatchedId });

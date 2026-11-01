@@ -9,6 +9,9 @@ import { readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { cloneDatabase } from './test-db';
 
+// There is no built-in session secret (lib/auth/secret.ts): this script signs admin sessions, so it brings its own.
+process.env.AUTH_SECRET = 'admin-test-only-secret-not-used-anywhere-0123456789';
+
 let dir = '';
 let failures = 0;
 function check(name: string, ok: boolean, detail?: unknown) {
@@ -391,6 +394,32 @@ async function main() {
     const rCancel = await updateOrder(null, pageForm(await orderNow(o4.id), { status: 'cancelled' }));
     const o4After = await orderNow(o4.id);
     check('cancelling a paid order from the editor still works as one save', rCancel?.ok === true && o4After.status === 'cancelled' && o4After.paymentFlag === 'review', [rCancel, o4After.status, o4After.paymentFlag]);
+
+    // marking an ALREADY cancelled order as paid (a transfer that arrived after the order expired): flagged, nothing else moves
+    const { orderItems } = await import('../src/lib/db/schema');
+    const [stockSize] = await db.select().from(variants).limit(1);
+    await db.update(variants).set({ trackStock: true, stock: 7 }).where(eq(variants.id, stockSize.id));
+    const late = await makeOrder({ paymentMethod: 'bank_transfer', status: 'cancelled', paymentStatus: 'pending' });
+    await db.insert(orderItems).values({ orderId: late.id, variantId: stockSize.id, name: 'Δοκιμή', variantLabel: '1L', sku: 'LATE-1', unitPriceCents: 1000, quantity: 2, lineTotalCents: 2000, stockReserved: true });
+    const stockOf = async () => (await db.select({ s: variants.stock }).from(variants).where(eq(variants.id, stockSize.id)))[0]!.s;
+    const rLate = await updateOrder(null, pageForm(await orderNow(late.id), { paymentStatus: 'paid' }));
+    const lateAfter = await orderNow(late.id);
+    check('marking a cancelled order as paid is accepted', rLate?.ok === true && lateAfter.paymentStatus === 'paid', rLate);
+    check('…it gets the payment flag, so it shows in «Πληρωμές που θέλουν έλεγχο»', lateAfter.paymentFlag === 'review', lateAfter.paymentFlag);
+    check('…the status stays «cancelled» and the stock is not reserved again', lateAfter.status === 'cancelled' && (await stockOf()) === 7, [lateAfter.status, await stockOf()]);
+    const lateEvents = await eventsNow(late.id);
+    check('…the history says so in a «ΠΡΟΣΟΧΗ» line (the dashboard shows the latest one)', lateEvents.some((m) => m.startsWith('ΠΡΟΣΟΧΗ: σημειώθηκε εξοφλημένη μια παραγγελία που είναι ήδη ακυρωμένη')) && lateEvents.includes('Σημειώθηκε ως εξοφλημένη.'), lateEvents);
+    // handled by refunding: the flag goes (as for every refund) and the order stays cancelled
+    const rRefund = await updateOrder(null, pageForm(await orderNow(late.id), { paymentStatus: 'refunded' }));
+    check('refunding it clears the flag and still changes nothing else', rRefund?.ok === true && (await orderNow(late.id)).paymentFlag === null && (await orderNow(late.id)).status === 'cancelled' && (await stockOf()) === 7, rRefund);
+
+    // the cases that must NOT flag: a live order marked paid, and a note saved on a cancelled order that was already paid
+    const live = await makeOrder({ paymentMethod: 'bank_transfer', status: 'pending', paymentStatus: 'pending' });
+    await updateOrder(null, pageForm(await orderNow(live.id), { paymentStatus: 'paid' }));
+    check('a live order marked paid is not flagged', (await orderNow(live.id)).paymentFlag === null);
+    const settled = await makeOrder({ paymentMethod: 'bank_transfer', status: 'cancelled', paymentStatus: 'paid', paidAt: new Date() });
+    await updateOrder(null, pageForm(await orderNow(settled.id), { adminNotes: 'σημείωση' }));
+    check('saving a note on a cancelled order that is already paid raises no new flag', (await orderNow(settled.id)).paymentFlag === null);
   }
 
   console.log('Payment review and unmatched payments (admin actions)');
@@ -1112,6 +1141,9 @@ async function main() {
     const base = { name: 'Oil Center', phone: '2310111111', street: 'Οδός 1', city: 'Θεσσαλονίκη', cod: 'on' };
     const account = (iban: string) => ({ 'bank0-name': 'Τράπεζα Δοκιμής', 'bank0-iban': iban, 'bank0-holder': 'Oil Center' });
     const run = (fields: Record<string, string>) => saveSettings(null, form({ ...base, ...fields }));
+    // bank accounts and the ordering switch need the identity confirmation (tested on their own below): this block is about their content
+    const { createSudoSession } = await import('../src/lib/auth/session');
+    check('(setup) the identity confirmation can be given to the admin session', await createSudoSession());
 
     const typed = await run({ ...account('gr16 0110 1250 0000 0001 2300 695') });
     check('a valid IBAN typed with spaces and lowercase is saved', typed?.ok === true, typed);
@@ -1140,6 +1172,57 @@ async function main() {
     check('the confirmation mail shows the IBAN in groups of four', mail.html.includes(GR) && !mail.html.includes('GR1601101250000000012300695'), mail.html.match(/IBAN:[^<]*/)?.[0]);
 
     for (const group of ['shop', 'storefront', 'payments', 'shipping', 'reviews', 'tax'] as const) await saveSettingsGroup(group, before[group] as never);
+  }
+
+  console.log('Settings that move money need the identity confirmation');
+  {
+    const { saveSettings } = await import('../src/app/admin/actions');
+    const { getSettings, saveSettingsGroup } = await import('../src/lib/settings.server');
+    const { createSudoSession, destroySudoSession } = await import('../src/lib/auth/session');
+    const before = await getSettings();
+    const savedCommerce = process.env.COMMERCE_ENABLED;
+    delete process.env.COMMERCE_ENABLED;
+    const GR = 'GR16 0110 1250 0000 0001 2300 695';
+    const DE = 'DE89 3704 0044 0532 0130 00';
+    const base = { name: 'Oil Center', phone: '2310111111', street: 'Οδός 1', city: 'Θεσσαλονίκη', cod: 'on' };
+    const account = (iban: string, bank = 'Τράπεζα Δοκιμής', holder = 'Oil Center') => ({ 'bank0-name': bank, 'bank0-iban': iban, 'bank0-holder': holder });
+    const run = async (fields: Record<string, string>) => (await saveSettings(null, form({ ...base, ...fields })))!; // null only before the first submit
+    const snap = async () => {
+      const g = await getSettings();
+      return { phone: g.shop.phone, iban: g.payments.bankAccounts[0]?.iban ?? null, bank: g.payments.bankAccounts[0]?.bank ?? null, accounts: g.payments.bankAccounts.length, open: g.storefront.ordersEnabled, vat: g.tax.vatRate, card: g.payments.card };
+    };
+
+    // a starting point set WITH the confirmation: one account, ordering closed
+    check('(setup) the confirmation is given and a starting account is saved', (await createSudoSession()) && (await run({ ...account(GR) })).ok === true);
+    await destroySudoSession();
+
+    const unchanged = await run({ phone: '2310555555', ...account(GR) });
+    check('without the confirmation, a form that leaves the accounts and the ordering switch alone still saves', unchanged.ok === true && (await snap()).phone === '2310555555', unchanged);
+    const sameButTyped = await run({ phone: '2310555556', ...account('gr16 0110 1250 0000 0001 2300 695') });
+    check('…the same IBAN typed with spaces and lowercase is not a change', sameButTyped.ok === true && (await snap()).phone === '2310555556', sameButTyped);
+
+    const swapped = await run({ phone: '2310666666', ...account(DE) });
+    check('without the confirmation, a different IBAN is refused and the message says what it was about', swapped.ok === false && swapped.message.includes('Δεν αποθηκεύτηκε τίποτα') && swapped.message.includes('τραπεζικούς λογαριασμούς') && swapped.message.includes('Επιβεβαίωση ταυτότητας'), swapped);
+    check('…nothing else in the form was saved either', (await snap()).phone === '2310555556' && (await snap()).iban === 'GR1601101250000000012300695', await snap());
+    const renamed = await run({ ...account(GR, 'Άλλη τράπεζα') });
+    check('…a changed bank name or holder counts too', renamed.ok === false && (await snap()).bank === 'Τράπεζα Δοκιμής', renamed);
+    const removed = await run({});
+    check('…and so does removing the account', removed.ok === false && (await snap()).accounts === 1, removed);
+
+    const opening = await run({ ordersEnabled: 'on', ...account(GR) });
+    check('without the confirmation, opening the shop to orders is refused', opening.ok === false && opening.message.includes('online παραγγελιών') && (await snap()).open === false, opening);
+    const both = await run({ ordersEnabled: 'on', ...account(DE) });
+    check('…a form that changes both names both in one refusal', both.ok === false && both.message.includes('τραπεζικούς λογαριασμούς και το άνοιγμα'), both);
+
+    check('with the confirmation the same changes are saved', (await createSudoSession()) && (await run({ ordersEnabled: 'on', ...account(DE) })).ok === true && (await snap()).iban === 'DE89370400440532013000' && (await snap()).open === true);
+    await destroySudoSession();
+    const closing = await run({ ...account(DE) });
+    check('without the confirmation, closing the shop is refused too', closing.ok === false && (await snap()).open === true, closing);
+    const others = await run({ ordersEnabled: 'on', ...account(DE), phone: '2310777777', vatRate: '13', card: 'on' });
+    check('…while everything else (phone, VAT, payment switches) saves without it', others.ok === true && (await snap()).vat === 13 && (await snap()).card === true && (await snap()).phone === '2310777777', others);
+
+    for (const group of ['shop', 'storefront', 'payments', 'shipping', 'reviews', 'tax'] as const) await saveSettingsGroup(group, before[group] as never);
+    if (savedCommerce === undefined) delete process.env.COMMERCE_ENABLED; else process.env.COMMERCE_ENABLED = savedCommerce;
   }
 
   console.log('Resending payment mails that were given up');
@@ -1324,6 +1407,61 @@ async function main() {
     await db.delete(customers).where(inArray(customers.email, ['victim@example.com', 'ceiling@example.com']));
     currentIp = '203.0.113.1';
     await createSession('admin', admin.id, admin.tokenVersion); // the sign-ins above replaced the session cookie
+  }
+
+  console.log('Starting 2FA enrolment');
+  {
+    const { hashPassword } = await import('../src/lib/auth/password');
+    const { totpFor, newTotpSecret } = await import('../src/lib/auth/totp');
+    const { beginTotpEnrollment } = await import('../src/app/admin/actions');
+    const enrolEmail = 'enrol-admin@example.com';
+    const enrolPw = 'σωστός-κωδικός-2';
+    const [me] = await db.insert(adminUsers).values({ email: enrolEmail, name: 'Enrol', passwordHash: await hashPassword(enrolPw) }).returning();
+    currentIp = '203.0.113.77';
+    await createSession('admin', me.id, me.tokenVersion);
+    // redirect() throws: where it goes is the answer; no redirect means the step went through
+    const begin = async (fields: Record<string, string>) => {
+      try {
+        await beginTotpEnrollment(form(fields));
+        return null;
+      } catch (err) {
+        const digest = String((err as { digest?: string }).digest ?? '');
+        if (!digest.startsWith('NEXT_REDIRECT')) throw err;
+        return digest.split(';')[2] ?? '';
+      }
+    };
+    const stateOf = async () => (await db.select({ secret: adminUsers.totpSecret, confirmedAt: adminUsers.totpConfirmedAt }).from(adminUsers).where(eq(adminUsers.id, me.id)))[0]!;
+
+    check('no password: refused, and no secret is created', (await begin({})) === '/admin/settings?mfa=password' && (await stateOf()).secret === null);
+    check('a wrong password: refused, and no secret is created', (await begin({ currentPassword: 'λάθος-κωδικός' })) === '/admin/settings?mfa=password' && (await stateOf()).secret === null);
+    check('the right password of ANOTHER account does not count', (await begin({ currentPassword: 'admin-test-password-not-this-one' })) === '/admin/settings?mfa=password' && (await stateOf()).secret === null);
+    check('the right password starts the enrolment: an unconfirmed secret is stored', (await begin({ currentPassword: enrolPw })) === null && (await stateOf()).secret !== null && (await stateOf()).confirmedAt === null);
+    const pending = (await stateOf()).secret;
+    check('while the enrolment is pending, starting again without the password is refused and keeps the secret', (await begin({})) === '/admin/settings?mfa=password' && (await stateOf()).secret === pending);
+
+    // with an ACTIVE factor the code is what counts (unchanged): the password alone is not enough to swap the authenticator
+    const active = newTotpSecret();
+    await db.update(adminUsers).set({ totpSecret: active, totpConfirmedAt: new Date(), totpLastStep: null }).where(eq(adminUsers.id, me.id));
+    check('with an active factor the password alone does not replace the authenticator', (await begin({ currentPassword: enrolPw })) === '/admin/settings?mfa=wrong' && (await stateOf()).secret === active);
+    check('…a current code does', (await begin({ totp: totpFor(active, enrolEmail).generate() })) === null && (await stateOf()).secret !== active && (await stateOf()).confirmedAt === null);
+
+    // the existing limit (8 attempts in 15 minutes) also covers guessing the password
+    await db.update(adminUsers).set({ totpSecret: null, totpConfirmedAt: null, totpLastStep: null }).where(eq(adminUsers.id, me.id));
+    let limited: string | null = null;
+    for (let i = 0; i < 12 && limited !== '/admin/settings?mfa=rate'; i++) limited = await begin({ currentPassword: `guess-${i}` });
+    check('guessing the password is limited', limited === '/admin/settings?mfa=rate', limited);
+    check('…and once limited even the right password is refused', (await begin({ currentPassword: enrolPw })) === '/admin/settings?mfa=rate' && (await stateOf()).secret === null);
+
+    // …but wrong passwords at the start do not use up the attempts for confirming the code (a separate budget)
+    const { confirmTotpEnrollment } = await import('../src/app/admin/actions');
+    const pendingSecret = newTotpSecret();
+    await db.update(adminUsers).set({ totpSecret: pendingSecret, totpConfirmedAt: null, totpLastStep: null }).where(eq(adminUsers.id, me.id));
+    const confirmed = await confirmTotpEnrollment(null, form({ totp: totpFor(pendingSecret, enrolEmail).generate() }));
+    check('after the start step is limited, confirming the scanned code still works (separate limit)', confirmed?.ok === true && (await stateOf()).confirmedAt !== null, confirmed);
+
+    await db.delete(adminUsers).where(eq(adminUsers.id, me.id));
+    currentIp = '203.0.113.1';
+    await createSession('admin', admin.id, admin.tokenVersion);
   }
 
   console.log('Registration does not tell who has an account; activation');

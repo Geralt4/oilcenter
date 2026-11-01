@@ -46,4 +46,4 @@ EXPOSE 3000
 # (scripts/patches.ts) run once per database. tsx (a dev dependency) stays in the image on purpose: the
 # startup command runs the migration scripts through it.
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["sh", "-c", "npm run db:migrate && npm run db:seed && npm run db:patch && npm run start"]
+CMD ["sh", "-c", "npm run db:snapshot && npm run db:migrate && npm run db:seed && npm run db:patch && npm run start"]
