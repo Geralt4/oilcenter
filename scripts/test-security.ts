@@ -648,6 +648,22 @@ async function main() {
     check('redactEmail keeps the first letter and the domain only', redactEmail('a@b.gr') === 'a***@b.gr' && redactEmail('no-at-sign') === '***' && redactEmail('') === '***');
   }
 
+  console.log('Test database guard');
+  {
+    const savedUrl = process.env.DATABASE_URL; // points at this run's copy now
+    process.env.DATABASE_URL = 'libsql://hosted-shop.example.turso.io';
+    let refused = '';
+    try {
+      await cloneDatabase('oc-guard-');
+    } catch (err) {
+      refused = String(err);
+    } finally {
+      process.env.DATABASE_URL = savedUrl;
+    }
+    check('cloneDatabase refuses a database that is not a local file', refused.includes('must be a local file'), refused);
+    check('…and does not print the host it refused', !refused.includes('turso.io'), refused);
+  }
+
   console.log('package.json');
   {
     const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string>; engines?: { node?: string } };
