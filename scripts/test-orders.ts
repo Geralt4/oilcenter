@@ -890,6 +890,44 @@ async function main() {
     await deliver('checkout.session.async_payment_failed', session('cs_proc_F', sF, false));
     check('a delayed payment that fails frees the order for a retry', (await attemptOf('cs_proc_F'))?.status === 'failed' && (await hasProcessingPayment(sF.id)) === false, (await attemptOf('cs_proc_F'))?.status);
 
+    console.log('  Stripe: the currency is checked');
+    {
+      const { mailOutbox, orderEvents } = await import('../src/lib/db/schema');
+      const { GET: stripeReturn } = await import('../src/app/api/payments/stripe/return/route');
+      const alertsOf = async (orderId: number) => (await db.select().from(mailOutbox).where(eq(mailOutbox.orderId, orderId))).filter((m) => m.problem === 'currency_mismatch');
+      const usdEvent = async (orderId: number) => (await db.select().from(orderEvents).where(eq(orderEvents.orderId, orderId))).some((e) => e.message.includes('νόμισμα USD'));
+
+      const sU = await newCard();
+      await recordPaymentAttempt(sU.id, { provider: 'stripe', ref: 'cs_usd_W' });
+      const hookUsd = await deliver('checkout.session.completed', { ...session('cs_usd_W', sU, true), currency: 'usd' });
+      const rU = await row(sU.id);
+      check('webhook: a paid Stripe session in USD answers 200', hookUsd.status === 200, hookUsd.status);
+      check('…the order is NOT paid and is flagged for review', rU.paymentStatus !== 'paid' && rU.paymentFlag === 'review', [rU.paymentStatus, rU.paymentFlag]);
+      check('…the checkout is marked as a mismatch', (await attemptOf('cs_usd_W'))?.status === 'mismatch', (await attemptOf('cs_usd_W'))?.status);
+      check('…the order history names USD (outcome currency_mismatch)', await usdEvent(sU.id));
+      check('…and the owner alert is queued as a currency mismatch', (await alertsOf(sU.id)).length === 1, (await alertsOf(sU.id)).length);
+
+      const sR = await newCard();
+      await recordPaymentAttempt(sR.id, { provider: 'stripe', ref: 'cs_usd_R' });
+      const sessions = stripe().checkout.sessions as unknown as { retrieve: (id: string) => Promise<unknown> };
+      const realRetrieve = sessions.retrieve;
+      sessions.retrieve = async () => ({ ...session('cs_usd_R', sR, true), client_reference_id: sR.number, currency: 'usd' });
+      try {
+        const back = await stripeReturn(new Request('http://localhost/api/payments/stripe/return?session_id=cs_usd_R'));
+        const rR = await row(sR.id);
+        check('return route: a USD payment does not get the «thank you» page', !!back.headers.get('location')?.includes(`/order/${sR.number}`) && !back.headers.get('location')?.includes('payment=success'), back.headers.get('location'));
+        check('…the order is NOT paid, flagged, and the history names USD', rR.paymentStatus !== 'paid' && rR.paymentFlag === 'review' && (await usdEvent(sR.id)), [rR.paymentStatus, rR.paymentFlag]);
+      } finally {
+        sessions.retrieve = realRetrieve;
+      }
+
+      const sE = await newCard();
+      await recordPaymentAttempt(sE.id, { provider: 'stripe', ref: 'cs_eur_lc' });
+      await deliver('checkout.session.completed', { ...session('cs_eur_lc', sE, true), currency: 'eur' });
+      const rE = await row(sE.id);
+      check('webhook: lowercase «eur» is accepted as EUR, the order is paid and not flagged', rE.paymentStatus === 'paid' && rE.paymentFlag !== 'review' && (await alertsOf(sE.id)).length === 0, [rE.paymentStatus, rE.paymentFlag]);
+    }
+
     console.log('  A renamed coupon');
     await db.update(coupons).set({ isActive: true, minSubtotalCents: 0, maxUses: 1, usedCount: 0 }).where(eq(coupons.code, 'WELCOME5'));
     await db.update(variants).set({ stock: 20 }).where(eq(variants.id, variant.id));

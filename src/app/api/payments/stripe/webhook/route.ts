@@ -31,7 +31,8 @@ export async function POST(request: Request) {
         if (await setAttemptStatus('stripe', session.id, 'failed', null, ['created', 'processing'])) await addOrderEvent(order.id, 'payment', 'Η πληρωμή με καθυστερημένη μέθοδο απέτυχε.');
       } else if (session.payment_status === 'paid') {
         const ref = typeof session.payment_intent === 'string' ? session.payment_intent : session.id;
-        await settleCardPayment(order, { provider: 'stripe', ref, amountCents: session.amount_total ?? 0, attemptRef: session.id });
+        // Stripe sends the currency in lower case («eur»); recordPayment compares it case-insensitively and refuses anything but EUR
+        await settleCardPayment(order, { provider: 'stripe', ref, amountCents: session.amount_total ?? 0, currency: session.currency, attemptRef: session.id });
       } else if (event.type === 'checkout.session.completed' && session.payment_status === 'unpaid') {
         // finished by the buyer, money still on its way: no second checkout and no automatic release until it resolves
         if (await setAttemptStatus('stripe', session.id, 'processing', null, ['created'])) await addOrderEvent(order.id, 'payment', 'Η πληρωμή με κάρτα/τράπεζα είναι σε επεξεργασία: δεν έχει εισπραχθεί ακόμη.');
