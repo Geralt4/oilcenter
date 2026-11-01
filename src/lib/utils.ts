@@ -188,10 +188,13 @@ export function isGreekPostalCode(value: string): boolean {
   return /^\d{3}\s?\d{2}$/.test(value.trim());
 }
 
-/** Greek ΑΦΜ check digit (mod 11) */
+/**
+ * Greek ΑΦΜ: 9 digits with a mod-11 check digit. An «EL» prefix and spaces, dots or dashes between the digits are fine
+ * (people paste «EL 123 456 783»); any other character is not, so a number with a letter inside cannot pass.
+ */
 export function isValidAfm(value: string): boolean {
-  const afm = value.replace(/\D/g, '');
-  if (afm.length !== 9 || afm === '000000000') return false;
+  const afm = value.trim().replace(/^EL/i, '').replace(/[\s.-]/g, '');
+  if (!/^\d{9}$/.test(afm) || afm === '000000000') return false;
   let sum = 0;
   for (let i = 0; i < 8; i++) sum += Number(afm[i]) * 2 ** (8 - i);
   return (sum % 11) % 10 === Number(afm[8]);

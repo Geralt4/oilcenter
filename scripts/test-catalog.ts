@@ -98,12 +98,14 @@ async function main() {
   check('a code that does not exist finds nothing', (await find('ZQ-9999')).length === 0);
 
   console.log('Forms and badges');
-  const { isValidAfm } = await import('../src/lib/quote');
+  const { isValidAfm } = await import('../src/lib/utils');
   const { looksLikePhone } = await import('../src/lib/enquiries');
   const { trustItems } = await import('../src/components/store/trust-badges');
   const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
   check('a VAT number with the right check digit passes, with or without EL', isValidAfm('123456783') && isValidAfm('EL 123456783'));
   check('one wrong digit, a short number and all zeros are refused', !isValidAfm('123456784') && !isValidAfm('12345678') && !isValidAfm('000000000') && !isValidAfm(''));
+  check('spaces, dots and dashes between the digits are fine', isValidAfm('123 456 783') && isValidAfm('123.456.783') && isValidAfm('123-456-783') && isValidAfm(' el123456783 '));
+  check('a letter inside, ten digits and a second prefix are refused (the checkout used to strip every non-digit)', !isValidAfm('12a3456783') && !isValidAfm('1234567830') && !isValidAfm('ELEL123456783') && !isValidAfm('EL'));
   check('phones: 10 digits, +30 and spaces are fine; too short or with letters is not', looksLikePhone('2310 850778') && looksLikePhone('+30 697 744 0388') && !looksLikePhone('123') && !looksLikePhone('call me 2310850778'));
   check('no rating and no founding year entered → no badge at all', trustItems({ ...DEFAULT_SETTINGS.shop, foundedYear: 0 }, DEFAULT_SETTINGS.reviews).length === 0);
   const badges = trustItems({ ...DEFAULT_SETTINGS.shop, foundedYear: 1992 }, { googleUrl: 'https://maps.app.goo.gl/x', googleRating: 4.8, googleCount: 132, skroutzRating: 0, skroutzCount: 57 });
