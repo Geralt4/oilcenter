@@ -58,10 +58,10 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
           <p className="font-bold text-amber-900">{givenUp.length === 1 ? 'Ένα e-mail αυτής της παραγγελίας δεν στάλθηκε' : `${givenUp.length} e-mail αυτής της παραγγελίας δεν στάλθηκαν`}</p>
           <ul className="mt-1 list-disc pl-5 text-sm text-amber-900">
             {givenUp.map((m) => (
-              <li key={m.id}>{MAIL_KIND_LABELS[m.kind]}{m.givenUpAt ? ` · σταμάτησαν οι δοκιμές ${formatDateTime(m.givenUpAt)}` : ''}</li>
+              <li key={m.id}>{MAIL_KIND_LABELS[m.kind]}{m.givenUpAt ? ` · σταμάτησαν οι προσπάθειες στις ${formatDateTime(m.givenUpAt)}` : ''}</li>
             ))}
           </ul>
-          <p className="mt-1 text-sm text-amber-900">Το site δοκίμαζε για περίπου ένα εικοσιτετράωρο. Αφού διορθωθεί η αποστολή e-mail, πατήστε το κουμπί για να σταλούν ξανά τώρα.</p>
+          <p className="mt-1 text-sm text-amber-900">Το site προσπαθούσε να τα στείλει για περίπου ένα 24ωρο. Αφού διορθωθεί η αποστολή e-mail, πατήστε το κουμπί για να σταλούν ξανά τώρα.</p>
           <form action={resendOrderMails} className="mt-3">
             <input type="hidden" name="id" value={order.id} />
             <button type="submit" className="cursor-pointer rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-800">Επαναποστολή e-mail</button>

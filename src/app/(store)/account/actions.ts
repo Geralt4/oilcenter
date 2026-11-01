@@ -81,7 +81,7 @@ export async function registerCustomer(_prev: FormState, formData: FormData): Pr
 }
 
 const REGISTERED = 'Σας στείλαμε e-mail. Ακολουθήστε τον σύνδεσμο για να ολοκληρωθεί η εγγραφή.';
-const NOT_ACTIVATED = 'Ο λογαριασμός σας δεν έχει ενεργοποιηθεί ακόμη. Ακολουθήστε τον σύνδεσμο στο e-mail που σας στείλαμε κατά την εγγραφή, ή ζητήστε νέο.';
+const NOT_ACTIVATED = 'Ο λογαριασμός σας δεν έχει ενεργοποιηθεί ακόμη. Ακολουθήστε τον σύνδεσμο στο e-mail που σας στείλαμε κατά την εγγραφή ή ζητήστε νέο.';
 
 export async function loginCustomer(_prev: FormState, formData: FormData): Promise<FormState> {
   // the pages are hidden in catalogue mode (lib/catalogue-mode.ts); the action must not be a way around that

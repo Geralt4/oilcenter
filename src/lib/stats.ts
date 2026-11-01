@@ -45,8 +45,8 @@ export const statLimits = {
   /** how long the list of existing slugs is reused before it is read again */
   slugTtlMs: 5 * 60 * 1000,
 };
-export const OTHER_SEARCH = 'άλλη αναζήτηση';
-export const OTHER_SOURCE = 'άλλη πηγή';
+export const OTHER_SEARCH = 'Άλλες αναζητήσεις';
+export const OTHER_SOURCE = 'Άλλες πηγές';
 
 type KnownSlugs = Awaited<ReturnType<typeof catalogSlugs>>;
 let knownSlugs: { at: number; slugs: KnownSlugs } | null = null;
