@@ -52,21 +52,33 @@ export async function rateLimit(key: string, limit: number, windowMs: number): P
   return { ok: false, retryAfterSec: Math.max(1, Math.ceil((windowStart + windowMs - now) / 1000)) };
 }
 
-export async function clientIp(): Promise<string> {
-  const { headers } = await import('next/headers');
-  const h = await headers();
-  const xff = h.get('x-forwarded-for');
+/** TRUSTED_PROXY_HOPS as a whole number of at least 0; anything that is not a number counts as 0. */
+export function proxyHops(value: string | undefined): number {
+  return Math.max(0, Math.floor(Number(value) || 0));
+}
+
+/**
+ * Which address of X-Forwarded-For is the visitor's. `hops` = how many proxies append to the header between the visitor and
+ * this app (TRUSTED_PROXY_HOPS). Each of them adds the address it was passed from, so the real client is that many entries from
+ * the right: with one proxy it is the LAST entry (whatever stands to its left came from the client and can be forged).
+ * Default 0 → leftmost, which is correct on hosts whose edge overwrites the header.
+ *
+ * Checked on the live Railway host on 2026-11-01: 125 requests to /api/search with a different forged X-Forwarded-For each were
+ * counted against ONE address (the 121st got 429), so the edge does not let a visitor choose the address: 0 is right there.
+ */
+export function pickClientIp(xff: string | null, hops: number, realIp: string | null): string {
   if (xff) {
     const chain = xff.split(',').map((s) => s.trim()).filter(Boolean);
-    // TRUSTED_PROXY_HOPS = how many proxies append to X-Forwarded-For between the client and this app.
-    // Each of them adds the address it was passed from, so the real client is that many entries from the right:
-    // with one proxy it is the LAST entry (whatever stands to its left came from the client and can be forged).
-    // Default 0 → leftmost, which is correct on hosts whose edge overwrites the header (e.g. Railway).
-    const hops = Math.max(0, Math.floor(Number(process.env.TRUSTED_PROXY_HOPS) || 0));
     const ip = hops > 0 ? (chain[chain.length - hops] ?? chain[0]) : chain[0];
     if (ip) return ip;
   }
-  return h.get('x-real-ip') || 'local';
+  return realIp || 'local';
+}
+
+export async function clientIp(): Promise<string> {
+  const { headers } = await import('next/headers');
+  const h = await headers();
+  return pickClientIp(h.get('x-forwarded-for'), proxyHops(process.env.TRUSTED_PROXY_HOPS), h.get('x-real-ip'));
 }
 
 /**

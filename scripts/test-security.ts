@@ -110,6 +110,21 @@ async function main() {
   const freshKey = probe('check', 'restart-probe-untouched');
   check('a different key still has its own budget after the restart', freshKey.ok, freshKey);
 
+  console.log('Client address (X-Forwarded-For)');
+  {
+    const { pickClientIp, proxyHops } = await import('../src/lib/rate-limit');
+    const chain = '203.0.113.9, 198.51.100.7, 192.0.2.1'; // forged by the client, then what two proxies appended
+    check('hops 0 takes the leftmost entry (right when the edge overwrites the header)', pickClientIp(chain, 0, null) === '203.0.113.9');
+    check('hops 1 takes the last entry: what the one proxy saw, not what the client wrote', pickClientIp(chain, 1, null) === '192.0.2.1');
+    check('hops 2 takes the second from the end', pickClientIp(chain, 2, null) === '198.51.100.7');
+    check('a chain shorter than the hops falls back to the first entry', pickClientIp('203.0.113.9', 2, null) === '203.0.113.9' && pickClientIp(chain, 9, null) === '203.0.113.9');
+    check('with one proxy a forged leftmost entry changes nothing', pickClientIp('1.1.1.1, 192.0.2.1', 1, null) === pickClientIp('2.2.2.2, 192.0.2.1', 1, null));
+    check('no header: x-real-ip, then «local»', pickClientIp(null, 0, '192.0.2.50') === '192.0.2.50' && pickClientIp(null, 1, null) === 'local' && pickClientIp('', 0, null) === 'local');
+    check('a header of only commas and spaces counts as no header', pickClientIp(' , ,', 1, '192.0.2.50') === '192.0.2.50');
+    check('spaces around entries are ignored', pickClientIp(' 203.0.113.9 ,198.51.100.7 ', 0, null) === '203.0.113.9' && pickClientIp(' 203.0.113.9 ,198.51.100.7 ', 1, null) === '198.51.100.7');
+    check('TRUSTED_PROXY_HOPS: empty, text, negative and fractions become whole numbers of at least 0', proxyHops(undefined) === 0 && proxyHops('') === 0 && proxyHops('abc') === 0 && proxyHops('-2') === 0 && proxyHops('1') === 1 && proxyHops('2.9') === 2);
+  }
+
   console.log('Session secret');
   {
     const { resolveAuthSecret } = await import('../src/lib/auth/secret');
