@@ -21,6 +21,7 @@ Admin login = `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env.local`. Change the pas
 | Script | What it does |
 | --- | --- |
 | `npm run dev` / `build` / `start` | development server / production build / production server |
+| `npm run db:snapshot` | the first step of the container start: when migrations are pending, write a verified snapshot of the database first (`DATA_DIR/backups/pre-migrate-…`, newest 5 kept) and stop the start if that fails; with nothing pending it does nothing. `SKIP_PREMIGRATE_SNAPSHOT=1` skips it for one start |
 | `npm run db:migrate` | apply SQL migrations in `drizzle/` (idempotent) |
 | `npm run db:seed` | load `catalog/catalog.json` into an **empty** catalogue + create the first admin. `-- --force` replaces the catalogue in one transaction, on a local `file:` database only (never touches orders or customers) |
 | `npm run db:reset` | **local only** — delete the SQLite file, migrate, seed |

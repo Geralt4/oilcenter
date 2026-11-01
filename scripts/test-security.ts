@@ -569,6 +569,133 @@ async function main() {
     }
   }
 
+  console.log('Snapshot before pending migrations');
+  {
+    const nodePath = (await import('node:path')).default;
+    const { readdir: readD, readFile: readF } = await import('node:fs/promises');
+    const { gunzipSync } = await import('node:zlib');
+    const { createClient } = await import('@libsql/client');
+    const { decryptBackup } = await import('../src/lib/backup-crypto');
+    const { pendingMigrations, preMigrateName, expiredPreMigrate, readJournal } = await import('../src/lib/pre-migrate');
+    const KEY = Buffer.alloc(32, 5).toString('base64');
+
+    // ── the decision, without starting anything ──
+    const journal = await readJournal();
+    const last = journal.at(-1)!;
+    check('the journal of this repository is readable and has entries', journal.length > 20 && last.tag.length > 0, journal.length);
+    check('nothing is pending when the newest recorded migration is the newest in the journal', pendingMigrations(journal, last.when).length === 0);
+    check('one is pending when the newest recorded one is the one before the last', pendingMigrations(journal, journal.at(-2)!.when).map((e) => e.tag).join() === last.tag);
+    check('everything is pending when nothing is recorded', pendingMigrations(journal, null).length === journal.length);
+    check('a database NEWER than the code (a rollback) has nothing pending', pendingMigrations(journal, last.when + 1).length === 0);
+    check('the file name says when and from which migration count to which', preMigrateName(new Date('2026-11-02T10:15:30Z'), 23, 24) === 'pre-migrate-20261102-101530-23to24.db.gz');
+    const fakeNames = ['pre-migrate-20261101-000001-20to21.db.gz.enc', 'pre-migrate-20261102-000001-21to22.db.gz', 'pre-migrate-20261102-000001-21to22.db.gz.enc', 'pre-migrate-20261103-000001-22to23.db.gz.enc', 'shop-2026-11-01.db.gz.enc'];
+    check('retention counts a plain and a sealed copy of one snapshot once and never touches other files', expiredPreMigrate(fakeNames, 2).join() === 'pre-migrate-20261101-000001-20to21.db.gz.enc' && expiredPreMigrate(fakeNames, 5).length === 0);
+
+    // ── the script, as the Docker CMD runs it ──
+    const root = nodePath.join(dir, 'premigrate');
+    let n = 0;
+    /** a copy of the (fully migrated) test database in its own data folder; `behind` = how many of the newest migrations to forget */
+    const makeInstall = async (behind: number) => {
+      const home = nodePath.join(root, `i${++n}`);
+      mkdirSync(nodePath.join(home, 'data'), { recursive: true });
+      const file = nodePath.join(home, 'data', 'shop.db');
+      const source = createClient({ url: process.env.DATABASE_URL! });
+      await source.execute(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+      source.close();
+      if (behind > 0) {
+        const c = createClient({ url: `file:${file}` });
+        await c.execute(`DELETE FROM __drizzle_migrations WHERE created_at IN (SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT ${behind})`);
+        c.close();
+      }
+      return { home, file, data: nodePath.join(home, 'data'), backups: nodePath.join(home, 'data', 'backups') };
+    };
+    const run = (install: { data: string; file: string }, extra: Record<string, string> = {}, chain = false) => {
+      const env: NodeJS.ProcessEnv = { ...process.env, DATABASE_URL: `file:${install.file}`, DATA_DIR: install.data, BACKUP_ENCRYPTION_KEY: '', ...extra };
+      if (!chain) return spawnSync('npx', ['tsx', 'scripts/pre-migrate-snapshot.ts'], { encoding: 'utf8', env });
+      // the same && chain as the Docker CMD: what follows the snapshot only runs when it succeeds
+      return spawnSync('sh', ['-c', 'npx tsx scripts/pre-migrate-snapshot.ts && echo THE-NEXT-STEP-RAN'], { encoding: 'utf8', env });
+    };
+    const filesIn = async (folder: string) => (await readD(folder).catch(() => [] as string[])).sort();
+    const rowsOf = async (file: string, sql: string) => {
+      const c = createClient({ url: `file:${file}` });
+      const out = (await c.execute(sql)).rows[0]!;
+      c.close();
+      return Number(out[0]);
+    };
+
+    // 1. nothing to migrate: no snapshot, and the start does not depend on the snapshot machinery at all
+    const clean = await makeInstall(0);
+    writeFileSync(clean.backups, 'a FILE where the folder should be: any attempt to write a snapshot would fail'); // data/backups is not a folder
+    const quiet = run(clean, { BACKUP_ENCRYPTION_KEY: 'not-a-valid-key' }, true);
+    check('nothing pending: the script succeeds and the next step runs', quiet.status === 0 && quiet.stdout.includes('THE-NEXT-STEP-RAN') && quiet.stdout.includes('nothing to migrate'), [quiet.status, quiet.stdout, quiet.stderr.slice(0, 200)]);
+    check('…even with an unusable backups folder and a broken backup key (they are never touched)', quiet.stderr === '' || !/FAILED/.test(quiet.stderr), quiet.stderr.slice(0, 200));
+    check('…and nothing was written', (await readF(clean.backups, 'utf8')).startsWith('a FILE'));
+    const overrideQuiet = run(clean, { SKIP_PREMIGRATE_SNAPSHOT: '1' });
+    check('…the escape hatch makes no noise when there is nothing to skip', overrideQuiet.status === 0 && !/WARNING/.test(overrideQuiet.stdout + overrideQuiet.stderr), overrideQuiet.stdout);
+    const newer = await makeInstall(0);
+    const c0 = createClient({ url: `file:${newer.file}` });
+    await c0.execute(`INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('from-a-newer-release', ${last.when + 1000})`);
+    c0.close();
+    check('a database newer than the code (rollback): nothing pending, success', run(newer).status === 0 && (await filesIn(newer.backups)).length === 0);
+
+    // 2. a new install: nothing to protect
+    const fresh = await makeInstall(0);
+    rmSync(fresh.file); // no database file at all
+    const noFile = run(fresh, { BACKUP_ENCRYPTION_KEY: 'not-a-valid-key' });
+    check('no database file yet (a new install): success, and the script does not create one', noFile.status === 0 && !existsSync(fresh.file) && noFile.stdout.includes('new install'), [noFile.status, noFile.stdout]);
+    const emptyDb = await makeInstall(0);
+    const c1 = createClient({ url: `file:${emptyDb.file}` });
+    await c1.execute('DROP TABLE __drizzle_migrations');
+    c1.close();
+    const noTable = run(emptyDb);
+    check('a database without a migrations table (new): success, no snapshot', noTable.status === 0 && noTable.stdout.includes('new database') && (await filesIn(emptyDb.backups)).length === 0, noTable.stdout);
+    const hosted = run(await makeInstall(0), { DATABASE_URL: 'libsql://example.invalid' });
+    check('a hosted database: success, nothing to do here', hosted.status === 0 && hosted.stdout.includes('hosted database'), hosted.stdout + hosted.stderr);
+
+    // 3. migrations pending: a snapshot of the state BEFORE them, verified
+    const pending = await makeInstall(1);
+    const before = await rowsOf(pending.file, 'SELECT count(*) FROM __drizzle_migrations');
+    const taken = run(pending, {}, true);
+    const took = (await filesIn(pending.backups)).filter((f) => f.startsWith('pre-migrate-'));
+    const total = journal.length;
+    check('one pending migration: a snapshot is taken and the next step runs', taken.status === 0 && took.length === 1 && taken.stdout.includes('THE-NEXT-STEP-RAN'), [taken.status, took, taken.stderr.slice(0, 200)]);
+    check(`…named with the counts (${total - 1}to${total}) and plain without a key`, took[0]?.endsWith(`-${total - 1}to${total}.db.gz`) === true, took);
+    const snapDb = gunzipSync(await readF(nodePath.join(pending.backups, took[0]!)));
+    const snapFile = nodePath.join(root, 'snap-plain.db');
+    writeFileSync(snapFile, snapDb);
+    check('…it holds the database as it was BEFORE the migration (one fewer migration recorded) and passes the integrity check', (await rowsOf(snapFile, 'SELECT count(*) FROM __drizzle_migrations')) === before && String((await (async () => { const c = createClient({ url: `file:${snapFile}` }); const r = (await c.execute('PRAGMA integrity_check')).rows[0]![0]; c.close(); return r; })())) === 'ok');
+    check('…and the migrate step later finds the same pending migration (the script did not migrate)', (await rowsOf(pending.file, 'SELECT count(*) FROM __drizzle_migrations')) === before);
+
+    const sealedRun = await makeInstall(2);
+    const sealed = run(sealedRun, { BACKUP_ENCRYPTION_KEY: KEY });
+    const sealedName = (await filesIn(sealedRun.backups)).find((f) => f.startsWith('pre-migrate-'));
+    check('with a backup key the snapshot is encrypted', sealed.status === 0 && sealedName?.endsWith(`-${total - 2}to${total}.db.gz.enc`) === true && sealed.stdout.includes('encrypted'), [sealed.status, sealedName, sealed.stderr.slice(0, 200)]);
+    process.env.BACKUP_ENCRYPTION_KEY = KEY;
+    check('…and one decryption opens it to a SQLite file', gunzipSync(decryptBackup(await readF(nodePath.join(sealedRun.backups, sealedName!)))).subarray(0, 15).toString() === 'SQLite format 3');
+    delete process.env.BACKUP_ENCRYPTION_KEY;
+
+    // 4. pending and the snapshot cannot be made: the boot stops, the migration does not run
+    const stuck = await makeInstall(1);
+    writeFileSync(stuck.backups, 'a FILE where the snapshot folder should be');
+    const failed = run(stuck, {}, true);
+    check('pending + no snapshot possible: the script fails with exit 1', failed.status === 1, [failed.status, failed.stderr.slice(0, 300)]);
+    check('…the next step (the migration) does NOT run', !failed.stdout.includes('THE-NEXT-STEP-RAN'), failed.stdout);
+    check('…and the message says so and names the escape hatch', failed.stderr.includes('no snapshot, no migration') && failed.stderr.includes('SKIP_PREMIGRATE_SNAPSHOT=1'), failed.stderr.slice(0, 400));
+    check('…the database was not touched', (await rowsOf(stuck.file, 'SELECT count(*) FROM __drizzle_migrations')) === (await rowsOf(pending.file, 'SELECT count(*) FROM __drizzle_migrations')));
+    const skipped = run(stuck, { SKIP_PREMIGRATE_SNAPSHOT: '1' }, true);
+    check('with SKIP_PREMIGRATE_SNAPSHOT=1 the same start goes on, with a loud warning that names the migration', skipped.status === 0 && skipped.stdout.includes('THE-NEXT-STEP-RAN') && skipped.stderr.includes('WARNING') && skipped.stderr.includes(last.tag), [skipped.status, skipped.stderr.slice(0, 300)]);
+
+    // 5. only the newest 5 are kept
+    const many = await makeInstall(1);
+    mkdirSync(many.backups, { recursive: true });
+    for (let i = 1; i <= 7; i++) writeFileSync(nodePath.join(many.backups, `pre-migrate-2026010${i}-000000-1to2.db.gz`), 'old');
+    writeFileSync(nodePath.join(many.backups, 'shop-2026-01-01.db.gz'), 'another kind of file');
+    const pruned = run(many);
+    const after = await filesIn(many.backups);
+    check('older pre-migration snapshots are pruned to the newest 5 (the new one included)', pruned.status === 0 && after.filter((f) => f.startsWith('pre-migrate-')).length === 5, after);
+    check('…the oldest went first and the daily snapshot was left alone', !after.includes('pre-migrate-20260101-000000-1to2.db.gz') && after.includes('pre-migrate-20260107-000000-1to2.db.gz') && after.includes('shop-2026-01-01.db.gz'), after);
+  }
+
   console.log('Request-size boundaries');
   const { readJsonLimited } = await import('../src/lib/form-size');
   const okBody = await readJsonLimited(new Request('http://localhost/x', { method: 'POST', body: JSON.stringify({ lines: [] }), headers: { 'Content-Type': 'application/json' } }), 1024);
