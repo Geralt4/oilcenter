@@ -26,13 +26,15 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
 export const PAYMENT_STATUS_LABELS = { pending: 'Εκκρεμεί', paid: 'Εξοφλήθηκε', failed: 'Απέτυχε', refunded: 'Επιστροφή χρημάτων' } as const;
 
 // ─── Checkout input ──────────────────────────────────────────────────────────
-const trimmed = (max: number) => z.string().trim().max(max);
+// The message is shown under the field (checkout-form.tsx): without one, zod's own English text would reach a Greek page.
+const tooLong = (max: number) => `Έως ${max} χαρακτήρες. Συντομεύστε το κείμενο.`;
+const trimmed = (max: number) => z.string().trim().max(max, tooLong(max));
 
 export const CheckoutSchema = z
   .object({
     lines: z.array(z.object({ variantId: z.number().int().positive(), quantity: z.number().int().positive().max(999) })).min(1, 'Το καλάθι είναι άδειο').max(100),
     couponCode: trimmed(40).optional(),
-    email: z.string().trim().toLowerCase().email('Μη έγκυρο e-mail').max(160),
+    email: z.string().trim().toLowerCase().email('Μη έγκυρο e-mail').max(160, tooLong(160)),
     phone: trimmed(30).regex(/^[+\d][\d\s-]{8,}$/, 'Μη έγκυρο τηλέφωνο'),
     firstName: trimmed(80).min(2, 'Συμπληρώστε το όνομά σας'),
     lastName: trimmed(80).min(2, 'Συμπληρώστε το επώνυμό σας'),

@@ -58,6 +58,28 @@ async function main() {
   check('flagged as test order while demo mode is on', first.order.isTest === true);
   check('order number format', /^OC-\d{5,}$/.test(first.order.number), first.order.number);
 
+  console.log('Checkout field limits');
+  {
+    const { CheckoutSchema } = await import('../src/lib/orders');
+    const valid = { lines: [{ variantId: 1, quantity: 1 }], email: 'a@example.gr', phone: '6912345678', firstName: 'Ελένη', lastName: 'Δοκιμή', shippingMethod: 'pickup', paymentMethod: 'pay_in_store', docType: 'receipt', acceptTerms: true };
+    check('(a valid payload passes)', CheckoutSchema.safeParse(valid).success);
+    // every field that has a length limit, with the limit
+    const limits: Array<[string, number]> = [['couponCode', 40], ['email', 160], ['phone', 30], ['firstName', 80], ['lastName', 80], ['street', 160], ['city', 80], ['postalCode', 10], ['region', 80], ['notes', 1000], ['companyName', 160], ['vatNumber', 20], ['taxOffice', 80], ['companyActivity', 160], ['companyAddress', 200]];
+    const wrong: Array<[string, string[]]> = [];
+    for (const [field, max] of limits) {
+      const value = field === 'phone' ? '6'.repeat(max + 1) : field === 'email' ? `${'a'.repeat(max)}@example.gr` : 'σ'.repeat(max + 1);
+      const result = CheckoutSchema.safeParse({ ...valid, [field]: value });
+      const messages = result.success ? [] : result.error.issues.filter((i) => i.path[0] === field).map((i) => i.message);
+      if (!messages.includes(`Έως ${max} χαρακτήρες. Συντομεύστε το κείμενο.`)) wrong.push([field, messages]);
+    }
+    check(`all ${limits.length} limited fields answer an over-long value in Greek, naming the limit`, wrong.length === 0, wrong);
+    const english = limits.flatMap(([field, max]) => {
+      const result = CheckoutSchema.safeParse({ ...valid, [field]: field === 'phone' ? '6'.repeat(max + 1) : 'σ'.repeat(max + 1) });
+      return result.success ? [] : result.error.issues.map((i) => i.message).filter((m) => !/[Α-ωά-ώ]/.test(m));
+    });
+    check('…and none of the messages for them is in English', english.length === 0, english);
+  }
+
   console.log('Footer service line');
   {
     const { shopServices } = await import('../src/lib/shop-services');
