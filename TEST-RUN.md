@@ -3,15 +3,17 @@
 **The plan.** Put the new site on `oilcenter.gr` as a public *catalogue* — products, prices, phone, map — with online
 ordering closed, keep it up for 6–8 weeks, measure traffic and demand, then decide whether to open online orders.
 
-**Where we are (20/9/2026).** The ordering side is already built and switched off (*Admin → Ρυθμίσεις → «Το κατάστημα
-δέχεται online παραγγελίες»*). 157 of 215 prices are real (from Skroutz). The Railway preview is offline.
+**Where we are (1/11/2026; first written 20/9/2026).** The ordering side is already built and switched off (*Admin →
+Ρυθμίσεις → «Το κατάστημα δέχεται online παραγγελίες»*). 295 of 303 prices are confirmed (most of them from Skroutz).
+The site is online on Railway in catalogue mode at `web-production-c64ee.up.railway.app` (back since 1/11/2026 after
+being offline from 22/10); `oilcenter.gr` still points at the old hosting.
 
 Legend: **[dev]** our work · **[you]** · **[Ilias]** · `→ D1` = waits for that answer in section 5.
 All the questions of section 5 are in Greek, with room for each answer, in [`questions.md`](questions.md) — same codes.
 
 ## 1. Before launch
 
-### Site behaviour — [dev] — built and tested locally on 20/9/2026, not deployed (the site is offline)
+### Site behaviour — [dev] — built and tested on 20/9/2026; deployed on Railway in catalogue mode (online again since 1/11/2026)
 - [x] **Test-run mode**: demo mode can now be switched off while ordering stays closed — no "δοκιμαστική λειτουργία" ribbon, visible to Google, top strip says online orders have not opened yet
 - [x] **Unconfirmed prices are hidden**: «Καλέστε για τιμή» and no add-to-cart until the price is confirmed in *Admin → Τιμές*
 - [x] Products are not advertised to Google as buyable while ordering is closed (structured data without offers)
@@ -22,8 +24,8 @@ All the questions of section 5 are in Greek, with room for each answer, in [`que
 
 ### Content — [Ilias] answers, [dev] applies
 - [ ] Business identity in the footer: ΑΦΜ, Αρ. ΓΕΜΗ, legal name `→ B1–B4`
-- [ ] Real opening hours `→ H1`
-- [ ] The 17 probable Skroutz matches confirmed, the 58 remaining prices filled in (or left as «Καλέστε για τιμή») `→ P1, P2`
+- [x] Real opening hours `→ H1` — confirmed by the owner: Mon–Fri 08:30–17:00, Sat 09:00–13:00, Sun closed
+- [ ] The last unconfirmed prices filled in (or left as «Καλέστε για τιμή») `→ P1, P2` — 8 of 303 sizes were still unconfirmed on 1/11/2026; the lists of 20/9 (17 probable matches, 58 missing prices) are largely done
 - [ ] Name / pack fixes the Skroutz listing pointed to `→ P3`
 - [ ] Marketing claims and About text approved `→ B5, T3`
 - [ ] Instagram link `→ L1`
@@ -31,7 +33,7 @@ All the questions of section 5 are in Greek, with room for each answer, in [`que
 ### Safety net — [dev]
 - [x] Automatic nightly database backup, kept 14 days (runs inside the live server; first one 30 s after it starts)
 - [x] "Download backup" button in the admin (*Ρυθμίσεις → Αντίγραφα ασφαλείας*)
-- [ ] A copy of the backups **outside** Railway — needs a storage account `→ D4`. Until then: download one by hand now and then. Photos uploaded through the admin are not in the snapshot yet.
+- [x] A copy of the backups **outside** Railway — done: every snapshot (nightly and at each deploy) is encrypted and uploaded to Backblaze B2, and photos and safety data sheets go up as a daily archive. Snapshot files have been downloaded and opened; a full restore into a running shop has not been tried yet. Who owns the storage account is still part of `→ D4`.
 - [ ] Uptime check on `/api/health` with an e-mail alert `→ C1` (an external service; nothing to build)
 - [ ] E-mail sending (SMTP), so contact-form messages and sign-ups actually arrive `→ C1, C2` (the code is there; it needs the account and DNS records)
 - [x] Move `railway.json` to Railway's new config format (their deadline: 1/12/2026) — done 13/10/2026: settings applied from `.railway/railway.ts`, `railway.json` removed, deploy without it verified.
@@ -96,7 +98,7 @@ Where there is a default, "OK" is a complete answer.
 - **B5.** Address, phones, e-mail as shown today: Σόλωνος 52, 546 44 Θεσσαλονίκη · 2310 850778 · 6977 440388 · fax 2310 850267 · iliastsakiridis@hotmail.com. Anything to change or remove (is the fax still in use)? Does he approve the line «Τιμές χονδρικής, ακόμα και για αγορές λιανικής»?
 
 ### Opening hours
-- **H1.** Real hours per day. Default (a guess): Mon–Fri 08:30–17:00, Sat 09:00–13:00, Sun closed. Any midday break or summer hours?
+- **H1.** Real hours per day. Confirmed: Mon–Fri 08:30–17:00, Sat 09:00–13:00, Sun closed. Any midday break or summer hours?
 
 ### Prices and catalogue
 - **P1.** The 17 probable matches in `SKROUTZ-PRICES.md` section 1: correct, or which are not?

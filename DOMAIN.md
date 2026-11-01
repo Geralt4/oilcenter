@@ -248,8 +248,10 @@ The moment resolvers pick up the new zone the old static site is gone from the d
    ```bash
    railway variable set SITE_URL=https://www.oilcenter.gr --service web --skip-deploys
    ```
+   First `railway status` in that directory must show project `oilcenter` (`d90ae816-6d1b-400e-bb80-ff40a82f74b6`),
+   environment `production` and service `web`; an unlinked directory makes a bare `railway up` create a NEW project.
    ```bash
-   railway up "$PWD" --path-as-root --service web --ci
+   railway up "$PWD" --path-as-root --project d90ae816-6d1b-400e-bb80-ff40a82f74b6 --environment production --service web --ci
    ```
 4. Check, from any machine:
    ```bash
