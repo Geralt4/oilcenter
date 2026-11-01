@@ -140,7 +140,8 @@ The other five MAG 1 products read clearly (354 ml / 428 ml). These two bottles 
 
 ## Not on this list, but still Ilias's job
 
-- **All 215 prices are placeholders.** That is tracked separately: Admin → **Τιμές & απόθεμα** (yellow rows), or export
+- **Some prices are still unconfirmed.** On the live site 295 of the 303 sizes have a confirmed price (1 Nov 2026); the
+  other 8 show «Καλέστε για τιμή». That is tracked separately: Admin → **Τιμές & απόθεμα** (yellow rows), or export
   the CSV, fill it in Excel and import it back.
 - **Approvals are incomplete on many products, on purpose.** Wherever the small print was scrambled I left the
   specification list short or empty rather than fill it from memory — a wrong OEM approval puts the wrong oil in a
