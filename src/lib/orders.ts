@@ -474,6 +474,15 @@ export async function releaseAbandonedCardOrders(): Promise<number> {
   return released;
 }
 
+/**
+ * A card order whose payment could not even be started (the gateway refused to open a checkout): nothing can be paid on it, so its
+ * stock and coupon use go back now, not at the two-hour sweep. The same guards as the sweep: an order that is paid, refunded, flagged
+ * or has a delayed payment on its way is never cancelled here. False = nothing was cancelled (the caller keeps the order payable).
+ */
+export async function releaseUnstartedCardOrder(orderId: number): Promise<boolean> {
+  return cancelOrder(orderId, 'system', 'η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει', { requireUnpaid: true });
+}
+
 export async function getOrderByNumber(number: string) {
   return db.query.orders.findFirst({ where: eq(orders.number, number), with: { items: true, events: true } });
 }

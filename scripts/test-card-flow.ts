@@ -411,17 +411,34 @@ async function main() {
     const s6 = async () => {
       console.log('S6 Viva refuses to create the checkout');
       fake.failCreateOrder = true;
+      // count this size for the scenario, so the reservation and its release are visible
+      await db.update(variants).set({ trackStock: true, stock: 10 }).where(eq(variants.id, pick.variantId));
+      const stockOfPick = async () => (await db.select({ s: variants.stock }).from(variants).where(eq(variants.id, pick.variantId)))[0]!.s;
       const { ctx, page } = await newPage();
       try {
         await startCheckout(page);
         await submitCardCheckout(page);
         await page.waitForURL((url) => url.pathname.startsWith('/order/'), { timeout: 30_000 });
         check('the buyer lands on the order page', page.url().includes('/order/'), page.url());
-        check('the order page says the payment did not complete', await alertShows(page, 'Η πληρωμή δεν ολοκληρώθηκε'));
-        const retry = page.getByRole('button', { name: 'Πληρωμή με κάρτα' });
-        check('the order page offers the card retry', await retry.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true, () => false));
+        check('the address says the payment is unavailable (not the gateway\'s own «failed»)', new URL(page.url()).searchParams.get('payment') === 'unavailable', page.url());
+        check('the order page says the card payment could not start and the order was cancelled', await alertShows(page, 'Η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει'));
+        const text = ((await page.getByRole('alert').filter({ hasText: 'Η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει' }).first().textContent()) ?? '').replace(/\s+/g, ' ');
+        check('…it says nothing was charged and the products are still in the cart', text.includes('ακυρώθηκε') && text.includes('Δεν έγινε καμία χρέωση') && text.includes('ακόμη στο καλάθι σας'), text);
+        check('there is no card retry button: the order is cancelled', (await page.getByRole('button', { name: 'Πληρωμή με κάρτα' }).count()) === 0);
+        const back = page.getByRole('link', { name: 'Ολοκλήρωση παραγγελίας' }).first();
+        check('…and a link back to the checkout', (await back.getAttribute('href')) === '/checkout');
+
+        const number = decodeURIComponent(new URL(page.url()).pathname.split('/')[2] ?? '');
+        const cancelled = await orderByNumber(number);
+        check('the order is cancelled and unpaid, with no payment flag', cancelled.status === 'cancelled' && cancelled.paymentStatus === 'pending' && cancelled.paymentFlag === null, { status: cancelled.status, paymentStatus: cancelled.paymentStatus, flag: cancelled.paymentFlag });
+        check('its stock went back at once (not after two hours)', (await stockOfPick()) === 10, await stockOfPick());
+        const events = (await eventsOf(cancelled.id)).map((event) => event.message);
+        check('the timeline has the failed start and the cancellation with its reason', events.some((m) => m.includes('Δεν ήταν δυνατή η έναρξη')) && events.some((m) => m.startsWith('Η παραγγελία ακυρώθηκε: η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει')), events);
+        const cartLines = await page.evaluate(() => (JSON.parse(localStorage.getItem('oilcenter-cart') ?? '{}') as { state?: { lines?: unknown[] } }).state?.lines?.length ?? 0);
+        check('the cart still has its lines, so the buyer can check out again', cartLines === 1, cartLines);
       } finally {
         fake.failCreateOrder = false;
+        await db.update(variants).set({ trackStock: false, stock: 0 }).where(eq(variants.id, pick.variantId));
         await ctx.close();
       }
     };
