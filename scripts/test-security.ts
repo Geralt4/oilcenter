@@ -4,7 +4,8 @@
  * Covers the deployment-level commerce switch (COMMERCE_ENABLED=false): no order creation, no accounts,
  * no payment sessions — regardless of the owner's settings, a logged-in admin, or a real order in the database.
  */
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { cloneDatabase } from './test-db';
@@ -662,6 +663,37 @@ async function main() {
     }
     check('cloneDatabase refuses a database that is not a local file', refused.includes('must be a local file'), refused);
     check('…and does not print the host it refused', !refused.includes('turso.io'), refused);
+  }
+
+  console.log('seed --force');
+  {
+    const { db } = await import('../src/lib/db');
+    const { products, variants } = await import('../src/lib/db/schema');
+    const { count } = await import('drizzle-orm');
+    const catalogue = JSON.parse(readFileSync('catalog/catalog.json', 'utf8')) as { products: Array<{ slug: string; variants: unknown[] }> };
+    const seed = (env: Record<string, string>, cwd = process.cwd()) =>
+      spawnSync(path.resolve('node_modules/.bin/tsx'), [path.resolve('scripts/seed.ts'), '--force'], { cwd, env: { ...process.env, TSX_TSCONFIG_PATH: path.resolve('tsconfig.json'), ...env }, encoding: 'utf8' });
+    const totals = async () => [(await db.select({ n: count() }).from(products))[0].n, (await db.select({ n: count() }).from(variants))[0].n];
+    const before = await totals();
+
+    const hosted = seed({ DATABASE_URL: 'libsql://hosted-shop.example.turso.io', DATABASE_AUTH_TOKEN: 'x' });
+    check('--force refuses a hosted database before touching it', hosted.status === 1 && hosted.stderr.includes('only works on a local file database'), [hosted.status, hosted.stderr.slice(0, 200)]);
+
+    // a catalogue that breaks half-way (the same slug twice): the wipe must roll back with it
+    const broken = path.join(dir, 'broken-catalogue');
+    mkdirSync(path.join(broken, 'catalog'), { recursive: true });
+    const bad = structuredClone(catalogue);
+    bad.products[5].slug = bad.products[0].slug;
+    writeFileSync(path.join(broken, 'catalog', 'catalog.json'), JSON.stringify(bad));
+    const failed = seed({}, broken);
+    const afterFailure = await totals();
+    check('--force on a catalogue that fails half-way exits non-zero', failed.status !== 0, failed.status);
+    check('…and the old catalogue is still all there (wipe and re-insert are one transaction)', before[0] > 0 && afterFailure.join() === before.join(), [before, afterFailure]);
+
+    const ok = seed({});
+    const afterOk = await totals();
+    const sizes = catalogue.products.reduce((n, p) => n + p.variants.length, 0);
+    check('--force with a good catalogue replaces it completely', ok.status === 0 && afterOk[0] === catalogue.products.length && afterOk[1] === sizes, [ok.status, afterOk, ok.stderr.slice(0, 200)]);
   }
 
   console.log('package.json');
