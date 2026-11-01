@@ -4,7 +4,7 @@
  * Covers the deployment-level commerce switch (COMMERCE_ENABLED=false): no order creation, no accounts,
  * no payment sessions — regardless of the owner's settings, a logged-in admin, or a real order in the database.
  */
-import { rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { cloneDatabase } from './test-db';
 
@@ -593,6 +593,14 @@ async function main() {
     } finally {
       statLimits.dailyNewKeys = savedCap;
     }
+  }
+
+  console.log('package.json');
+  {
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string> };
+    // every `tsx scripts/<file>` an npm script runs must exist (the `images` script once pointed at a file that was never there)
+    const missing = Object.entries(pkg.scripts).flatMap(([name, cmd]) => [...cmd.matchAll(/\btsx\s+(scripts\/[\w.-]+\.ts)/g)].map((m) => ({ name, file: m[1] }))).filter((s) => !existsSync(s.file));
+    check('every npm script that runs a tsx file points at a file that exists', missing.length === 0, missing);
   }
 }
 
