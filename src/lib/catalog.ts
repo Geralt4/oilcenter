@@ -5,7 +5,7 @@ import { bestAvailability, effectiveAvailability, type Availability } from '@/li
 import { db } from '@/lib/db';
 import { brands, categories, productImages, products, variants, type BaseType, type Brand, type Category } from '@/lib/db/schema';
 import { brandAliases, brandWords, compactGrades, greeklish, matchesTerm, searchTerms } from '@/lib/search-keywords';
-import { getSaleContext, withSale } from '@/lib/sales';
+import { getSaleContext, withSale, type SaleContext } from '@/lib/sales';
 import { normalizeText } from '@/lib/utils';
 
 /*
@@ -75,6 +75,20 @@ export const BASE_TYPE_LABELS: Record<BaseType, string> = {
   mineral: 'Ορυκτέλαιο',
 };
 
+/**
+ * A size as a visitor may see it: the running sale applied; a price the owner has not confirmed never leaves the server
+ * (0, no «was» price, no sale); a «was» price only when it is higher than the price. Every storefront read goes through here.
+ */
+function shopPrices<V extends { priceVerified: boolean; priceCents: number; compareAtCents: number | null }>(
+  ctx: SaleContext,
+  product: { id: number; brandId: number | null; categoryId: number | null },
+  variant: V,
+) {
+  const v = withSale(ctx, product, variant, variant.priceVerified);
+  if (!v.priceVerified) return { ...v, priceCents: 0, compareAtCents: null, saleId: null };
+  return { ...v, compareAtCents: v.compareAtCents && v.compareAtCents > v.priceCents ? v.compareAtCents : null };
+}
+
 const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
   const [productRows, variantRows, imageRows, brandRows, saleCtx] = await Promise.all([
     db.select().from(products).where(eq(products.isActive, true)),
@@ -93,7 +107,7 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
   for (const row of variantRows) {
     const owner = productById.get(row.productId);
     if (!owner) continue;
-    const v = withSale(saleCtx, owner, row, row.priceVerified);
+    const v = shopPrices(saleCtx, owner, row);
     const list = variantsByProduct.get(v.productId) ?? [];
     const availability = effectiveAvailability(v);
     list.push({
@@ -104,8 +118,8 @@ const loadIndex = cache(async (): Promise<IndexedProduct[]> => {
       label: v.label,
       volumeMl: v.volumeMl,
       priced: v.priceVerified,
-      priceCents: v.priceVerified ? v.priceCents : 0,
-      compareAtCents: v.priceVerified && v.compareAtCents && v.compareAtCents > v.priceCents ? v.compareAtCents : null,
+      priceCents: v.priceCents,
+      compareAtCents: v.compareAtCents,
       availability,
       inStock: availability !== 'unavailable',
       stockLeft: v.trackStock ? v.stock : null,
@@ -207,6 +221,23 @@ export async function getCategoryBySlug(slug: string): Promise<{ node: CategoryN
     return null;
   };
   return walk(tree, []);
+}
+
+/**
+ * The slugs that have a page in the shop right now: listed products, brands with products, active categories — the same
+ * lists the product, brand and category pages look themselves up in. The statistics count views only for these.
+ */
+export async function catalogSlugs(): Promise<{ product: Set<string>; brand: Set<string>; category: Set<string> }> {
+  const [index, brandList, tree] = await Promise.all([loadIndex(), getBrands(), getCategoryTree()]);
+  const category = new Set<string>();
+  const walk = (nodes: CategoryNode[]) => {
+    for (const n of nodes) {
+      category.add(n.slug);
+      walk(n.children);
+    }
+  };
+  walk(tree);
+  return { product: new Set(index.map((p) => p.slug)), brand: new Set(brandList.map((b) => b.slug)), category };
 }
 
 export async function getCategoryTrailById(id: number | null): Promise<CategoryNode[]> {
@@ -547,6 +578,10 @@ export async function suggestProducts(q: string, limit = 6): Promise<CatalogProd
 }
 
 // ─── Product detail ──────────────────────────────────────────────────────────
+/**
+ * The product page's data. Sizes whose price the owner has not confirmed come back with `priceCents` 0 and no «was» price
+ * (and `priceVerified` false, so the page says «Καλέστε για τιμή»): a placeholder price never leaves the server, same as in the listing.
+ */
 export async function getProductBySlug(slug: string) {
   const product = await db.query.products.findFirst({
     where: and(eq(products.slug, slug), eq(products.isActive, true)),
@@ -559,7 +594,7 @@ export async function getProductBySlug(slug: string) {
   });
   if (!product || product.variants.length === 0) return null;
   const saleCtx = await getSaleContext();
-  return { ...product, variants: product.variants.map((v) => withSale(saleCtx, product, v, v.priceVerified)) };
+  return { ...product, variants: product.variants.map((v) => shopPrices(saleCtx, product, v)) };
 }
 
 export type ProductDetail = NonNullable<Awaited<ReturnType<typeof getProductBySlug>>>;

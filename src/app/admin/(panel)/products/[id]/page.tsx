@@ -1,9 +1,10 @@
 import { notFound } from 'next/navigation';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, isNull } from 'drizzle-orm';
 import { ProductEditor } from '@/components/admin/product-editor';
 import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { productImages, products, variants } from '@/lib/db/schema';
+import { productHasHistory } from '@/lib/product-history';
 
 export const metadata = { title: 'Επεξεργασία προϊόντος' };
 
@@ -16,8 +17,8 @@ export default async function AdminProductPage({ params, searchParams }: { param
   if (!Number.isInteger(id)) notFound();
   const product = await db.query.products.findFirst({
     where: eq(products.id, id),
-    with: { images: { orderBy: [asc(productImages.sort), asc(productImages.id)] }, variants: { orderBy: [asc(variants.sort), asc(variants.id)] } },
+    with: { images: { orderBy: [asc(productImages.sort), asc(productImages.id)] }, variants: { where: isNull(variants.archivedAt), orderBy: [asc(variants.sort), asc(variants.id)] } },
   });
   if (!product) notFound();
-  return <ProductEditor product={product} created={sp.created === '1'} saved={sp.saved === '1'} />;
+  return <ProductEditor product={product} created={sp.created === '1'} saved={sp.saved === '1'} hasHistory={await productHasHistory(id)} />;
 }

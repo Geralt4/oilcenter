@@ -1,0 +1,1 @@
+ALTER TABLE `variants` ADD `archived_at` integer;

@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { asc } from 'drizzle-orm';
 import { ExternalLink, Star, Trash2, TriangleAlert } from 'lucide-react';
 import { deleteProduct, imageAction, saveProduct } from '@/app/admin/actions';
-import { AdminForm, ConfirmButton } from '@/components/admin/admin-form';
+import { AdminForm, ConfirmActionForm, ConfirmButton } from '@/components/admin/admin-form';
 import { UploadField } from '@/components/admin/upload-field';
 import { Card, Check, Field, PageHeader } from '@/components/admin/ui';
 import { VariantsEditor, type VariantRow } from '@/components/admin/variants-editor';
@@ -11,11 +11,12 @@ import { BASE_TYPE_LABELS } from '@/lib/catalog';
 import { db } from '@/lib/db';
 import { brands, categories, type Product, type ProductImage, type Variant } from '@/lib/db/schema';
 import { GHS_PICTOGRAMS, GHS_PICTOGRAM_CODES, SIGNAL_WORDS, unknownCodes } from '@/lib/ghs';
+import { PRODUCT_HAS_HISTORY } from '@/lib/product-history';
 import { centsToInput } from '@/lib/utils';
 
-type Props = { product?: Product & { images: ProductImage[]; variants: Variant[] }; created?: boolean; saved?: boolean };
+type Props = { product?: Product & { images: ProductImage[]; variants: Variant[] }; created?: boolean; saved?: boolean; hasHistory?: boolean };
 
-export async function ProductEditor({ product, created, saved }: Props) {
+export async function ProductEditor({ product, created, saved, hasHistory = false }: Props) {
   const [brandRows, categoryRows] = await Promise.all([db.select().from(brands).orderBy(asc(brands.name)), db.select().from(categories).orderBy(asc(categories.sort))]);
   const parents = new Map(categoryRows.map((c) => [c.id, c.name]));
   const hazard = product?.hazard ?? null;
@@ -153,13 +154,18 @@ export async function ProductEditor({ product, created, saved }: Props) {
       </AdminForm>
 
       {product && (
-        <form action={deleteProduct} className="mt-10 border-t border-line pt-6">
-          <input type="hidden" name="id" value={product.id} />
-          <ConfirmButton message={`Οριστική διαγραφή του «${product.name}»; Οι παλιές παραγγελίες που το περιέχουν δεν επηρεάζονται.`} className="flex h-10 cursor-pointer items-center gap-2 rounded-xl px-3.5 text-sm font-semibold text-red-700 hover:bg-red-50">
+        <div className="mt-10 border-t border-line pt-6">
+          <ConfirmActionForm
+            action={deleteProduct}
+            hidden={{ id: String(product.id) }}
+            disabled={hasHistory}
+            confirm={`Οριστική διαγραφή του «${product.name}»; Δεν αναιρείται.`}
+            buttonClassName="flex h-10 cursor-pointer items-center gap-2 rounded-xl px-3.5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-ink-400 disabled:hover:bg-transparent"
+          >
             <Trash2 className="h-4 w-4" />Διαγραφή προϊόντος
-          </ConfirmButton>
-          <p className="mt-1 px-3.5 text-xs text-ink-500">Αν απλώς δεν το έχετε προσωρινά, προτιμήστε να το κάνετε ανενεργό.</p>
-        </form>
+          </ConfirmActionForm>
+          <p className="mt-1 px-3.5 text-xs text-ink-500">{hasHistory ? PRODUCT_HAS_HISTORY : 'Αν απλώς δεν το έχετε προσωρινά, προτιμήστε να το κάνετε ανενεργό.'}</p>
+        </div>
       )}
     </>
   );

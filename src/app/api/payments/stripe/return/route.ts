@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     const orderUrl = `${siteUrl()}/order/${order.number}?t=${order.accessToken}`;
     if (session.paid) {
       // attemptRef: the checkout that was paid, so a payment on an order already marked paid by hand is recognised (as with Viva)
-      const outcome = await settleCardPayment(order, { provider: 'stripe', ref: session.paymentIntent ?? sessionId, amountCents: session.amountCents, attemptRef: sessionId });
+      const outcome = await settleCardPayment(order, { provider: 'stripe', ref: session.paymentIntent ?? sessionId, amountCents: session.amountCents, currency: session.currency, attemptRef: sessionId });
       // a payment that does not add up, or that belongs to a cancelled or refunded order, must not get the "thank you" page
       // (the Viva route does the same)
       const settled = outcome === 'paid' || outcome === 'already_paid' || outcome === 'paid_after_manual';

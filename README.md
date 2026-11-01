@@ -27,10 +27,14 @@ Admin login = `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env.local`. Change the pas
 | `npm run db:generate` | create a new migration after editing `src/lib/db/schema.ts` |
 | `npm run admin:create -- <email> <password> [name]` | add an admin or reset a password |
 | `npm run catalog:build` | rebuild `catalog/catalog.json` + `public/catalog/*.webp` from the client's photos |
-| `npm run test:orders` | order-logic regression test, incl. availability (runs on a throwaway snapshot of the DB) |
-| `npm run test:feed` | Skroutz feed regression test: what is listed, valid XML, barcodes (same throwaway snapshot) |
-| `npm run test:security` | commerce switch, MFA, limits, upload tokens/deadline/rollback and backup encryption |
-| `npm run test:flows` | real browser flow on a throwaway DB: login + TOTP, confirmed database download, CSV import, photo/SDS save (builds first) |
+| `npm run test:orders` | order-logic regression test, incl. availability and payment outcomes (runs on a throwaway snapshot of the DB) — 290 checks |
+| `npm run test:viva` | Viva adapter with a mocked `fetch`: create, return, webhook, IP allow-list, unmatched payments — 190 checks |
+| `npm run test:admin` | admin actions: prices and CSV round trip, sales, coupons, orders and payment review, categories, product sizes, IBANs, customer and admin sign-in limits, given-up payment mails, registration and account activation, products with history kept — 311 checks |
+| `npm run test:catalog` | catalogue data, search, sizes and hazard tables — 120 checks |
+| `npm run test:security` | commerce switch, MFA, limits, upload tokens/deadline/rollback, backup encryption and statistics limits — 149 checks |
+| `npm run test:feed` | Skroutz feed regression test: what is listed, valid XML, barcodes, cache and rate limit (same throwaway snapshot) — 104 checks |
+| `npm run test:flows` | real browser flow on a throwaway DB: login + TOTP, confirmed database download, CSV import, photo/SDS save, statistics page, resending a payment mail (builds first) — 62 checks |
+| `npm run test:card` | whole card journey in a browser against a fake Viva server, plus registration and activation of a customer account (builds first) — 61 checks |
 | `npm run lint` / `typecheck` | ESLint / TypeScript |
 
 ## ⚠️ Before going live
@@ -97,6 +101,9 @@ What the deployment-level protections do and where they live — read together w
 - **Startup checks:** a production boot fails loudly (`src/instrumentation.ts` → `src/lib/startup-check.ts`) when
   `AUTH_SECRET` is missing/short, `SITE_URL` is absent or not https, or `COMMERCE_ENABLED` holds a nonsense value.
   A restart loop with a clear log message beats a silently misconfigured site. Deliberately skipped during `next build`.
+  One non-fatal warning is logged (`[startup] WARNING:`) when mail goes through Resend (`RESEND_API_KEY`), `MAIL_FROM` is
+  empty and commerce is on: the sender would be Resend's test address, which reaches only the Resend account's own mailbox.
+  The admin dashboard checklist shows the same thing.
 - **Login throttling:** both logins use two limits that only count the visitor's own address — per address+e-mail (8 tries
   per 15 minutes for customers, 6 for admins) and an address-wide pool (20 per 15 minutes, against spraying) — so a stranger
   cannot spend somebody else's tries. On top sits one account-wide ceiling that counts **failed passwords only**, from any
@@ -106,6 +113,16 @@ What the deployment-level protections do and where they live — read together w
   can trip it (two for a customer, about three for an admin without 2FA).
   Counters live in SQLite (`rate_limits`, keys hashed with SHA-256, never raw addresses; indexed, bounded cleanup), so a
   restart or redeploy does not reset them.
+- **Customer registration and activation:** registering answers the same for a new and an already registered e-mail
+  («Σας στείλαμε e-mail…», the password is hashed on both paths) and opens no session. A new address gets an account that
+  cannot sign in yet and a single-use activation link (stored hashed, valid 24 h) to `/activate`. Opening that page only
+  checks the link (mail scanners open links before the customer does); the button «Ενεργοποίηση λογαριασμού» spends it,
+  activates the account and signs the customer in. The page sends `Referrer-Policy: no-referrer` and is not indexed;
+  `/api/account/activate`, the address of the first mails, only forwards there. A registered address gets a short notice with sign-in and reset links, at most 3 an hour, and
+  the account is not touched. Signing in to an account that was never activated is refused with a link to
+  `/resend-activation` (5 requests per 30 minutes per address of the visitor, 3 per hour per e-mail, same answer whatever
+  the e-mail). A password reset also activates the account. Customers from before migration 0022 were activated by its
+  backfill. Guest checkout and the order lookup do not need an account.
 - **Admin two-step verification (TOTP):** Admin → Ρυθμίσεις → «Επαλήθευση δύο βημάτων» enrolls an authenticator app
   (QR code). Once confirmed, every admin login also requires the 6-digit code; each code is **single-use** (its time step
   is burned in the database, so replay inside the 30 s window fails), and separate limits guard guessing the code (5 wrong codes per address and 10 per account, per 15 minutes; the account cap is only reachable with the right password). Turning
@@ -168,7 +185,7 @@ What the deployment-level protections do and where they live — read together w
 
 A review of two local competitors (lazaridis-lubricants.gr, todos.gr) produced seven additions. None copies their
 material; each is a common technique built from this shop's own data. Everything that needs the owner's input ships
-empty or switched off and **renders nothing until he fills it in**. `npm run test:catalog` (73 checks) covers the logic.
+empty or switched off and **renders nothing until he fills it in**. `npm run test:catalog` covers the logic.
 
 - **Viscosity pages** — `/viscosity` and `/viscosity/5w-30`. Filtered listings are `noindex` with `/products` as their
   canonical, so nothing could rank for «λάδια 5W-30»; each SAE grade now has an indexable page whose title, intro and

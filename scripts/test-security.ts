@@ -19,7 +19,7 @@ async function main() {
   // Set BEFORE importing: the flag is read per call, but every module here should see the restricted deployment.
   process.env.COMMERCE_ENABLED = 'false';
   dir = await cloneDatabase('oc-sec-');
-  const { eq } = await import('drizzle-orm');
+  const { eq, sql } = await import('drizzle-orm');
   const { db } = await import('../src/lib/db');
   const { orders } = await import('../src/lib/db/schema');
   const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
@@ -128,7 +128,41 @@ async function main() {
   check('a nonsense COMMERCE_ENABLED is reported', weird.some((p) => p.includes('COMMERCE_ENABLED')), weird);
   const good = cfg('x'.repeat(48), 'https://www.oilcenter.gr', 'false');
   check('a complete production configuration passes', good.length === 0, good);
-  process.env.AUTH_SECRET = saved.secret; process.env.SITE_URL = saved.site; process.env.COMMERCE_ENABLED = saved.commerce;
+
+  // Non-fatal warning: Resend without MAIL_FROM while commerce is on
+  const { checkProductionWarnings } = await import('../src/lib/startup-check');
+  const mailEnv = ['RESEND_API_KEY', 'MAIL_FROM', 'SMTP_HOST', 'COMMERCE_ENABLED'] as const;
+  const savedMail = Object.fromEntries(mailEnv.map((n) => [n, process.env[n]]));
+  const warnWith = (env: Partial<Record<(typeof mailEnv)[number], string>>): string[] => {
+    for (const n of mailEnv) delete process.env[n];
+    for (const [n, v] of Object.entries(env)) process.env[n] = v;
+    return checkProductionWarnings();
+  };
+  const noSender = warnWith({ RESEND_API_KEY: 're_test' });
+  check('Resend without MAIL_FROM while commerce is on → one warning naming MAIL_FROM', noSender.length === 1 && noSender[0].includes('MAIL_FROM'), noSender);
+  const blankSender = warnWith({ RESEND_API_KEY: 're_test', MAIL_FROM: '   ' });
+  check('…a blank MAIL_FROM counts as unset', blankSender.length === 1, blankSender);
+  const explicitCommerce = warnWith({ RESEND_API_KEY: 're_test', COMMERCE_ENABLED: 'true' });
+  check('…also with COMMERCE_ENABLED=true', explicitCommerce.length === 1, explicitCommerce);
+  const withSender = warnWith({ RESEND_API_KEY: 're_test', MAIL_FROM: 'Oil Center <no-reply@oilcenter.gr>' });
+  check('no warning when MAIL_FROM is set', withSender.length === 0, withSender);
+  const catalogue = warnWith({ RESEND_API_KEY: 're_test', COMMERCE_ENABLED: 'false' });
+  check('no warning in catalogue mode (COMMERCE_ENABLED=false)', catalogue.length === 0, catalogue);
+  const smtpOnly = warnWith({ SMTP_HOST: 'smtp.example.gr' });
+  check('no warning when mail goes through SMTP', smtpOnly.length === 0, smtpOnly);
+  const fileFallback = warnWith({});
+  check('no warning with the file fallback (no Resend, no SMTP)', fileFallback.length === 0, fileFallback);
+  const fatalToo = (() => {
+    for (const n of mailEnv) delete process.env[n];
+    process.env.RESEND_API_KEY = 're_test';
+    return cfg('x'.repeat(48), 'https://www.oilcenter.gr', undefined);
+  })();
+  check('the warning is not a boot-stopping problem', fatalToo.length === 0, fatalToo);
+  for (const n of mailEnv) { if (savedMail[n] === undefined) delete process.env[n]; else process.env[n] = savedMail[n]; }
+
+  if (saved.secret === undefined) delete process.env.AUTH_SECRET; else process.env.AUTH_SECRET = saved.secret;
+  if (saved.site === undefined) delete process.env.SITE_URL; else process.env.SITE_URL = saved.site;
+  if (saved.commerce === undefined) delete process.env.COMMERCE_ENABLED; else process.env.COMMERCE_ENABLED = saved.commerce;
 
   console.log('Admin second factor (TOTP)');
   const { newTotpSecret, totpFor, totpStep, totpUri, verifyTotp } = await import('../src/lib/auth/totp');
@@ -216,6 +250,130 @@ async function main() {
   const badBackupKey = cfg('x'.repeat(48), 'https://www.oilcenter.gr', 'false');
   check('a bad BACKUP_ENCRYPTION_KEY is reported', badBackupKey.some((p) => p.includes('BACKUP_ENCRYPTION_KEY')), badBackupKey);
   delete process.env.B2_KEY_ID; delete process.env.B2_APP_KEY; delete process.env.B2_BUCKET; delete process.env.BACKUP_ENCRYPTION_KEY;
+
+  console.log('Off-site backup: timeouts and stuck runs');
+  {
+    const { B2Error, ensureOffsiteBackup, offsiteIsFresh, offsiteLimits, offsiteStatus, pushSnapshotNow, uploadTimeoutMs } = await import('../src/lib/backup-offsite');
+    const nodePath = (await import('node:path')).default;
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const lim0 = { ...offsiteLimits };
+    check('the limits: 30 s for a call, 60 s + 4 s per MiB for an upload, 2 h before a run is taken for dead', lim0.callMs === 30_000 && lim0.uploadBaseMs === 60_000 && lim0.uploadPerMibMs === 4_000 && lim0.staleMs === 7_200_000, lim0);
+    check('an upload of 5 MiB gets 80 s, an empty one 60 s, and the cap holds', uploadTimeoutMs(5 * 1024 * 1024) === 80_000 && uploadTimeoutMs(0) === 60_000 && uploadTimeoutMs(10_000 * 1024 * 1024) === 1_800_000);
+
+    // a fake B2: every step answers, hangs (and gives up when its signal aborts, like the real fetch) or answers an HTTP error
+    type Rule = 'hang' | 'deaf' | number;
+    let rules: Partial<Record<string, Rule>> = {};
+    const release: Array<() => void> = [];
+    const stepOf = (url: string) => url.includes('b2_authorize_account') ? 'authorize' : url.includes('b2_list_buckets') ? 'bucket' : url.includes('b2_list_file_names') ? 'list' : url.includes('b2_get_upload_url') ? 'upload URL' : url.includes('up.b2.test') ? 'upload' : 'cleanup';
+    const answers: Record<string, unknown> = {
+      authorize: { apiUrl: 'https://api.b2.test', authorizationToken: 't', accountId: 'acc' },
+      bucket: { buckets: [{ bucketId: 'b1', bucketName: 'bucket-test' }] },
+      list: { files: [], nextFileName: null },
+      'upload URL': { uploadUrl: 'https://up.b2.test/file', authorizationToken: 'u' },
+      upload: {},
+      cleanup: { files: [], nextFileName: null, nextFileId: null },
+    };
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const step = stepOf(String(input));
+      const rule = rules[step];
+      if (rule === 'hang') return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)));
+      // a hang the deadline cannot reach: it ignores the signal until the test lets it go, and then fails
+      if (rule === 'deaf') { await new Promise<void>((resolve) => release.push(resolve)); throw new Error('connection reset'); }
+      if (typeof rule === 'number') return new Response('boom', { status: rule });
+      return new Response(JSON.stringify(answers[step]));
+    }) as typeof fetch;
+
+    const saved = { data: process.env.DATA_DIR, key: process.env.BACKUP_ENCRYPTION_KEY };
+    const offDir = nodePath.join(dir, 'offsite-data');
+    await mkdir(nodePath.join(offDir, 'backups'), { recursive: true });
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Athens' }).format(new Date());
+    await writeFile(nodePath.join(offDir, 'backups', `shop-${day}.db.gz`), 'a tiny snapshot');
+    process.env.DATA_DIR = offDir;
+    process.env.B2_KEY_ID = 'k'; process.env.B2_APP_KEY = 'a'; process.env.B2_BUCKET = 'bucket-test';
+    process.env.BACKUP_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
+    offsiteLimits.callMs = 150; offsiteLimits.uploadBaseMs = 150; offsiteLimits.uploadPerMibMs = 0; offsiteLimits.uploadMaxMs = 150; offsiteLimits.staleMs = 400;
+
+    const attempt = async () => {
+      const t = Date.now();
+      try {
+        return { result: await ensureOffsiteBackup(), err: null as unknown as InstanceType<typeof B2Error>, ms: Date.now() - t };
+      } catch (err) {
+        return { result: null, err: err as InstanceType<typeof B2Error>, ms: Date.now() - t };
+      }
+    };
+    const steps = ['authorize', 'bucket', 'list', 'upload URL', 'upload', 'cleanup'];
+    // AbortSignal.timeout timers do not keep a process alive, and the fake fetch has no socket: hold the loop open while the section runs
+    const keepAlive = setInterval(() => undefined, 1000);
+    try {
+      for (const step of steps) {
+        rules = { [step]: 'hang' };
+        const r = await attempt();
+        check(`a «${step}» call that never answers fails within the limit and says so`, r.err instanceof B2Error && r.err.step === step && r.err.timedOut && r.err.message.includes(step) && r.err.message.includes('timed out') && r.ms < 2000, { message: r.err?.message, ms: r.ms });
+        const status = await offsiteStatus();
+        check('…the failure is recorded with the step', status?.ok === false && (status.error ?? '').includes(step), status);
+        rules = {};
+        const next = await attempt();
+        check('…and the next run goes ahead (the flag was reset)', next.result === 'uploaded', next.err?.message ?? next.result);
+      }
+      for (const step of steps) {
+        rules = { [step]: 500 };
+        const r = await attempt();
+        check(`an HTTP 500 at «${step}» names the step and is not a timeout`, r.err instanceof B2Error && r.err.step === step && !r.err.timedOut && r.err.message.includes(step) && r.err.message.includes('500'), r.err?.message);
+        rules = {};
+        check('…and the next run goes ahead', (await attempt()).result === 'uploaded');
+      }
+
+      // a hang the deadline cannot reach: the run stays marked as running until the stale limit passes
+      rules = { authorize: 'deaf' };
+      const warnings: string[] = [];
+      const realWarn = console.warn;
+      console.warn = (...args: unknown[]) => void warnings.push(args.join(' '));
+      try {
+        const stuck = ensureOffsiteBackup().then(() => 'finished', (err: Error) => err.message);
+        await sleep(20);
+        check('while a run is young, the next call leaves it alone', (await ensureOffsiteBackup()) === 'exists' && warnings.length === 0, warnings);
+        await sleep(450);
+        const takeover = ensureOffsiteBackup().then(() => 'finished', (err: Error) => err.message);
+        await sleep(20);
+        check('a run marked as running past the stale limit is taken for dead, with a warning', warnings.length === 1 && warnings[0].includes('treating it as dead'), warnings);
+        release[0]();
+        check('the dead run failing late is reported to its own caller', (await stuck).includes('authorize'));
+        check('…and does not clear the flag of the run that replaced it', (await ensureOffsiteBackup()) === 'exists');
+        release[1]();
+        await takeover;
+        rules = {};
+        check('once the replacement ends, runs go ahead again', (await attempt()).result === 'uploaded');
+      } finally {
+        console.warn = realWarn;
+      }
+
+      // the time of the last success survives a failed attempt
+      const good = await offsiteStatus();
+      check('a successful run records the time of the success', good?.ok === true && good.lastOkAt === good.at, good);
+      rules = { upload: 500 };
+      await attempt();
+      const failed = await offsiteStatus();
+      check('a failed run keeps the time of the last success', failed?.ok === false && failed.lastOkAt === good?.at, failed);
+      check('…so the checklist stays green for a day after one failed run', offsiteIsFresh(failed));
+      const H = 3600 * 1000;
+      check('fresh at 25 h, not at 27 h', offsiteIsFresh({ at: Date.now(), ok: true, object: 'x', lastOkAt: Date.now() - 25 * H }) && !offsiteIsFresh({ at: Date.now(), ok: true, object: 'x', lastOkAt: Date.now() - 27 * H }));
+      check('a failed attempt after an old success is not fresh', !offsiteIsFresh({ at: Date.now(), ok: false, object: null, lastOkAt: Date.now() - 30 * H }));
+      check('a status file from before lastOkAt existed still reads right', offsiteIsFresh({ at: Date.now() - H, ok: true, object: 'x' }) && !offsiteIsFresh({ at: Date.now() - H, ok: false, object: null }) && !offsiteIsFresh(null));
+
+      // the «backup now» path has the same deadlines
+      rules = { upload: 'hang' };
+      const pushed = await pushSnapshotNow().then(() => null, (err: InstanceType<typeof B2Error>) => err);
+      check('«backup now» also gives up on a hung upload and says which step', pushed instanceof B2Error && pushed.step === 'upload' && pushed.timedOut, pushed?.message);
+    } finally {
+      clearInterval(keepAlive);
+      globalThis.fetch = realFetch;
+      Object.assign(offsiteLimits, lim0);
+      if (saved.data === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = saved.data;
+      if (saved.key === undefined) delete process.env.BACKUP_ENCRYPTION_KEY; else process.env.BACKUP_ENCRYPTION_KEY = saved.key;
+      delete process.env.B2_KEY_ID; delete process.env.B2_APP_KEY; delete process.env.B2_BUCKET;
+    }
+  }
 
   console.log('Request-size boundaries');
   const { readJsonLimited } = await import('../src/lib/form-size');
@@ -350,6 +508,92 @@ async function main() {
   check('one finished upload does not re-enable save', button.disabled && pendingUploadCount(fakeForm) === 1);
   endUpload(fakeForm);
   check('save is enabled only after the last upload finishes', !button.disabled && pendingUploadCount(fakeForm) === 0);
+
+  console.log('Statistics: visitor input cannot grow the counters table');
+  {
+    const { and: andOp } = await import('drizzle-orm');
+    const { statCounters, products, brands } = await import('../src/lib/db/schema');
+    const { recordEvent, athensDay, statLimits, statSearchKey, forgetStatSlugs, OTHER_SEARCH, OTHER_SOURCE } = await import('../src/lib/stats');
+    const day = athensDay();
+    let visitorNo = 0;
+    const ctx = () => ({ ip: `203.0.113.${++visitorNo % 250}`, userAgent: `Mozilla/5.0 test-${visitorNo}`, host: 'www.oilcenter.gr', ordersEnabled: false });
+    const countOf = async (kind: string, key: string) => (await db.select().from(statCounters).where(andOp(eq(statCounters.day, day), eq(statCounters.kind, kind), eq(statCounters.key, key))))[0]?.count ?? 0;
+    const rowsOf = async (kind: string) => (await db.select().from(statCounters).where(andOp(eq(statCounters.day, day), eq(statCounters.kind, kind)))).length;
+
+    const [product] = await db.select().from(products).where(eq(products.isActive, true)).limit(1);
+    const [brand] = product.brandId ? await db.select().from(brands).where(eq(brands.id, product.brandId)) : [];
+    forgetStatSlugs();
+    const known0 = await countOf('product', product.slug);
+    await recordEvent({ t: 'view', path: `/product/${product.slug}` }, ctx());
+    check('a view of an existing product is counted', (await countOf('product', product.slug)) === known0 + 1);
+    const productRows = await rowsOf('product');
+    const brandRows = await rowsOf('brand');
+    const categoryRows = await rowsOf('category');
+    const cartRows = await rowsOf('cart');
+    for (let i = 0; i < 20; i++) {
+      await recordEvent({ t: 'view', path: `/product/no-such-oil-${i}` }, ctx());
+      await recordEvent({ t: 'view', path: `/brand/no-such-brand-${i}` }, ctx());
+      await recordEvent({ t: 'view', path: `/category/no-such-category-${i}` }, ctx());
+      await recordEvent({ t: 'cart', slug: `no-such-oil-${i}` }, ctx());
+    }
+    check('views of unknown product, brand and category slugs add no rows', (await rowsOf('product')) === productRows && (await rowsOf('brand')) === brandRows && (await rowsOf('category')) === categoryRows, [await rowsOf('product'), productRows]);
+    check('…nor does a cart event for an unknown product', (await rowsOf('cart')) === cartRows);
+    const pv = await countOf('pageview', '/product');
+    await recordEvent({ t: 'view', path: '/product/no-such-oil-x' }, ctx());
+    check('…while the page view itself still counts in its section', (await countOf('pageview', '/product')) === pv + 1);
+    const cart0 = await countOf('cart', product.slug);
+    await recordEvent({ t: 'cart', slug: product.slug }, ctx());
+    check('a cart event for a listed product is counted', (await countOf('cart', product.slug)) === cart0 + 1);
+    if (brand) {
+      const b0 = await countOf('brand', brand.slug);
+      await recordEvent({ t: 'view', path: `/brand/${brand.slug}` }, ctx());
+      check('a view of an existing brand is counted', (await countOf('brand', brand.slug)) === b0 + 1);
+    }
+
+    // the slug list is cached, not read per view: a product switched off still counts until the list is read again
+    await db.update(products).set({ isActive: false }).where(eq(products.id, product.id));
+    const cachedN = await countOf('product', product.slug);
+    await recordEvent({ t: 'view', path: `/product/${product.slug}` }, ctx());
+    check('the slug list is reused between views (no lookup per hit)', (await countOf('product', product.slug)) === cachedN + 1);
+    forgetStatSlugs();
+    await recordEvent({ t: 'view', path: `/product/${product.slug}` }, ctx());
+    check('…and once read again, a product that is gone is no longer counted', (await countOf('product', product.slug)) === cachedN + 1);
+    await db.update(products).set({ isActive: true }).where(eq(products.id, product.id));
+    forgetStatSlugs();
+
+    check('search text is trimmed, lower-cased and its spaces collapsed', statSearchKey('   Castrol    EDGE   5W-30  ') === 'castrol edge 5w 30', statSearchKey('   Castrol    EDGE   5W-30  '));
+    check('…accents and final sigma folded as before', statSearchKey('Λάδι ΚΙΝΗΤΉΡΑ γρασσος') === 'λαδι κινητηρα γρασσοσ', statSearchKey('Λάδι ΚΙΝΗΤΉΡΑ γρασσος'));
+    const long = statSearchKey('motul '.repeat(30));
+    check('…a long search is cut to 60 characters at most', long.length <= 60 && long.startsWith('motul motul'), long.length);
+    check('…text with control characters is dropped', statSearchKey('castrol\u0000edge') === '' && statSearchKey('mobil\n1') === '' && statSearchKey('total\u007f') === '');
+    check('…empty, blank or one-letter text is dropped', statSearchKey('') === '' && statSearchKey('   ') === '' && statSearchKey(' ;; ') === '' && statSearchKey('a') === '');
+    const searchRows0 = await rowsOf('search');
+    await recordEvent({ t: 'search', q: 'motul\u0000injected', n: 3 }, ctx());
+    await recordEvent({ t: 'search', q: '   ', n: 3 }, ctx());
+    check('a dropped search writes nothing', (await rowsOf('search')) === searchRows0);
+    await recordEvent({ t: 'search', q: '  ELF   Evolution ', n: 2 }, ctx());
+    check('a counted search is stored normalised', (await countOf('search', 'elf evolution')) === 1);
+
+    // the daily cap: a small one, so the test does not need hundreds of rows
+    const savedCap = statLimits.dailyNewKeys;
+    const distinctNow = async () => (await db.select().from(statCounters).where(andOp(eq(statCounters.day, day), sql`${statCounters.kind} in ('search', 'search_empty')`, sql`${statCounters.key} <> ${OTHER_SEARCH}`))).length;
+    statLimits.dailyNewKeys = (await distinctNow()) + 3;
+    try {
+      for (let i = 0; i < 10; i++) await recordEvent({ t: 'search', q: `flood text ${i}`, n: i % 2 }, ctx());
+      check('the daily cap of new search keys holds (3 new keys, not 10)', (await distinctNow()) === statLimits.dailyNewKeys, await distinctNow());
+      const overflow = (await countOf('search', OTHER_SEARCH)) + (await countOf('search_empty', OTHER_SEARCH));
+      check(`…the other 7 are counted under «${OTHER_SEARCH}»`, overflow === 7, overflow);
+      const before = await countOf('search', 'elf evolution');
+      await recordEvent({ t: 'search', q: 'elf evolution', n: 2 }, ctx());
+      check('…a search already counted today still adds up after the cap', (await countOf('search', 'elf evolution')) === before + 1);
+      const sourcesNow = await rowsOf('source');
+      statLimits.dailyNewKeys = sourcesNow + 1;
+      for (let i = 0; i < 5; i++) await recordEvent({ t: 'view', path: '/', ref: `https://spam-${i}.example/` }, ctx());
+      check(`referrer hosts have the same cap, the rest under «${OTHER_SOURCE}»`, (await rowsOf('source')) === sourcesNow + 2 && (await countOf('source', OTHER_SOURCE)) === 4, [await rowsOf('source'), sourcesNow, await countOf('source', OTHER_SOURCE)]);
+    } finally {
+      statLimits.dailyNewKeys = savedCap;
+    }
+  }
 }
 
 main()

@@ -14,9 +14,10 @@ import { requireOrderingOrHistory } from '@/lib/catalogue-mode';
 
 export const metadata: Metadata = { title: 'Ο λογαριασμός μου', robots: { index: false, follow: false } };
 
-export default async function AccountPage() {
+export default async function AccountPage({ searchParams }: { searchParams: Promise<{ activated?: string }> }) {
   await requireOrderingOrHistory();
   const customer = await requireCustomer('/account');
+  const { activated } = await searchParams;
   const myOrders = await db.select().from(orders).where(eq(orders.customerId, customer.id)).orderBy(desc(orders.createdAt)).limit(50);
 
   return (
@@ -26,6 +27,7 @@ export default async function AccountPage() {
           <p className="eyebrow text-ink-500">Ο λογαριασμός μου</p>
           <h1 className="display mt-1 text-4xl sm:text-5xl">Γεια σας, {customer.firstName || 'φίλε μας'}</h1>
           <p className="mt-1 text-ink-600">{customer.email}</p>
+          {activated === '1' && <p role="status" className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">Ο λογαριασμός σας ενεργοποιήθηκε. Καλώς ήρθατε!</p>}
         </div>
         <form action={logoutCustomer}>
           <button type="submit" className={buttonClass({ variant: 'outline' })}><LogOut className="h-4 w-4" />Αποσύνδεση</button>

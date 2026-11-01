@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, isNull } from 'drizzle-orm';
 import type { Availability } from '@/lib/availability';
 import { BASE_TYPE_LABELS } from '@/lib/catalog';
 import { db } from '@/lib/db';
@@ -22,6 +22,8 @@ import { siteUrl } from '@/lib/site-url';
  *  - A size that is sold out, or that the owner marked "not available", is left out of the file; Skroutz then shows it
  *    as unavailable until it returns.
  *  - <availability> follows the availability the owner set per size (lib/availability.ts), in Skroutz's own phrases.
+ *  - Skroutz requires an image. A size uses its own photo, else the product's first one; with neither it is left out
+ *    (reason no_image, shown in Admin → Skroutz). Every image address is absolute https on the site's own origin.
  */
 
 export const FEED_PATH = '/feeds/skroutz.xml';
@@ -33,7 +35,7 @@ const MAX_EXTRA_IMAGES = 15;
  */
 const CATEGORY_ROOT = 'Αυτοκίνητο & Μοτοσυκλέτα';
 
-export type FeedExclusion = 'product_inactive' | 'size_inactive' | 'price_unconfirmed' | 'unavailable' | 'out_of_stock' | 'no_brand' | 'no_category';
+export type FeedExclusion = 'product_inactive' | 'size_inactive' | 'price_unconfirmed' | 'unavailable' | 'out_of_stock' | 'no_brand' | 'no_category' | 'no_image';
 
 export const FEED_EXCLUSION_LABELS: Record<FeedExclusion, string> = {
   price_unconfirmed: 'Η τιμή δεν έχει επιβεβαιωθεί',
@@ -41,6 +43,7 @@ export const FEED_EXCLUSION_LABELS: Record<FeedExclusion, string> = {
   out_of_stock: 'Εξαντλημένο (μετρημένο απόθεμα 0)',
   no_brand: 'Λείπει η μάρκα',
   no_category: 'Λείπει η κατηγορία',
+  no_image: 'Χωρίς φωτογραφία',
   size_inactive: 'Ανενεργή συσκευασία',
   product_inactive: 'Ανενεργό προϊόν',
 };
@@ -52,7 +55,8 @@ export type FeedItem = {
   id: string;
   name: string;
   link: string;
-  image: string | null;
+  /** absolute https address: an item without a photo is never built */
+  image: string;
   additionalImages: string[];
   category: string;
   priceCents: number;
@@ -124,7 +128,7 @@ export function feedName(brand: string, name: string, label: string): string {
 export async function buildSkroutzFeed(settings: ShopSettings, now: Date = new Date()): Promise<SkroutzFeed> {
   const [productRows, variantRows, imageRows, brandRows, categoryRows, saleCtx] = await Promise.all([
     db.select().from(products),
-    db.select().from(variants).orderBy(asc(variants.productId), asc(variants.sort), asc(variants.volumeMl)),
+    db.select().from(variants).where(isNull(variants.archivedAt)).orderBy(asc(variants.productId), asc(variants.sort), asc(variants.volumeMl)),
     db.select().from(productImages).orderBy(asc(productImages.sort), asc(productImages.id)),
     db.select().from(brands),
     db.select().from(categories),
@@ -132,7 +136,16 @@ export async function buildSkroutzFeed(settings: ShopSettings, now: Date = new D
   ]);
 
   const base = siteUrl();
-  const absolute = (url: string) => (/^https?:\/\//i.test(url) ? url : `${base}${url}`);
+  /**
+   * The address Skroutz can fetch, or null. Our own files (/catalog/…, /media/…) get the site's origin in front; a full https
+   * address passes. Anything else (blank, http://, //host, a path without its leading slash) is no usable image.
+   */
+  const feedImage = (url: string | null): string | null => {
+    const u = url?.trim();
+    if (!u) return null;
+    if (/^https:\/\//i.test(u)) return u;
+    return u.startsWith('/') && !u.startsWith('//') ? `${base}${u}` : null;
+  };
   const brandById = new Map(brandRows.map((b) => [b.id, b]));
   const categoryById = new Map(categoryRows.map((c) => [c.id, c]));
   const productById = new Map(productRows.map((p) => [p.id, p]));
@@ -172,12 +185,16 @@ export async function buildSkroutzFeed(settings: ShopSettings, now: Date = new D
     const brand = p.brandId ? brandById.get(p.brandId) : undefined;
     const name = feedName(brand?.name ?? '', p.name, v.label).trim();
     const category = categoryPath(p.categoryId);
+    const gallery = imagesByProduct.get(p.id) ?? [];
+    // the size's own photo, else the product's first one
+    const image = feedImage(v.imageUrl) ?? gallery.map(feedImage).find((u) => u !== null) ?? null;
 
     const reason: FeedExclusion | null = !p.isActive ? 'product_inactive'
       : !v.isActive ? 'size_inactive'
       : !v.priceVerified || v.priceCents <= 0 ? 'price_unconfirmed'
       : !brand ? 'no_brand'
       : !category ? 'no_category'
+      : !image ? 'no_image'
       : v.trackStock && v.stock <= 0 ? 'out_of_stock'
       : v.availability === 'unavailable' ? 'unavailable'
       : null;
@@ -186,10 +203,8 @@ export async function buildSkroutzFeed(settings: ShopSettings, now: Date = new D
       continue;
     }
 
-    const gallery = imagesByProduct.get(p.id) ?? [];
-    const main = v.imageUrl ?? gallery[0] ?? null;
     // photos of the OTHER pack sizes would show the wrong bottle: only shots that belong to no particular size are extras
-    const extras = gallery.filter((url) => url !== main && !sizeImages.get(p.id)?.has(url)).slice(0, MAX_EXTRA_IMAGES);
+    const extras = gallery.filter((url) => !sizeImages.get(p.id)?.has(url)).map(feedImage).filter((u): u is string => u !== null && u !== image).slice(0, MAX_EXTRA_IMAGES);
 
     const barcode = v.barcode ? normalizeGtin(v.barcode) : '';
     const specs: Array<[string, string]> = [];
@@ -206,8 +221,8 @@ export async function buildSkroutzFeed(settings: ShopSettings, now: Date = new D
       name,
       // the page opens on this pack size, so the price Skroutz sees there is the price in this file
       link: `${base}/product/${p.slug}${(activeSizes.get(p.id) ?? 0) > 1 ? `?v=${v.id}` : ''}`,
-      image: main ? absolute(main) : null,
-      additionalImages: extras.map(absolute),
+      image: image!,
+      additionalImages: extras,
       category,
       // what the shop charges: a running sale included, as Skroutz compares the feed with the page
       priceCents: withSale(saleCtx, p, v, v.priceVerified).priceCents,
@@ -234,7 +249,7 @@ export async function buildSkroutzFeed(settings: ShopSettings, now: Date = new D
     tag('id', item.id);
     tag('name', item.name);
     tag('link', item.link);
-    tag('image', item.image ?? '');
+    tag('image', item.image);
     for (const url of item.additionalImages) tag('additionalimage', url);
     tag('category', item.category);
     tag('price_with_vat', (item.priceCents / 100).toFixed(2));
@@ -269,11 +284,21 @@ export async function getFeedLog(): Promise<FeedLog> {
   return row && typeof row.value === 'object' && row.value !== null ? { ...EMPTY_LOG, ...(row.value as Partial<FeedLog>) } : EMPTY_LOG;
 }
 
+/**
+ * A read inside this window of the last one written for the same kind (SkroutzBot / anyone else) is not written down again:
+ * the line in Admin → Skroutz needs "when" and "how often", not one database write per request. In this process only.
+ */
+export const feedLogThrottle = { windowMs: 2 * 60_000, lastBot: 0, lastOther: 0 };
+
 /** Skroutz's downloader identifies itself as "SkroutzBot". Anyone can claim that name, so this is a diagnostic, not a gate. */
 export async function recordFeedFetch(userAgent: string, itemCount: number): Promise<void> {
-  const log = await getFeedLog();
   const isBot = /skroutzbot/i.test(userAgent);
   const now = Date.now();
+  const last = isBot ? feedLogThrottle.lastBot : feedLogThrottle.lastOther;
+  if (now - last < feedLogThrottle.windowMs) return;
+  if (isBot) feedLogThrottle.lastBot = now;
+  else feedLogThrottle.lastOther = now;
+  const log = await getFeedLog();
   const value: FeedLog = { lastAt: now, lastBotAt: isBot ? now : log.lastBotAt, botFetches: log.botFetches + (isBot ? 1 : 0), lastItems: itemCount };
   await db.insert(settingsTable).values({ key: LOG_KEY, value }).onConflictDoUpdate({ target: settingsTable.key, set: { value, updatedAt: new Date() } });
 }

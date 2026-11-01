@@ -58,6 +58,12 @@ const nextConfig: NextConfig = {
         source: '/catalog/:path*',
         headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
       },
+      // The activation link carries its token in the address: nothing this page loads or links to may receive it as a Referer.
+      // After the catch-all above, so this value replaces the general one.
+      {
+        source: '/activate',
+        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+      },
     ];
   },
   // Keep whatever search equity the 2015 static site still has.

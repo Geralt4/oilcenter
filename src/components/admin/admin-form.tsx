@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useActionState, useEffect } from 'react';
 import { LoaderCircle, Save } from 'lucide-react';
 import { buttonClass } from '@/components/ui/button';
 import { useKeptForm } from '@/components/ui/use-kept-form';
@@ -39,6 +39,39 @@ export function AdminForm({ action, children, submitLabel = 'Αποθήκευσ�
         </button>
         {state && <p role={state.ok ? 'status' : 'alert'} className={cn('text-sm font-medium', state.ok ? 'text-emerald-700' : 'text-red-700')}>{state.message}</p>}
       </div>
+    </form>
+  );
+}
+
+/**
+ * A destructive form that asks first and shows the action's refusal the way AdminForm shows a failed save. On success the action
+ * redirects, so only a refusal ever comes back.
+ */
+export function ConfirmActionForm({ action, confirm, hidden, disabled, children, buttonClassName, className }: {
+  action: (prev: AdminFormState, formData: FormData) => Promise<AdminFormState>;
+  confirm: string;
+  hidden: Record<string, string>;
+  disabled?: boolean;
+  children: React.ReactNode;
+  buttonClassName?: string;
+  className?: string;
+}) {
+  const [state, formAction, pending] = useActionState(action, null);
+  return (
+    <form action={formAction} className={className}>
+      {Object.entries(hidden).map(([name, value]) => <input key={name} type="hidden" name={name} value={value} />)}
+      <button
+        type="submit"
+        disabled={disabled || pending}
+        className={buttonClassName}
+        onClick={(e) => {
+          if (!window.confirm(confirm)) e.preventDefault();
+        }}
+      >
+        {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+        {children}
+      </button>
+      {state && !state.ok && <p role="alert" className="mt-1 px-3.5 text-sm font-medium text-red-700">{state.message}</p>}
     </form>
   );
 }

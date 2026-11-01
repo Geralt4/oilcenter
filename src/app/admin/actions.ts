@@ -4,27 +4,32 @@ import { unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq, inArray, isNull, lt, ne, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { AVAILABILITY, type Availability } from '@/lib/availability';
 import { hashPassword, randomToken, verifyPassword } from '@/lib/auth/password';
 import { newTotpSecret, totpStep } from '@/lib/auth/totp';
 import { createSession, createSudoSession, destroySession, destroySudoSession, getAdmin, hasSudoSession, requireAdmin, revokeAllSessions } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orders, priceChanges, productImages, products, sales, unmatchedPayments, variants, type BaseType, type OrderStatus, type PaymentStatus } from '@/lib/db/schema';
+import { adminUsers, brands, categories, contactMessages, coupons, launchSignups, orderItems, orders, priceChanges, productImages, products, sales, unmatchedPayments, variants, type BaseType, type OrderStatus, type PaymentStatus } from '@/lib/db/schema';
 import { orderStatusMail, sendMail } from '@/lib/email';
 import { forgetTarget } from '@/lib/discount-cleanup';
 import { cleanIds, hasTargets, type Targets } from '@/lib/discounts';
+import { commerceEnabled } from '@/lib/commerce-flag';
 import { buildHazard } from '@/lib/ghs';
 import { isValidGtin, normalizeGtin } from '@/lib/gtin';
+import { isValidIban, normalizeIban } from '@/lib/iban';
 import { addOrderEvent, cancelOrder, flagForReview, getOrderByNumber, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/orders';
+import { resendGivenUpMails } from '@/lib/payments/mail-delivery';
 import { applyPriceChanges } from '@/lib/price-apply';
+import { PRODUCT_HAS_HISTORY, productHasHistory } from '@/lib/product-history';
 import { describePriceImport, MAX_PRICE_CENTS, parseCsv, planPriceImport } from '@/lib/price-csv';
 import { accountFailuresBlocked, clientIp, loginBudgets, peekLimit, rateLimit, recordAccountFailure } from '@/lib/rate-limit';
 import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours, type ShopSettings } from '@/lib/settings';
 import { buildSearchText } from '@/lib/search-keywords';
 import { rebuildSearchTexts } from '@/lib/search-text';
 import { getSettings, saveSettingsGroup } from '@/lib/settings.server';
+import { invalidateSkroutzFeed } from '@/lib/skroutz-feed-cache';
 import { claimUpload, finishUpload, moveClaimed, readStagedText, releaseUpload } from '@/lib/uploads';
 import { normalizeText, parseAthensDate, parsePriceToCents, parseVolumeMl, slugify } from '@/lib/utils';
 
@@ -416,6 +421,16 @@ export async function resolvePaymentReview(fd: FormData): Promise<void> {
   revalidatePath(`/admin/orders/${id}`);
 }
 
+/** Order page: the payment mails of this order that were given up are tried again now (after the mail service is fixed). */
+export async function resendOrderMails(fd: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const id = int(fd, 'id');
+  await resendGivenUpMails(id, admin.name || admin.email);
+  revalidatePath('/admin');
+  revalidatePath('/admin/orders');
+  revalidatePath(`/admin/orders/${id}`);
+}
+
 /** A paid payment that matched no order has been dealt with (refunded in the gateway, order created by hand, …). */
 export async function resolveUnmatchedPayment(fd: FormData): Promise<void> {
   await requireAdmin();
@@ -484,6 +499,19 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     variantRows = z.array(VariantInput).min(1, 'Χρειάζεται τουλάχιστον μία συσκευασία').max(30).parse(JSON.parse(str(fd, 'variants') || '[]'));
   } catch (err) {
     return { ok: false, message: err instanceof z.ZodError ? (err.issues[0]?.message ?? 'Μη έγκυρες συσκευασίες') : 'Μη έγκυρες συσκευασίες.' };
+  }
+  // A saved size is removed only when the form names it here (the trash button). One that is merely missing from the form was
+  // added from another tab or by another administrator, and is left alone.
+  let removedIds: number[];
+  try {
+    removedIds = z.array(z.number().int().positive()).max(60).parse(JSON.parse(str(fd, 'removedVariantIds') || '[]'));
+  } catch {
+    return { ok: false, message: 'Η σελίδα είναι παλιά ή άκυρη: ανανεώστε τη και δοκιμάστε ξανά.' };
+  }
+  // The stock of a saved size is always applied as the owner's change on top of what is there now, which needs the figure the
+  // page was loaded with. The editor always sends it; a request without it did not come from the current form.
+  if (variantRows.some((v) => v.id !== undefined && v.loadedStock === undefined)) {
+    return { ok: false, message: 'Η σελίδα είναι παλιά: ανανεώστε τη και κάντε ξανά τις αλλαγές.' };
   }
   const priced = variantRows.map((v) => ({ ...v, priceCents: parsePriceToCents(v.price), compareAtCents: v.compareAt ? parsePriceToCents(v.compareAt) : null }));
   if (priced.some((v) => v.priceCents === null || v.priceCents <= 0 || v.priceCents > MAX_PRICE_CENTS)) return { ok: false, message: 'Κάθε συσκευασία χρειάζεται έγκυρη τιμή (π.χ. 12,90· για χιλιάδες γράψτε 1250 ή 1.250,00).' };
@@ -624,10 +652,31 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
       // one new photo and one size still on the main photo (of several): the photo is that size's
       const onMain = priced.flatMap((v, i) => (v.imageUrl && ownImages.has(v.imageUrl) ? [] : [i]));
       const lone = priced.length >= 2 && uploads.length === 1 && onMain.length === 1 ? onMain[0] : null;
-      const stored = await tx.select({ id: variants.id, priceCents: variants.priceCents, trackStock: variants.trackStock }).from(variants).where(eq(variants.productId, pid));
+      // archived sizes (below) are gone as far as this form is concerned
+      const stored = await tx.select({ id: variants.id, priceCents: variants.priceCents, trackStock: variants.trackStock }).from(variants).where(and(eq(variants.productId, pid), isNull(variants.archivedAt)));
       const before = new Map(stored.map((v) => [v.id, v.priceCents]));
       const trackedNow = new Set(stored.filter((v) => v.trackStock).map((v) => v.id));
-      await tx.delete(variants).where(keep.length ? and(eq(variants.productId, pid), notInArray(variants.id, keep)) : eq(variants.productId, pid));
+
+      // Only sizes the owner removed on purpose, of this product, and not sent back in the form. Before the writes below, so a new
+      // size in the same save can take over the code of the one removed.
+      const stillThere = new Set(keep);
+      const removing = removedIds.filter((rid) => !stillThere.has(rid) && before.has(rid));
+      if (removing.length) {
+        // A size with price history or past orders is hidden instead of deleted, so its history stays. Its codes are freed: a size
+        // added again later (the same SKU, the same barcode) must not be blocked by the hidden one.
+        const withHistory = new Set([
+          ...(await tx.select({ id: priceChanges.variantId }).from(priceChanges).where(inArray(priceChanges.variantId, removing))).map((r) => r.id),
+          ...(await tx.select({ id: orderItems.variantId }).from(orderItems).where(inArray(orderItems.variantId, removing))).flatMap((r) => (r.id === null ? [] : [r.id])),
+        ]);
+        const archive = removing.filter((rid) => withHistory.has(rid));
+        const drop = removing.filter((rid) => !withHistory.has(rid));
+        if (drop.length) await tx.delete(variants).where(and(eq(variants.productId, pid), inArray(variants.id, drop)));
+        if (archive.length) {
+          await tx.update(variants)
+            .set({ isActive: false, archivedAt: new Date(), sku: sql`${variants.sku} || '~archived-' || ${variants.id}`, barcode: null, mpn: null })
+            .where(and(eq(variants.productId, pid), inArray(variants.id, archive)));
+        }
+      }
 
       for (const [sort, v] of priced.entries()) {
         const row = {
@@ -635,11 +684,14 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
           stock: v.stock, trackStock: v.trackStock, availability: v.availability ?? 'in_stock', weightGrams: v.weightGrams, barcode: v.barcode ? normalizeGtin(v.barcode) : null, mpn: v.mpn || null, imageUrl: sort === lone ? uploads[0] : v.imageUrl && ownImages.has(v.imageUrl) ? v.imageUrl : null, isActive: v.isActive, priceVerified: v.priceVerified, sort,
           sku: skus[sort],
         };
-        // Counted stock moves while the page is open (orders reserve, cancellations restock): apply only what the owner
-        // changed in the form on top of the stock as it is NOW, instead of writing back the number the page was loaded with.
-        const keepsCounting = v.id && v.trackStock && v.loadedStock !== undefined && trackedNow.has(v.id);
-        if (v.id && keepsCounting) await tx.update(variants).set({ ...row, stock: sql`MAX(${variants.stock} + ${v.stock - v.loadedStock!}, 0)` }).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));
-        else if (v.id) await tx.update(variants).set(row).where(and(eq(variants.id, v.id), eq(variants.productId, pid)));
+        // Counted stock moves while the page is open (orders reserve, cancellations restock): for a saved size apply only what the
+        // owner changed in the form on top of the stock as it is NOW, instead of writing back the number the page was loaded with.
+        // The one exception is a size whose counting is being switched ON: the number typed is then a fresh count, and a size that
+        // was not counting could not have been moved by orders. (A saved size always has loadedStock, checked above.)
+        const startsCounting = v.trackStock && !(v.id !== undefined && trackedNow.has(v.id));
+        const mine = v.id !== undefined ? and(eq(variants.id, v.id), eq(variants.productId, pid), isNull(variants.archivedAt)) : undefined;
+        if (v.id !== undefined && !startsCounting) await tx.update(variants).set({ ...row, stock: sql`MAX(${variants.stock} + ${v.stock - v.loadedStock!}, 0)` }).where(mine);
+        else if (v.id !== undefined) await tx.update(variants).set(row).where(mine);
         else await tx.insert(variants).values(row);
         const was = v.id ? before.get(v.id) : undefined;
         if (v.id && was !== undefined && was !== row.priceCents) await tx.insert(priceChanges).values({ variantId: v.id, oldCents: was, newCents: row.priceCents, source: 'product' });
@@ -662,27 +714,39 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
     throw err;
   }
 
+  // sizes kept from elsewhere (or hidden just now) change which pack labels the product is found by
+  await rebuildSearchTexts({ productIds: [productId] });
   // the data sheet that was replaced or removed is no longer linked from anywhere
   if (previousSdsUrl && previousSdsUrl !== hazard?.sdsUrl) await removeUpload(previousSdsUrl);
   revalidatePath('/admin/products');
   revalidatePath(`/admin/products/${productId}`);
+  invalidateSkroutzFeed();
   // Reload after every save: the form's upload tokens have just been claimed, and a reload clears them.
   if (!id) redirect(`/admin/products/${productId}?created=1`);
   redirect(`/admin/products/${productId}?saved=1`);
 }
 
-export async function deleteProduct(fd: FormData): Promise<void> {
+/**
+ * A product with past orders or price changes (on any size, archived ones too) is never deleted: its sizes would take the price
+ * log with them and the order lines would point at nothing. The owner switches it off instead. The check runs inside the delete
+ * transaction, so nothing is removed on a refusal; the disabled button on the page is only a hint.
+ */
+export async function deleteProduct(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   await requireAdmin();
   const id = int(fd, 'id');
   const images = await db.select().from(productImages).where(eq(productImages.productId, id));
   const [row] = await db.select({ hazard: products.hazard }).from(products).where(eq(products.id, id));
-  await db.transaction(async (tx) => {
+  const deleted = await db.transaction(async (tx) => {
+    if (await productHasHistory(id, tx)) return false;
     await tx.delete(variants).where(eq(variants.productId, id));
     await tx.delete(productImages).where(eq(productImages.productId, id));
     await tx.delete(products).where(eq(products.id, id));
+    return true;
   });
+  if (!deleted) return { ok: false, message: PRODUCT_HAS_HISTORY };
   await forgetTarget('product', id);
   await Promise.all([...images.map((i) => i.url), ...(row?.hazard?.sdsUrl ? [row.hazard.sdsUrl] : [])].map(removeUpload));
+  invalidateSkroutzFeed();
   redirect('/admin/products?deleted=1');
 }
 
@@ -718,6 +782,7 @@ export async function imageAction(fd: FormData): Promise<void> {
     for (const [sort, img] of ordered.entries()) await db.update(productImages).set({ sort }).where(eq(productImages.id, img.id));
   }
   revalidatePath(`/admin/products/${image.productId}`);
+  invalidateSkroutzFeed();
 }
 
 // ─── Bulk prices ─────────────────────────────────────────────────────────────
@@ -740,7 +805,10 @@ export async function updatePrices(input: PriceUpdate[]): Promise<PriceUpdateRes
   if (!parsed.success) return { ok: false, message: 'Δεν υπάρχουν αλλαγές προς αποθήκευση.', saved: [], failed: [] };
 
   const wanted = new Map(parsed.data.map((u) => [u.id, u]));
-  const rows = await db.select().from(variants).where(inArray(variants.id, [...wanted.keys()]));
+  // a size that was removed (archived) after this page was loaded is skipped; the rest of the batch still saves
+  const rows = await db.select().from(variants).where(and(inArray(variants.id, [...wanted.keys()]), isNull(variants.archivedAt)));
+  const skipped = wanted.size - rows.length;
+  const skippedNote = skipped > 0 ? ` ${skipped === 1 ? 'Μία συσκευασία δεν υπάρχει πια και αγνοήθηκε' : `${skipped} συσκευασίες δεν υπάρχουν πια και αγνοήθηκαν`}.` : '';
   const saved: PriceUpdateResult['saved'] = [];
   const failed: number[] = [];
   const now = new Date();
@@ -770,9 +838,10 @@ export async function updatePrices(input: PriceUpdate[]): Promise<PriceUpdateRes
   });
 
   revalidatePath('/admin/prices');
+  invalidateSkroutzFeed();
   const count = saved.length === 1 ? 'Αποθηκεύτηκε 1 αλλαγή' : `Αποθηκεύτηκαν ${saved.length} αλλαγές`;
-  if (failed.length) return { ok: false, message: `${count}. ${failed.length === 1 ? 'Μία τιμή δεν είναι έγκυρη' : `${failed.length} τιμές δεν είναι έγκυρες`} (σημειωμένες με κόκκινο).`, saved, failed };
-  return { ok: true, message: saved.length ? `${count}. ${saved.length === 1 ? 'Ισχύει' : 'Ισχύουν'} ήδη στο κατάστημα.` : 'Καμία αλλαγή.', saved, failed };
+  if (failed.length) return { ok: false, message: `${count}. ${failed.length === 1 ? 'Μία τιμή δεν είναι έγκυρη' : `${failed.length} τιμές δεν είναι έγκυρες`} (σημειωμένες με κόκκινο).${skippedNote}`, saved, failed };
+  return { ok: true, message: `${saved.length ? `${count}. ${saved.length === 1 ? 'Ισχύει' : 'Ισχύουν'} ήδη στο κατάστημα.` : 'Καμία αλλαγή.'}${skippedNote}`, saved, failed };
 }
 
 /**
@@ -810,6 +879,7 @@ export async function importPricesCsv(_prev: AdminFormState, fd: FormData): Prom
     await db.transaction((tx) => applyPriceChanges(tx, plan.changes));
     await finishUpload(token);
     revalidatePath('/admin/prices');
+    invalidateSkroutzFeed();
     // Completed even when some rows were skipped: returning ok:false here would keep the form-looking
     // failure and leave an already-consumed token in the UI. The message reports what changed.
     return { ok: true, message: describePriceImport(plan) };
@@ -839,6 +909,7 @@ export async function saveBrand(_prev: AdminFormState, fd: FormData): Promise<Ad
   // the brand's name is part of what its products are found by
   if (id && storedName && storedName.name !== name) await rebuildSearchTexts({ brandId: id });
   revalidatePath('/admin/brands');
+  invalidateSkroutzFeed();
   return { ok: true, message: 'Αποθηκεύτηκε.' };
 }
 
@@ -871,6 +942,7 @@ export async function saveCategory(_prev: AdminFormState, fd: FormData): Promise
   }
   if (id && storedCategory && storedCategory.name !== name) await rebuildSearchTexts({ categoryId: id });
   revalidatePath('/admin/categories');
+  invalidateSkroutzFeed();
   return { ok: true, message: 'Αποθηκεύτηκε.' };
 }
 
@@ -885,6 +957,7 @@ export async function deleteTaxon(fd: FormData): Promise<void> {
     await rebuildSearchTexts({ productIds: affected });
     await forgetTarget('brand', id);
     revalidatePath('/admin/brands');
+    invalidateSkroutzFeed();
   } else {
     const affected = (await db.select({ id: products.id }).from(products).where(eq(products.categoryId, id))).map((p) => p.id);
     await db.update(products).set({ categoryId: null }).where(eq(products.categoryId, id));
@@ -893,6 +966,7 @@ export async function deleteTaxon(fd: FormData): Promise<void> {
     await rebuildSearchTexts({ productIds: affected });
     await forgetTarget('category', id);
     revalidatePath('/admin/categories');
+    invalidateSkroutzFeed();
   }
 }
 
@@ -999,6 +1073,7 @@ export async function saveSale(_prev: AdminFormState, fd: FormData): Promise<Adm
   else await db.insert(sales).values(values);
   // every storefront page reads prices per request, so the new price shows on the next load
   revalidatePath('/admin/sales');
+  invalidateSkroutzFeed();
   return { ok: true, message: 'Αποθηκεύτηκε.' };
 }
 
@@ -1006,6 +1081,7 @@ export async function deleteSale(fd: FormData): Promise<void> {
   await requireAdmin();
   await db.delete(sales).where(eq(sales.id, int(fd, 'id')));
   revalidatePath('/admin/sales');
+  invalidateSkroutzFeed();
 }
 
 /** Product search for the «Ισχύει για» picker: at most 50 hits, so a form never carries the whole catalogue. */
@@ -1108,13 +1184,24 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
     return { day, closed: false, open, close, ...(open2 && close2 ? { open2, close2 } : {}) };
   });
 
+  // The IBAN is shown to customers who pay by transfer: stored without spaces, and only if its country, length and check digits add up.
+  let badIban = false;
   const bankAccounts: BankAccount[] = [0, 1, 2, 3]
-    .map((i) => ({ bank: str(fd, `bank${i}-name`), iban: str(fd, `bank${i}-iban`).toUpperCase().replace(/\s+/g, ' '), holder: str(fd, `bank${i}-holder`) }))
+    .map((i) => ({ bank: str(fd, `bank${i}-name`), iban: normalizeIban(str(fd, `bank${i}-iban`)), holder: str(fd, `bank${i}-holder`) }))
     .filter((a, i) => {
       if (a.iban && !a.bank) problems.push(`Τραπεζικός λογαριασμός ${i + 1}: συμπληρώστε και το όνομα της τράπεζας`);
       if (a.bank && !a.iban) problems.push(`Τραπεζικός λογαριασμός ${i + 1}: λείπει το IBAN`);
+      if (a.iban && !isValidIban(a.iban)) {
+        badIban = true;
+        problems.push(`Τραπεζικός λογαριασμός ${i + 1}: Μη έγκυρο IBAN (έλεγξτε τα ψηφία)`);
+      }
       return a.bank && a.iban;
     });
+  // Only while ordering is open: the website-only site keeps the transfer box ticked by default with no account, and a refusal
+  // there would block every other setting from being saved.
+  if (!badIban && bool(fd, 'bankTransfer') && bool(fd, 'ordersEnabled') && commerceEnabled() && !bankAccounts.some((a) => isValidIban(a.iban))) {
+    problems.push('Η τραπεζική κατάθεση είναι ενεργή, αλλά δεν υπάρχει έγκυρο IBAN. Προσθέστε IBAN ή απενεργοποιήστε την κατάθεση');
+  }
 
   const shop: ShopSettings['shop'] = {
     ...current.shop,
@@ -1170,6 +1257,7 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
   await saveSettingsGroup('tax', { vatRate });
 
   revalidatePath('/', 'layout');
+  invalidateSkroutzFeed();
   return { ok: true, message: 'Οι ρυθμίσεις αποθηκεύτηκαν.' };
 }
 
@@ -1185,6 +1273,7 @@ export async function saveSkroutzSettings(_prev: AdminFormState, fd: FormData): 
     defaultQuantity: Math.min(1000, Math.max(1, int(fd, 'defaultQuantity', DEFAULT_SETTINGS.skroutz.defaultQuantity))),
   });
   revalidatePath('/admin/skroutz');
+  invalidateSkroutzFeed();
   return { ok: true, message: feedEnabled ? 'Αποθηκεύτηκε. Το αρχείο είναι ανοιχτό για το Skroutz.' : 'Αποθηκεύτηκε. Το αρχείο παραμένει κλειστό: το βλέπετε μόνο εσείς.' };
 }
 
@@ -1205,8 +1294,11 @@ export async function updateCodes(input: CodeUpdate[]): Promise<CodeUpdateResult
   const parsed = CodeUpdates.safeParse(input);
   if (!parsed.success) return { ok: false, message: 'Δεν υπάρχουν αλλαγές προς αποθήκευση.', saved: [], failed: [] };
 
-  const all = await db.select({ id: variants.id, barcode: variants.barcode }).from(variants);
+  // archived sizes are not editable: an id from a stale page is skipped, the rest of the batch still saves
+  const all = await db.select({ id: variants.id, barcode: variants.barcode }).from(variants).where(isNull(variants.archivedAt));
   const known = new Set(all.map((v) => v.id));
+  const skipped = new Set(parsed.data.map((u) => u.id)).size - parsed.data.filter((u) => known.has(u.id)).length;
+  const skippedNote = skipped > 0 ? ` ${skipped === 1 ? 'Μία συσκευασία δεν υπάρχει πια και αγνοήθηκε' : `${skipped} συσκευασίες δεν υπάρχουν πια και αγνοήθηκαν`}.` : '';
   // every pack size has its own barcode: the same one twice means the same bottle was scanned twice
   const owner = new Map(all.flatMap((v) => (v.barcode ? [[v.barcode, v.id] as const] : [])));
   const saved: CodeUpdate[] = [];
@@ -1224,7 +1316,7 @@ export async function updateCodes(input: CodeUpdate[]): Promise<CodeUpdateResult
         failed.push({ id: u.id, reason: 'duplicate' });
         continue;
       }
-      await tx.update(variants).set({ barcode: barcode || null, mpn: u.mpn || null }).where(eq(variants.id, u.id));
+      await tx.update(variants).set({ barcode: barcode || null, mpn: u.mpn || null }).where(and(eq(variants.id, u.id), isNull(variants.archivedAt)));
       for (const [code, id] of owner) if (id === u.id) owner.delete(code);
       if (barcode) owner.set(barcode, u.id);
       saved.push({ id: u.id, barcode, mpn: u.mpn });
@@ -1232,9 +1324,10 @@ export async function updateCodes(input: CodeUpdate[]): Promise<CodeUpdateResult
   });
 
   revalidatePath('/admin/skroutz');
+  invalidateSkroutzFeed();
   const count = saved.length === 1 ? 'Αποθηκεύτηκε 1 συσκευασία' : `Αποθηκεύτηκαν ${saved.length} συσκευασίες`;
-  if (failed.length) return { ok: false, message: `${count}. ${failed.length === 1 ? 'Ένα barcode δεν έγινε δεκτό' : `${failed.length} barcodes δεν έγιναν δεκτά`} (σημειωμένα με κόκκινο).`, saved, failed };
-  return { ok: true, message: saved.length ? `${count}.` : 'Καμία αλλαγή.', saved, failed };
+  if (failed.length) return { ok: false, message: `${count}. ${failed.length === 1 ? 'Ένα barcode δεν έγινε δεκτό' : `${failed.length} barcodes δεν έγιναν δεκτά`} (σημειωμένα με κόκκινο).${skippedNote}`, saved, failed };
+  return { ok: true, message: `${saved.length ? `${count}.` : 'Καμία αλλαγή.'}${skippedNote}`, saved, failed };
 }
 
 /** CSV columns: sku;ean;mpn (either of the last two may be missing) — for a list sent by a distributor. Empty cells change nothing. */
@@ -1306,6 +1399,7 @@ export async function importCodesCsv(_prev: AdminFormState, fd: FormData): Promi
     });
 
     revalidatePath('/admin/skroutz');
+    invalidateSkroutzFeed();
     await finishUpload(token);
     const list = (label: string, skus: string[]) => (skus.length ? ` ${label}: ${skus.slice(0, 6).join(', ')}${skus.length > 6 ? '…' : ''}.` : '');
     // Completed even with unknown/rejected codes; the message names them.

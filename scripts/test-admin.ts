@@ -33,6 +33,13 @@ async function main() {
     },
   } as unknown as NodeJS.Module;
   // revalidatePath needs a request's cache store; outside a request there is nothing to revalidate.
+  // after(): the account actions send their mails after the reply; here the work is collected and awaited by the test
+  const afterTasks: Promise<unknown>[] = [];
+  await import('next/server');
+  (require.cache[require.resolve('next/server')]!.exports as { after: unknown }).after = (task: () => unknown) => void afterTasks.push(Promise.resolve().then(task));
+  const flushAfter = async () => {
+    while (afterTasks.length) await afterTasks.shift();
+  };
   const cachePath = require.resolve('next/cache');
   require.cache[cachePath] = { id: cachePath, filename: cachePath, loaded: true, exports: { revalidatePath: () => undefined, revalidateTag: () => undefined } } as unknown as NodeJS.Module;
   const { asc, eq, inArray } = await import('drizzle-orm');
@@ -486,12 +493,87 @@ async function main() {
   const [fixProduct] = await db.insert(products).values({ slug: 'e2e-fix-product', name: 'Τεστ προϊόν διαγραφής' }).returning();
   await db.insert(variants).values({ productId: fixProduct.id, sku: 'E2E-FIX-DEL', label: '1L', volumeMl: 1000, priceCents: 1000 });
   const prodCoupon = await addCoupon('FIXPROD', { productIds: [fixProduct.id] });
-  const productRedirected = await redirected(() => deleteProduct(form({ id: String(fixProduct.id) })));
+  const productRedirected = await redirected(() => deleteProduct(null, form({ id: String(fixProduct.id) })));
   check('deleteProduct redirects back to the product list', productRedirected);
   const prodAfter = await couponNow(prodCoupon.id);
   check('the same holds for a deleted product', prodAfter.productIds.length === 0 && prodAfter.isActive === false, prodAfter);
   const [gone] = await db.select().from(products).where(eq(products.id, fixProduct.id));
   check('the deleted product row is gone', gone === undefined);
+
+  console.log('A product with order or price history is not deleted');
+  {
+    const { orderItems, priceChanges, productImages } = await import('../src/lib/db/schema');
+    const HAS_HISTORY = 'Το προϊόν έχει ιστορικό παραγγελιών ή τιμών και δεν διαγράφεται. Απενεργοποιήστε το για να μην εμφανίζεται στο κατάστημα.';
+    const line = { orderId: createdOrderIds[0], name: 'x', variantLabel: 'x', sku: 'x', imageUrl: null, unitPriceCents: 100, quantity: 1, lineTotalCents: 100, weightGrams: 0 };
+    const makeProduct = async (key: string, sizes: Array<{ archived?: boolean }> = [{}]) => {
+      const [p] = await db.insert(products).values({ slug: `e2e-hist-${key}`, name: `Τεστ ιστορικού ${key}` }).returning();
+      const vs = [];
+      for (const [i, s] of sizes.entries()) {
+        const [v] = await db.insert(variants).values({ productId: p.id, sku: `E2E-HIST-${key}-${i}`, label: `${i + 1}L`, volumeMl: 1000 * (i + 1), priceCents: 1000, ...(s.archived ? { isActive: false, archivedAt: new Date() } : {}) }).returning();
+        vs.push(v);
+      }
+      await db.insert(productImages).values({ productId: p.id, url: `/catalog/e2e-hist-${key}.webp`, alt: 'x', sort: 0 });
+      const coupon = await addCoupon(`FIXHIST${key.toUpperCase()}`, { productIds: [p.id] });
+      return { p, vs, coupon };
+    };
+    const tryDelete = async (id: number) => {
+      try {
+        return await deleteProduct(null, form({ id: String(id) }));
+      } catch (err) {
+        if (String((err as { digest?: string }).digest ?? '').startsWith('NEXT_REDIRECT')) return 'deleted' as const;
+        throw err;
+      }
+    };
+    const untouched = async (fx: Awaited<ReturnType<typeof makeProduct>>) => {
+      const [p] = await db.select().from(products).where(eq(products.id, fx.p.id));
+      const vs = await db.select().from(variants).where(eq(variants.productId, fx.p.id));
+      const imgs = await db.select().from(productImages).where(eq(productImages.productId, fx.p.id));
+      const coupon = await couponNow(fx.coupon.id);
+      return !!p && vs.length === fx.vs.length && imgs.length === 1 && coupon.isActive === true && JSON.stringify(coupon.productIds) === JSON.stringify([fx.p.id]);
+    };
+    const refusedWith = (r: unknown) => typeof r === 'object' && r !== null && (r as { ok: boolean }).ok === false && (r as { message: string }).message === HAS_HISTORY;
+
+    const byProduct = await makeProduct('order');
+    await db.insert(orderItems).values({ ...line, productId: byProduct.p.id, variantId: null });
+    const r1 = await tryDelete(byProduct.p.id);
+    check('a product with an order line pointing at it is refused with the message', refusedWith(r1), r1);
+    check('…and nothing of it is deleted (product, sizes, photos, coupon target)', await untouched(byProduct));
+
+    const bySize = await makeProduct('ordersize');
+    await db.insert(orderItems).values({ ...line, productId: null, variantId: bySize.vs[0].id });
+    const r2 = await tryDelete(bySize.p.id);
+    check('a product whose size appears in an order line (no product id on the line) is refused', refusedWith(r2) && (await untouched(bySize)), r2);
+
+    const byPrice = await makeProduct('price');
+    await db.insert(priceChanges).values({ variantId: byPrice.vs[0].id, oldCents: 900, newCents: 1000, source: 'editor' });
+    const r3 = await tryDelete(byPrice.p.id);
+    const pricesKept = await db.select().from(priceChanges).where(eq(priceChanges.variantId, byPrice.vs[0].id));
+    check('a product with price history only is refused', refusedWith(r3), r3);
+    check('…and its price history and sizes stay', pricesKept.length === 1 && (await untouched(byPrice)), pricesKept.length);
+
+    const byArchived = await makeProduct('archived', [{}, { archived: true }]);
+    await db.insert(priceChanges).values({ variantId: byArchived.vs[1].id, oldCents: 900, newCents: 1000, source: 'editor' });
+    const r4 = await tryDelete(byArchived.p.id);
+    check('a product whose history is only on an archived size is refused', refusedWith(r4) && (await untouched(byArchived)), r4);
+
+    const clean = await makeProduct('clean', [{}, {}]);
+    const r5 = await tryDelete(clean.p.id);
+    const [cleanGone] = await db.select().from(products).where(eq(products.id, clean.p.id));
+    const cleanSizes = await db.select().from(variants).where(eq(variants.productId, clean.p.id));
+    check('a product without history is deleted, with its sizes', r5 === 'deleted' && cleanGone === undefined && cleanSizes.length === 0, r5);
+
+    const { productHasHistory } = await import('../src/lib/product-history');
+    check('the page knows which products have history (the delete button is disabled for them)', (await productHasHistory(byPrice.p.id)) && (await productHasHistory(byArchived.p.id)) && !(await productHasHistory(clean.p.id)));
+    for (const fx of [byProduct, bySize, byPrice, byArchived]) {
+      await db.delete(orderItems).where(eq(orderItems.productId, fx.p.id));
+      await db.delete(orderItems).where(inArray(orderItems.variantId, fx.vs.map((v) => v.id)));
+      await db.delete(variants).where(eq(variants.productId, fx.p.id));
+      await db.delete(productImages).where(eq(productImages.productId, fx.p.id));
+      await db.delete(products).where(eq(products.id, fx.p.id));
+      await db.delete(coupons).where(eq(coupons.id, fx.coupon.id));
+    }
+    await db.delete(coupons).where(eq(coupons.id, clean.coupon.id));
+  }
 
   // The owner's deliberate choice: re-saving a switched-off coupon with no targets widens it to the whole shop and turns it on again.
   const widened = await runCoupon(form({ id: String(soloB.id), code: 'FIXSOLO', type: 'percent', value: '10', isActive: 'on' }));
@@ -845,6 +927,294 @@ async function main() {
     delete process.env.DATA_DIR;
   }
 
+  console.log('Product sizes: removal and stock');
+  {
+    const { saveProduct } = await import('../src/app/admin/actions');
+    const { orderItems, priceChanges } = await import('../src/lib/db/schema');
+    const { buildSkroutzFeed } = await import('../src/lib/skroutz-feed');
+    const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
+    const { getProductBySlug, resolveCartLines } = await import('../src/lib/catalog');
+    const { and, isNull, ne } = await import('drizzle-orm');
+    const runProduct = async (fd: FormData) => saveProduct(null, fd).catch((err: unknown) => (String((err as { digest?: string })?.digest ?? err).startsWith('NEXT_REDIRECT') ? { ok: true as const, message: 'redirect' } : Promise.reject(err)));
+    const feedSettings = structuredClone(DEFAULT_SETTINGS);
+    // a product that the shop and the feed really list, so "gone from the feed" means something
+    const [feedItem] = (await buildSkroutzFeed(feedSettings)).items;
+    const [prod] = await db.select().from(products).where(eq(products.id, feedItem.productId));
+    type Size = typeof variants.$inferSelect;
+    const rowOf = (v: Size, over: Record<string, unknown> = {}) => ({
+      id: v.id, label: v.label, sku: v.sku, price: (v.priceCents / 100).toFixed(2).replace('.', ','), compareAt: '', stock: v.stock, loadedStock: v.stock, trackStock: v.trackStock,
+      availability: v.availability, weightGrams: v.weightGrams, barcode: v.barcode ?? '', mpn: v.mpn ?? '', imageUrl: v.imageUrl ?? '', isActive: v.isActive, priceVerified: v.priceVerified, ...over,
+    });
+    const newRow = (label: string, sku: string) => ({ label, sku, price: '9,90', compareAt: '', stock: 0, trackStock: false, availability: 'in_stock', weightGrams: 0, barcode: '', mpn: '', imageUrl: '', isActive: true, priceVerified: true });
+    const allSizes = () => db.select().from(variants).where(eq(variants.productId, prod.id)).orderBy(asc(variants.sort), asc(variants.id));
+    const shownRows = async () => (await allSizes()).filter((v) => !v.archivedAt).map((v) => rowOf(v));
+    const sizeBySku = async (sku: string) => (await db.select().from(variants).where(eq(variants.sku, sku)))[0];
+    const save = (rows: object[], removed: number[] = []) =>
+      runProduct(form({ id: String(prod.id), name: prod.name, isActive: 'on', brandId: String(prod.brandId ?? ''), categoryId: String(prod.categoryId ?? ''), variants: JSON.stringify(rows), removedVariantIds: JSON.stringify(removed) }));
+    const feedNow = () => buildSkroutzFeed(feedSettings);
+
+    // two sizes are added through the form: one will get price history, the other none
+    const baseline = (await allSizes()).length;
+    let saved = await save([...(await shownRows()), newRow('TEST A 1L', 'T-SIZE-A'), newRow('TEST B 2L', 'T-SIZE-B')]);
+    const sizeA = await sizeBySku('T-SIZE-A');
+    const sizeB = await sizeBySku('T-SIZE-B');
+    check('two sizes are added through the form', saved?.ok === true && !!sizeA && !!sizeB && (await allSizes()).length === baseline + 2, saved);
+    await db.insert(priceChanges).values({ variantId: sizeA.id, oldCents: 100, newCents: 200, source: 'editor' });
+
+    // a stale form: built now, and a size is added from elsewhere before it is submitted
+    const staleRows = await shownRows();
+    const [sizeC] = await db.insert(variants).values({ productId: prod.id, sku: 'T-SIZE-C', label: 'TEST C 4L', priceCents: 1990, stock: 5, trackStock: false, isActive: true, priceVerified: true, sort: 50 }).returning();
+    saved = await save(staleRows);
+    const cAfter = await sizeBySku('T-SIZE-C');
+    check('a stale form that lacks a size added later keeps that size, untouched', saved?.ok === true && !!cAfter && cAfter.priceCents === 1990 && cAfter.stock === 5 && cAfter.isActive && !cAfter.archivedAt && cAfter.sort === 50, cAfter);
+    check('…and the size added elsewhere is sold and in the feed', (await feedNow()).items.some((i) => i.variantId === sizeC.id));
+
+    // explicit removal: A has price history, B has none
+    const beforeRemoval = await shownRows();
+    saved = await save(beforeRemoval.filter((r) => r.id !== sizeA.id && r.id !== sizeB.id), [sizeA.id, sizeB.id]);
+    const aAfter = (await db.select().from(variants).where(eq(variants.id, sizeA.id)))[0];
+    const bAfter = (await db.select().from(variants).where(eq(variants.id, sizeB.id)))[0];
+    check('a removed size with price history is hidden, not deleted', saved?.ok === true && !!aAfter && aAfter.isActive === false && aAfter.archivedAt !== null, aAfter);
+    check('…its price history survives', (await db.select().from(priceChanges).where(eq(priceChanges.variantId, sizeA.id))).length === 1);
+    check('…and its codes are freed for reuse', aAfter?.sku.startsWith('T-SIZE-A~archived-') === true && aAfter.barcode === null && aAfter.mpn === null, aAfter?.sku);
+    check('a removed size without any history is deleted', bAfter === undefined);
+    check('removing sizes did not touch the one added elsewhere', (await sizeBySku('T-SIZE-C'))?.stock === 5);
+    const text = (await db.select({ t: products.searchText }).from(products).where(eq(products.id, prod.id)))[0].t;
+    check('the product is no longer found by the hidden size, and still by the kept one', !text.includes(normalizeText('TEST A 1L')) && text.includes(normalizeText('TEST C 4L')), text.slice(-120));
+
+    // a size with only past orders is hidden too
+    saved = await save([...(await shownRows()), newRow('TEST D 5L', 'T-SIZE-D')]);
+    const sizeD = await sizeBySku('T-SIZE-D');
+    await db.insert(orderItems).values({ orderId: createdOrderIds[0], productId: prod.id, variantId: sizeD.id, name: 'x', variantLabel: 'x', sku: 'T-SIZE-D', imageUrl: null, unitPriceCents: 100, quantity: 1, lineTotalCents: 100, weightGrams: 0 });
+    saved = await save((await shownRows()).filter((r) => r.id !== sizeD.id), [sizeD.id]);
+    const dAfter = (await db.select().from(variants).where(eq(variants.id, sizeD.id)))[0];
+    check('a removed size that past orders mention is hidden, not deleted', saved?.ok === true && !!dAfter && dAfter.archivedAt !== null && dAfter.isActive === false, dAfter);
+
+    // hidden means: not orderable, not in the feed, not in the shop
+    const cart = await resolveCartLines([{ variantId: sizeA.id, quantity: 1 }]);
+    check('a hidden size is refused by the cart', cart.length === 1 && cart[0].issue === 'unavailable' && cart[0].quantity === 0, cart);
+    const feed = await feedNow();
+    check('a hidden size is missing from the feed and from its diagnostics', !feed.items.some((i) => i.variantId === sizeA.id) && !feed.leftOut.some((i) => i.variantId === sizeA.id));
+    const shop = await getProductBySlug(prod.slug);
+    check('a hidden size is missing from the product page', !!shop && !shop.variants.some((v) => v.id === sizeA.id) && shop.variants.some((v) => v.id === sizeC.id));
+    const priceCsv = await (await import('../src/app/admin/(panel)/prices/export/route')).GET().then((r) => r.text());
+    check('a hidden size is missing from the price list export', !priceCsv.includes('T-SIZE-A') && priceCsv.includes('T-SIZE-C'));
+
+    // a stale form that still lists the hidden size cannot bring it back
+    saved = await save([...(await shownRows()), rowOf(aAfter, { isActive: true, sku: 'T-SIZE-A' })]);
+    const aStill = (await db.select().from(variants).where(eq(variants.id, sizeA.id)))[0];
+    check('a stale form cannot reactivate a hidden size', saved?.ok === true && aStill.isActive === false && aStill.archivedAt !== null, aStill);
+
+    // the same code can be used again, also in the very save that removes the old size
+    const sizeE0 = await (async () => { await save([...(await shownRows()), newRow('TEST E 1L', 'T-SIZE-E')]); return sizeBySku('T-SIZE-E'); })();
+    await db.insert(priceChanges).values({ variantId: sizeE0.id, oldCents: 100, newCents: 300, source: 'editor' });
+    saved = await save([...(await shownRows()).filter((r) => r.id !== sizeE0.id), newRow('TEST E 1L', 'T-SIZE-E')], [sizeE0.id]);
+    const eNew = await sizeBySku('T-SIZE-E');
+    check('a size added in the same save can take over the code of the one removed', saved?.ok === true && !!eNew && eNew.id !== sizeE0.id, saved);
+    saved = await save([...(await shownRows()), newRow('TEST A 1L', 'T-SIZE-A')]);
+    check('…and a hidden size does not block adding it again later', saved?.ok === true && (await sizeBySku('T-SIZE-A'))?.id !== sizeA.id, saved);
+
+    // an id that belongs to another product, or a broken list, removes nothing
+    const [foreign] = await db.select().from(variants).where(ne(variants.productId, prod.id)).limit(1);
+    saved = await save(await shownRows(), [foreign.id]);
+    check('an id of another product in the removal list is ignored', saved?.ok === true && (await db.select().from(variants).where(and(eq(variants.id, foreign.id), isNull(variants.archivedAt)))).length === 1);
+    const garbage = await runProduct(form({ id: String(prod.id), name: prod.name, isActive: 'on', variants: JSON.stringify(await shownRows()), removedVariantIds: 'not json' }));
+    check('a broken removal list is refused', garbage?.ok === false, garbage);
+
+    // stock. The size is counted and the page was loaded at 10; an order then took 3
+    const sizeOf = async (id: number) => (await db.select().from(variants).where(eq(variants.id, id)))[0];
+    const saveOne = (id: number, over: Record<string, unknown>) => sizeOf(id).then((v) => save([rowOf(v, over)]));
+    await db.update(variants).set({ trackStock: true, stock: 10 }).where(eq(variants.id, sizeC.id));
+    await db.update(variants).set({ stock: 7 }).where(eq(variants.id, sizeC.id));
+    await saveOne(sizeC.id, { stock: 12, loadedStock: 10 });
+    check('counting stays on: the owner\'s +2 is added to what is there now', (await sizeOf(sizeC.id)).stock === 9, (await sizeOf(sizeC.id)).stock);
+    // counting is switched off while an order takes 2 from a page loaded at 9
+    await db.update(variants).set({ stock: 7 }).where(eq(variants.id, sizeC.id));
+    await saveOne(sizeC.id, { stock: 9, loadedStock: 9, trackStock: false });
+    const off = await sizeOf(sizeC.id);
+    check('counting switched off keeps the units sold while the page was open', off.trackStock === false && off.stock === 7, off);
+    // counting is switched on again: the typed number is a fresh count
+    await saveOne(sizeC.id, { stock: 20, loadedStock: 7, trackStock: true });
+    const on = await sizeOf(sizeC.id);
+    check('counting switched on writes the number typed as the new count', on.trackStock === true && on.stock === 20, on);
+    // a saved size without the figure the page was loaded with is not from the current form
+    const stale = await sizeOf(sizeC.id).then((v) => save([rowOf(v, { stock: 1, loadedStock: undefined })]));
+    check('a saved size without loadedStock is refused, stock untouched', stale?.ok === false && (await sizeOf(sizeC.id)).stock === 20, stale);
+
+    // the quick editors (prices, Skroutz codes) skip a hidden size from a stale page; the rest of the batch still saves
+    const { updateCodes, updatePrices } = await import('../src/app/admin/actions');
+    const { isValidGtin } = await import('../src/lib/gtin');
+    const hiddenA = await sizeOf(sizeA.id);
+    const priceRowsBefore = (await db.select().from(priceChanges).where(eq(priceChanges.variantId, sizeA.id))).length;
+    const prices = await updatePrices([{ id: sizeA.id, price: '55,00' }, { id: sizeC.id, price: '19,95' }]);
+    const hiddenAfterPrice = await sizeOf(sizeA.id);
+    check('a stale price edit on a hidden size changes nothing', hiddenAfterPrice.priceCents === hiddenA.priceCents && (await db.select().from(priceChanges).where(eq(priceChanges.variantId, sizeA.id))).length === priceRowsBefore, hiddenAfterPrice.priceCents);
+    check('…the rest of the batch is saved, and the message says one row was skipped', prices.ok && (await sizeOf(sizeC.id)).priceCents === 1995 && prices.saved.length === 1 && prices.message.includes('αγνοήθηκε'), prices);
+    const code = '4006381333931';
+    check('(the barcode used below is a valid EAN-13)', isValidGtin(code));
+    const codes = await updateCodes([{ id: sizeA.id, barcode: code, mpn: 'T-MPN-A' }, { id: sizeC.id, barcode: '', mpn: 'T-MPN-C' }]);
+    const hiddenAfterCode = await sizeOf(sizeA.id);
+    check('a stale barcode write on a hidden size changes nothing', hiddenAfterCode.barcode === null && hiddenAfterCode.mpn === null, hiddenAfterCode);
+    check('…the rest of the batch is saved, and the message says one row was skipped', codes.ok && (await sizeOf(sizeC.id)).mpn === 'T-MPN-C' && codes.saved.length === 1 && codes.message.includes('αγνοήθηκε'), codes);
+    const readded = await sizeBySku('T-SIZE-A');
+    saved = await save([...(await shownRows()).map((r) => (r.id === readded.id ? { ...r, barcode: code } : r))]);
+    check('the size added again can take that barcode', saved?.ok === true && (await sizeOf(readded.id)).barcode === code, await sizeOf(readded.id));
+    await db.delete(priceChanges).where(eq(priceChanges.variantId, sizeA.id));
+  }
+
+  console.log('Skroutz feed cache follows the admin');
+  {
+    const { updatePrices } = await import('../src/app/admin/actions');
+    const { getSettings } = await import('../src/lib/settings.server');
+    const { buildSkroutzFeed } = await import('../src/lib/skroutz-feed');
+    const { getCachedSkroutzFeed, invalidateSkroutzFeed } = await import('../src/lib/skroutz-feed-cache');
+    const current = await getSettings();
+    let builds = 0;
+    const counting: typeof buildSkroutzFeed = async (st, at) => { builds++; return buildSkroutzFeed(st, at); };
+    invalidateSkroutzFeed();
+    const item = (await getCachedSkroutzFeed(current, counting)).feed.items[0];
+    await getCachedSkroutzFeed(current, counting);
+    check('the feed is built once for two reads', builds === 1, builds);
+    const newCents = item.priceCents + 250;
+    const res = await updatePrices([{ id: item.variantId, price: (newCents / 100).toFixed(2).replace('.', ',') }]);
+    const after = await getCachedSkroutzFeed(current, counting);
+    check('saving a price in the admin makes the next feed read rebuild', res.ok && builds === 2, { ok: res.ok, builds });
+    check('…and it carries the new price', after.feed.items.find((i) => i.variantId === item.variantId)?.priceCents === newCents, after.feed.items.find((i) => i.variantId === item.variantId)?.priceCents);
+    await db.update(variants).set({ priceCents: item.priceCents }).where(eq(variants.id, item.variantId));
+    invalidateSkroutzFeed();
+  }
+
+  console.log('Bank IBANs');
+  {
+    const { formatIban, isValidIban, normalizeIban } = await import('../src/lib/iban');
+    const GR = 'GR16 0110 1250 0000 0001 2300 695';
+    check('a valid Greek IBAN is accepted, with spaces', isValidIban(GR));
+    check('…without spaces', isValidIban('GR1601101250000000012300695'));
+    check('…with dashes', isValidIban('GR16-0110-1250-0000-0001-2300-695'));
+    check('…and in lowercase, normalized to capitals without spaces', isValidIban(GR.toLowerCase()) && normalizeIban(GR.toLowerCase()) === 'GR1601101250000000012300695');
+    check('a wrong check digit is refused', !isValidIban('GR16 0110 1250 0000 0001 2300 694') && !isValidIban('GR17 0110 1250 0000 0001 2300 695'));
+    check('two digits swapped is refused', !isValidIban('GR16 0110 1250 0000 0001 2300 659'));
+    check('a wrong length is refused (one digit dropped, one added)', !isValidIban('GR16 0110 1250 0000 0001 2300 69') && !isValidIban('GR16 0110 1250 0000 0001 2300 6950'));
+    check('an unknown country is refused', !isValidIban('XX16 0110 1250 0000 0001 2300 695') && !isValidIban('6R16 0110 1250 0000 0001 2300 695'));
+    check('an empty string is not an IBAN', !isValidIban('') && !isValidIban('   '));
+    check('IBANs of other euro-area countries are accepted', ['DE89 3704 0044 0532 0130 00', 'LT12 1000 0111 0100 1000', 'BE68 5390 0754 7034', 'CY17 0020 0128 0000 0012 0052 7600', 'NL91 ABNA 0417 1643 00'].every(isValidIban));
+    check('formatIban groups in fours', formatIban('GR1601101250000000012300695') === GR && formatIban(GR) === GR);
+    check('…and shows an invalid stored value instead of failing', formatIban('abc12') === 'ABC1 2');
+
+    const { saveSettings } = await import('../src/app/admin/actions');
+    const { getSettings, saveSettingsGroup } = await import('../src/lib/settings.server');
+    const { orderConfirmationMail } = await import('../src/lib/email');
+    const { getOrderByNumber } = await import('../src/lib/orders');
+    const before = await getSettings();
+    const savedCommerce = process.env.COMMERCE_ENABLED;
+    delete process.env.COMMERCE_ENABLED;
+    const base = { name: 'Oil Center', phone: '2310111111', street: 'Οδός 1', city: 'Θεσσαλονίκη', cod: 'on' };
+    const account = (iban: string) => ({ 'bank0-name': 'Τράπεζα Δοκιμής', 'bank0-iban': iban, 'bank0-holder': 'Oil Center' });
+    const run = (fields: Record<string, string>) => saveSettings(null, form({ ...base, ...fields }));
+
+    const typed = await run({ ...account('gr16 0110 1250 0000 0001 2300 695') });
+    check('a valid IBAN typed with spaces and lowercase is saved', typed?.ok === true, typed);
+    check('…and stored normalized: capitals, no spaces', (await getSettings()).payments.bankAccounts[0]?.iban === 'GR1601101250000000012300695', (await getSettings()).payments.bankAccounts);
+    const bad = await run({ phone: '2310999999', ...account('GR16 0110 1250 0000 0001 2300 694') });
+    const after = await getSettings();
+    check('an invalid IBAN is refused with a message that says which account', bad?.ok === false && (bad.message ?? '').includes('Μη έγκυρο IBAN') && (bad.message ?? '').includes('Τραπεζικός λογαριασμός 1') && (bad.message ?? '').includes('Δεν αποθηκεύτηκε τίποτα'), bad);
+    check('…and nothing else in the form was saved either', after.shop.phone === '2310111111' && after.payments.bankAccounts[0]?.iban === 'GR1601101250000000012300695', { phone: after.shop.phone, accounts: after.payments.bankAccounts });
+    const empty = await run({ bankTransfer: 'on' });
+    check('with no account and ordering closed, an empty IBAN is accepted (bank transfer ticked)', empty?.ok === true && (await getSettings()).payments.bankAccounts.length === 0, empty);
+
+    // while ordering is open, bank transfer needs an account a customer can pay into
+    const noAccount = await run({ bankTransfer: 'on', ordersEnabled: 'on' });
+    check('ordering open + bank transfer on + no IBAN is refused', noAccount?.ok === false && (noAccount.message ?? '').includes('δεν υπάρχει έγκυρο IBAN'), noAccount);
+    check('…bank transfer off is accepted', (await run({ ordersEnabled: 'on' }))?.ok === true);
+    check('…and with a valid IBAN it is accepted', (await run({ bankTransfer: 'on', ordersEnabled: 'on', ...account(GR) }))?.ok === true);
+    process.env.COMMERCE_ENABLED = 'false';
+    check('…a website-only deployment (COMMERCE_ENABLED=false) is not blocked by it', (await run({ bankTransfer: 'on', ordersEnabled: 'on' }))?.ok === true);
+    if (savedCommerce === undefined) delete process.env.COMMERCE_ENABLED; else process.env.COMMERCE_ENABLED = savedCommerce;
+
+    // customers read the IBAN in groups of four
+    await run({ bankTransfer: 'on', ...account(GR) });
+    const [anyOrder] = await db.select({ number: orders.number }).from(orders).where(eq(orders.id, createdOrderIds[0]));
+    const full = (await getOrderByNumber(anyOrder.number))!;
+    const mail = orderConfirmationMail({ ...full, paymentMethod: 'bank_transfer' }, await getSettings());
+    check('the confirmation mail shows the IBAN in groups of four', mail.html.includes(GR) && !mail.html.includes('GR1601101250000000012300695'), mail.html.match(/IBAN:[^<]*/)?.[0]);
+
+    for (const group of ['shop', 'storefront', 'payments', 'shipping', 'reviews', 'tax'] as const) await saveSettingsGroup(group, before[group] as never);
+  }
+
+  console.log('Resending payment mails that were given up');
+  {
+    const { mailOutbox } = await import('../src/lib/db/schema');
+    const { resendOrderMails } = await import('../src/app/admin/actions');
+    const { readdirSync } = await import('node:fs');
+    process.env.DATA_DIR = path.join(dir, 'data');
+    const outbox = () => {
+      try {
+        return readdirSync(path.join(dir, 'data', 'outbox'));
+      } catch {
+        return [] as string[];
+      }
+    };
+    const mailRow = async (id: number) => (await db.select().from(mailOutbox).where(eq(mailOutbox.id, id)))[0];
+    const resend = (id: number) => resendOrderMails(form({ id: String(id) }));
+    const RESEND_EVENT = 'Επαναποστολή e-mail από διαχειριστή';
+    try {
+      await createSession('admin', admin.id, admin.tokenVersion);
+      const o = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentProvider: 'viva', paymentTransactionId: 'TX-RESEND-1' });
+      const givenUpAt = new Date(Date.now() - 60 * 60 * 1000);
+      const [m1] = await db.insert(mailOutbox).values({ kind: 'order_confirmation', orderId: o.id, attempts: 27, givenUpAt, lastError: 'smtp down' }).returning();
+      const [m2] = await db.insert(mailOutbox).values({ kind: 'order_paid_notice', orderId: o.id, attempts: 27, givenUpAt, lastError: 'smtp down' }).returning();
+      // on the same order: one mail already sent and one still waiting for its next try — neither is the button's business
+      const sentAt = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const [m3] = await db.insert(mailOutbox).values({ kind: 'payment_alert', orderId: o.id, problem: 'amount_mismatch', attempts: 1, sentAt }).returning();
+      const waitUntil = new Date(Date.now() + 30 * 60 * 1000);
+      const [m4] = await db.insert(mailOutbox).values({ kind: 'payment_alert', orderId: o.id, problem: 'amount_mismatch', attempts: 3, nextAttemptAt: waitUntil }).returning();
+
+      cookieJar.clear();
+      check('resendOrderMails redirects to login without a session', await refusedWithoutSession(() => resend(o.id)));
+      const untouched = await mailRow(m1.id);
+      check('…and the given-up mail is untouched', untouched.givenUpAt !== null && untouched.attempts === 27 && untouched.sentAt === null && !(await eventsNow(o.id)).some((e) => e.startsWith(RESEND_EVENT)), untouched);
+
+      await createSession('admin', admin.id, admin.tokenVersion);
+      const before = new Set(outbox());
+      await resend(o.id);
+      const [r1, r2, r3, r4] = await Promise.all([mailRow(m1.id), mailRow(m2.id), mailRow(m3.id), mailRow(m4.id)]);
+      check('the given-up mails are reset and sent at once', [r1, r2].every((r) => r.sentAt !== null && r.givenUpAt === null && r.attempts === 0 && r.nextAttemptAt === null && r.lastError === null), [r1, r2]);
+      check('…through the normal delivery (two mails written, the confirmation noted on the order)', outbox().filter((f) => !before.has(f)).length === 2 && (await eventsNow(o.id)).some((e) => e.startsWith('Στάλθηκε e-mail επιβεβαίωσης')), outbox().filter((f) => !before.has(f)));
+      check('…the sent mail and the waiting one are left as they were', r3.sentAt?.getTime() === sentAt.getTime() && r4.sentAt === null && r4.attempts === 3 && r4.nextAttemptAt?.getTime() === waitUntil.getTime(), [r3, r4]);
+      const [ev] = await db.select().from(orderEvents).where(eq(orderEvents.orderId, o.id)).then((rows) => rows.filter((e) => e.message.startsWith(RESEND_EVENT)));
+      check('…and the order history says the administrator resent them', ev?.message === `${RESEND_EVENT}: στάλθηκαν 2 από 2.` && ev.actor === (admin.name || admin.email), ev);
+
+      const eventsAfter = (await eventsNow(o.id)).length;
+      const filesAfter = outbox().length;
+      await resend(o.id);
+      check('pressing it again does nothing (nothing is given up any more)', (await eventsNow(o.id)).length === eventsAfter && outbox().length === filesAfter);
+
+      const plain = await makeOrder({ status: 'confirmed', paymentStatus: 'paid', paidAt: new Date(), paymentProvider: 'viva', paymentTransactionId: 'TX-RESEND-2' });
+      const plainEvents = (await eventsNow(plain.id)).length;
+      await resend(plain.id);
+      check('an order with no given-up mails is a no-op', (await eventsNow(plain.id)).length === plainEvents && outbox().length === filesAfter && (await db.select().from(mailOutbox).where(eq(mailOutbox.orderId, plain.id))).length === 0);
+
+      // the mail service is still down: the mail goes back on the usual back-off instead of being given up again at once
+      const [m5] = await db.insert(mailOutbox).values({ kind: 'order_paid_notice', orderId: plain.id, attempts: 27, givenUpAt }).returning();
+      const savedKey = process.env.RESEND_API_KEY;
+      const savedFetch = globalThis.fetch;
+      process.env.RESEND_API_KEY = 're_test_dummy';
+      globalThis.fetch = (async () => new Response('down', { status: 500 })) as typeof fetch;
+      try {
+        await resend(plain.id);
+      } finally {
+        globalThis.fetch = savedFetch;
+        if (savedKey === undefined) delete process.env.RESEND_API_KEY;
+        else process.env.RESEND_API_KEY = savedKey;
+      }
+      const r5 = await mailRow(m5.id);
+      check('a resend that fails again starts the normal retries (1 attempt, a wait, not given up)', r5.sentAt === null && r5.givenUpAt === null && r5.attempts === 1 && (r5.nextAttemptAt?.getTime() ?? 0) > Date.now(), r5);
+      check('…and the history says none went out', (await eventsNow(plain.id)).some((e) => e.startsWith(`${RESEND_EVENT}: στάλθηκαν 0 από 1.`)), await eventsNow(plain.id));
+    } finally {
+      delete process.env.DATA_DIR;
+    }
+  }
+
   console.log('Login limits (customers and admin)');
   {
     const { customers } = await import('../src/lib/db/schema');
@@ -867,7 +1237,7 @@ async function main() {
     const customerLogin = (email: string, password: string) => () => loginCustomer(null, form({ email, password }));
     const adminLogin = (email: string, password: string, totp = '') => () => loginAdmin(null, form({ email, password, totp }));
     const pw = 'σωστός-κωδικός-1';
-    await db.insert(customers).values({ email: 'victim@example.com', passwordHash: await hashPassword(pw), firstName: 'Θύμα', lastName: 'Τεστ' });
+    await db.insert(customers).values({ email: 'victim@example.com', passwordHash: await hashPassword(pw), firstName: 'Θύμα', lastName: 'Τεστ', emailVerifiedAt: new Date() });
 
     // customers: strangers cannot lock an account out
     let wrongOnes = 0;
@@ -885,7 +1255,7 @@ async function main() {
     check('an unknown e-mail and a wrong password get the same answer', ghost.message === WRONG && real.message === WRONG, [ghost, real]);
 
     // the account-wide ceiling: about 50 failures an hour from anywhere, the same answer with or without an account
-    await db.insert(customers).values({ email: 'ceiling@example.com', passwordHash: await hashPassword(pw), firstName: 'Όριο', lastName: 'Τεστ' });
+    await db.insert(customers).values({ email: 'ceiling@example.com', passwordHash: await hashPassword(pw), firstName: 'Όριο', lastName: 'Τεστ', emailVerifiedAt: new Date() });
     for (let i = 1; i <= 50; i++) {
       await attempt(`192.0.2.${i}`, customerLogin('ceiling@example.com', 'λάθος-κωδικός'));
       await attempt(`192.0.2.${i}`, customerLogin('ghost-ceiling@example.com', 'λάθος-κωδικός'));
@@ -953,6 +1323,222 @@ async function main() {
     await db.delete(customers).where(inArray(customers.email, ['victim@example.com', 'ceiling@example.com']));
     currentIp = '203.0.113.1';
     await createSession('admin', admin.id, admin.tokenVersion); // the sign-ins above replaced the session cookie
+  }
+
+  console.log('Registration does not tell who has an account; activation');
+  {
+    const { customers } = await import('../src/lib/db/schema');
+    const { hashPassword, randomToken, sha256 } = await import('../src/lib/auth/password');
+    const { registerCustomer, loginCustomer, resendActivation, resetPassword, activateAccount } = await import('../src/app/(store)/account/actions');
+    const { GET: activate } = await import('../src/app/api/account/activate/route');
+    const { default: ActivatePage } = await import('../src/app/(store)/activate/page');
+    const { ACTIVATION_LINK_INVALID } = await import('../src/lib/auth/activation');
+    const { siteUrl } = await import('../src/lib/site-url');
+    const { getSettings, saveSettingsGroup } = await import('../src/lib/settings.server');
+    const { readdirSync } = await import('node:fs');
+    const { sql: rawSql } = await import('drizzle-orm');
+    const dataDir = path.join(dir, 'data-accounts');
+    const outboxDir = path.join(dataDir, 'outbox');
+    process.env.DATA_DIR = dataDir;
+    const mailsTo = (address: string) => {
+      try {
+        return readdirSync(outboxDir).filter((f) => f.endsWith(`__${address}.html`)).map((f) => readFileSync(path.join(outboxDir, f), 'utf8'));
+      } catch {
+        return [] as string[];
+      }
+    };
+    const customerRow = async (address: string) => (await db.select().from(customers).where(eq(customers.email, address)))[0];
+    const REGISTERED = 'Σας στείλαμε e-mail. Ακολουθήστε τον σύνδεσμο για να ολοκληρωθεί η εγγραφή.';
+    const WRONG = 'Λάθος e-mail ή κωδικός.';
+    let registerMs = 0;
+    const register = async (address: string, password: string, ip: string) => {
+      currentIp = ip;
+      const started = performance.now();
+      let r: Awaited<ReturnType<typeof registerCustomer>>;
+      try {
+        r = await registerCustomer(null, form({ firstName: 'Νέος', lastName: 'Πελάτης', email: address, password, acceptTerms: 'on' }));
+      } catch (err) {
+        if (!String((err as { digest?: string }).digest ?? '').startsWith('NEXT_REDIRECT')) throw err;
+        r = { ok: false, message: 'redirected (signed in at once)' };
+      }
+      registerMs = performance.now() - started;
+      await flushAfter();
+      return r;
+    };
+    const login = async (address: string, password: string, ip: string) => {
+      currentIp = ip;
+      try {
+        const r = await loginCustomer(null, form({ email: address, password }));
+        return { signedIn: false, message: r?.message ?? '', link: r?.link };
+      } catch (err) {
+        if (String((err as { digest?: string }).digest ?? '').startsWith('NEXT_REDIRECT')) return { signedIn: true, message: '', link: undefined };
+        throw err;
+      }
+    };
+    const resend = async (address: string, ip: string) => {
+      currentIp = ip;
+      const r = await resendActivation(null, form({ email: address }));
+      await flushAfter();
+      // the development mail fallback names its files by the millisecond: two quick mails to one address would share a file
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return r;
+    };
+    const follow = (token: string) => activate(new Request(`http://localhost/api/account/activate?token=${encodeURIComponent(token)}`));
+    const tokenIn = (mail: string) => decodeURIComponent(mail.match(/\/activate\?token=([^"&<\s]+)/)?.[1] ?? '');
+    // the page as rendered on the server: its element tree, as JSON (props such as the hidden token and the button label show up)
+    const view = async (token: string) => {
+      currentIp = '192.0.2.50';
+      // React's development builds link elements back to their owner, so only `type`, `props` and plain values are kept
+      const seen = new WeakSet<object>();
+      return JSON.stringify(await ActivatePage({ searchParams: Promise.resolve({ token }) }), (key, value) => {
+        if (key.startsWith('_') || typeof value === 'function') return undefined;
+        if (value && typeof value === 'object') {
+          if (seen.has(value)) return undefined;
+          seen.add(value);
+        }
+        return value;
+      });
+    };
+    // the button: the server action with the hidden field the page renders
+    const press = async (token: string) => {
+      currentIp = '192.0.2.51';
+      try {
+        const r = await activateAccount(null, form({ token }));
+        return { signedIn: false, message: r?.message ?? '', link: r?.link, location: '' };
+      } catch (err) {
+        const digest = String((err as { digest?: string }).digest ?? '');
+        if (digest.startsWith('NEXT_REDIRECT')) return { signedIn: true, message: '', link: undefined, location: digest.split(';')[2] ?? '' };
+        throw err;
+      }
+    };
+    const storefrontBefore = (await getSettings()).storefront;
+    await saveSettingsGroup('storefront', { ...storefrontBefore, ordersEnabled: true });
+    try {
+      cookieJar.delete('oc_customer');
+      await db.insert(customers).values({ email: 'known@example.com', passwordHash: await hashPassword('παλιός-κωδικός-1'), firstName: 'Γνωστός', lastName: 'Πελάτης', emailVerifiedAt: new Date() });
+      const knownBefore = await customerRow('known@example.com');
+
+      const rNew = await register('fresh@example.com', 'νέος-κωδικός-1', '192.0.2.10');
+      const rKnown = await register('known@example.com', 'άλλος-κωδικός-9', '192.0.2.11');
+      check('a new and a known address get the very same answer', rNew?.ok === true && rNew.message === REGISTERED && JSON.stringify(rNew) === JSON.stringify(rKnown), [rNew, rKnown]);
+      check('…and registering opens no session', !cookieJar.has('oc_customer'));
+
+      const fresh = await customerRow('fresh@example.com');
+      const expiresIn = (fresh?.verifyTokenExpires?.getTime() ?? 0) - Date.now();
+      check('a new address: the account is created unverified, with a hashed token valid for 24 h', !!fresh && fresh.emailVerifiedAt === null && /^[0-9a-f]{64}$/.test(fresh.verifyTokenHash ?? '') && expiresIn > 23.9 * 3600_000 && expiresIn <= 24 * 3600_000, fresh);
+      const activationMails = mailsTo('fresh@example.com');
+      const token = tokenIn(activationMails[0] ?? '');
+      check('…and an activation mail is sent, carrying the link', activationMails.length === 1 && token.length >= 20 && activationMails[0].includes('Ενεργοποίηση λογαριασμού'), activationMails.length);
+      check('…the database keeps only the hash of the link token', sha256(token) === fresh?.verifyTokenHash && !(fresh?.verifyTokenHash ?? '').includes(token));
+
+      const knownAfter = await customerRow('known@example.com');
+      check('a known address: the account is not changed', knownAfter.passwordHash === knownBefore.passwordHash && knownAfter.firstName === 'Γνωστός' && knownAfter.tokenVersion === knownBefore.tokenVersion && knownAfter.emailVerifiedAt?.getTime() === knownBefore.emailVerifiedAt?.getTime() && knownAfter.verifyTokenHash === null, knownAfter);
+      const notices = mailsTo('known@example.com');
+      check('…and its owner gets a notice with sign-in and reset links', notices.length === 1 && notices[0].includes('Κάποιος προσπάθησε να δημιουργήσει λογαριασμό') && notices[0].includes('/login') && notices[0].includes('/forgot-password') && !notices[0].includes('activate?token'), notices.length);
+      check('…the old password still works and the new one does not', (await login('known@example.com', 'παλιός-κωδικός-1', '192.0.2.12')).signedIn && !(await login('known@example.com', 'άλλος-κωδικός-9', '192.0.2.13')).signedIn);
+      cookieJar.delete('oc_customer');
+      // the time to answer: both paths hash the password (c2a3529), so neither is several times faster than the other
+      const median = (xs: number[]) => xs.sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+      const newTimes: number[] = [];
+      const knownTimes: number[] = [];
+      for (let i = 0; i < 3; i++) {
+        await register(`timing-${i}@example.com`, 'νέος-κωδικός-1', `192.0.2.${70 + i}`);
+        newTimes.push(registerMs);
+        await register('timing-0@example.com', 'νέος-κωδικός-1', `192.0.2.${80 + i}`);
+        knownTimes.push(registerMs);
+      }
+      const ratio = median(newTimes) / median(knownTimes);
+      check('a new and a known address take about as long to answer', ratio > 0.5 && ratio < 2, { newMs: newTimes, knownMs: knownTimes });
+      for (let i = 0; i < 4; i++) await register('known@example.com', 'άλλος-κωδικός-9', `192.0.2.${30 + i}`);
+      check('…repeated attempts mail the owner at most 3 times an hour (same answer every time)', mailsTo('known@example.com').length === 3, mailsTo('known@example.com').length);
+
+      const refused = await login('fresh@example.com', 'νέος-κωδικός-1', '192.0.2.20');
+      check('an unverified account with the right password is refused, with a link to a new activation mail', !refused.signedIn && refused.message.startsWith('Ο λογαριασμός σας δεν έχει ενεργοποιηθεί') && refused.link?.href === '/resend-activation?email=fresh%40example.com' && !cookieJar.has('oc_customer'), refused);
+      const wrongPw = await login('fresh@example.com', 'λάθος-κωδικός', '192.0.2.21');
+      check('…while a wrong password on it gets the usual answer and no link', !wrongPw.signedIn && wrongPw.message === WRONG && !wrongPw.link, wrongPw);
+
+      check('the mail links to the activation page', activationMails[0].includes('/activate?token=') && !activationMails[0].includes('/api/account/activate'));
+      const beforeViews = await customerRow('fresh@example.com');
+      const forwarded = await follow(token);
+      check('the old link address only forwards to the page, with the same token', forwarded.status === 303 && forwarded.headers.get('location') === `${siteUrl()}/activate?token=${encodeURIComponent(token)}` && forwarded.headers.get('referrer-policy') === 'no-referrer', [forwarded.status, forwarded.headers.get('location')]);
+      const firstView = await view(token);
+      const secondView = await view(token);
+      const afterViews = await customerRow('fresh@example.com');
+      check('opening the page shows the button with the token in a hidden field', firstView.includes('"submitLabel":"Ενεργοποίηση λογαριασμού"') && firstView.includes(`"hidden":{"token":"${token}"}`) && secondView === firstView);
+      check('…and opening it (twice, after the old address) spends nothing: still unverified, same token, no session', afterViews.emailVerifiedAt === null && afterViews.verifyTokenHash === beforeViews.verifyTokenHash && afterViews.verifyTokenExpires?.getTime() === beforeViews.verifyTokenExpires?.getTime() && !cookieJar.has('oc_customer'), afterViews);
+
+      await db.update(customers).set({ verifyTokenExpires: new Date(Date.now() - 1000) }).where(eq(customers.id, fresh.id));
+      check('an expired link: the page shows the message and the way to a new link, no button', (await view(token)).includes(ACTIVATION_LINK_INVALID) && !(await view(token)).includes('"hidden":{"token"') && (await view(token)).includes('/resend-activation'));
+      const late = await press(token);
+      check('…and pressing the button anyway activates nothing, with the message and a link to a new one', late.signedIn === false && late.message === ACTIVATION_LINK_INVALID && late.link?.href === '/resend-activation' && (await customerRow('fresh@example.com')).emailVerifiedAt === null && !cookieJar.has('oc_customer'), late);
+      await db.update(customers).set({ verifyTokenExpires: new Date(Date.now() + 60_000) }).where(eq(customers.id, fresh.id));
+      const madeUp = await press(randomToken());
+      check('a made-up token activates nothing', madeUp.signedIn === false && madeUp.message === ACTIVATION_LINK_INVALID && (await customerRow('fresh@example.com')).emailVerifiedAt === null);
+      const opened = await press(token);
+      const activated = await customerRow('fresh@example.com');
+      check('pressing the button activates the account and signs the customer in on the account page', opened.signedIn && opened.location === '/account?activated=1' && activated.emailVerifiedAt !== null && activated.verifyTokenHash === null && cookieJar.has('oc_customer'), [opened, activated.emailVerifiedAt]);
+      cookieJar.delete('oc_customer');
+      const twice = await press(token);
+      check('…and the token works only once', twice.signedIn === false && twice.message === ACTIVATION_LINK_INVALID && !cookieJar.has('oc_customer'), twice);
+      check('…after which the page no longer offers the button', (await view(token)).includes(ACTIVATION_LINK_INVALID));
+      check('…after which the customer signs in normally', (await login('fresh@example.com', 'νέος-κωδικός-1', '192.0.2.22')).signedIn);
+      cookieJar.delete('oc_customer');
+
+      // a customer from before activation existed: the migration's own backfill statement makes the account usable
+      const legacyCreated = new Date('2026-09-30T10:00:00Z');
+      await db.insert(customers).values({ email: 'legacy@example.com', passwordHash: await hashPassword('παλιός-πελάτης-1'), firstName: 'Παλιός', lastName: 'Πελάτης', createdAt: legacyCreated });
+      check('(a row as it was before the migration cannot sign in)', !(await login('legacy@example.com', 'παλιός-πελάτης-1', '192.0.2.40')).signedIn);
+      const migrationFile = readdirSync('drizzle').find((f) => f.startsWith('0022_') && f.endsWith('.sql'))!;
+      const backfill = readFileSync(path.join('drizzle', migrationFile), 'utf8').split('--> statement-breakpoint').map((st) => st.trim()).find((st) => st.startsWith('UPDATE'));
+      check('migration 0022 carries the backfill of existing customers', !!backfill && backfill.includes('`email_verified_at` = `created_at`'), backfill);
+      if (backfill) await db.run(rawSql.raw(backfill));
+      const legacy = await customerRow('legacy@example.com');
+      check('…which sets email_verified_at to the account creation time', legacy.emailVerifiedAt?.getTime() === legacyCreated.getTime(), legacy.emailVerifiedAt);
+      check('…and the existing customer signs in as before', (await login('legacy@example.com', 'παλιός-πελάτης-1', '192.0.2.41')).signedIn);
+      cookieJar.delete('oc_customer');
+
+      // a password reset proves the address too
+      const resetToken = randomToken();
+      await db.insert(customers).values({ email: 'reset-verifies@example.com', passwordHash: await hashPassword('ξεχασμένος-1'), firstName: 'Τεστ', lastName: 'Reset', verifyTokenHash: sha256(randomToken()), verifyTokenExpires: new Date(Date.now() + 3600_000), resetTokenHash: sha256(resetToken), resetTokenExpires: new Date(Date.now() + 3600_000) });
+      try {
+        await resetPassword(null, form({ token: resetToken, password: 'καινούριος-κωδικός-1' }));
+      } catch (err) {
+        if (!String((err as { digest?: string }).digest ?? '').startsWith('NEXT_REDIRECT')) throw err;
+      }
+      const afterReset = await customerRow('reset-verifies@example.com');
+      check('a password reset activates an account that was never activated', afterReset.emailVerifiedAt !== null && afterReset.verifyTokenHash === null && afterReset.verifyTokenExpires === null, afterReset);
+      cookieJar.delete('oc_customer');
+      check('…and the new password signs in', (await login('reset-verifies@example.com', 'καινούριος-κωδικός-1', '192.0.2.42')).signedIn);
+      cookieJar.delete('oc_customer');
+      const knownVerifiedAt = (await customerRow('known@example.com')).emailVerifiedAt?.getTime();
+      const knownReset = randomToken();
+      await db.update(customers).set({ resetTokenHash: sha256(knownReset), resetTokenExpires: new Date(Date.now() + 3600_000) }).where(eq(customers.email, 'known@example.com'));
+      await resetPassword(null, form({ token: knownReset, password: 'νέος-κωδικός-γνωστού' })).catch(() => undefined);
+      check('…while an account that was already active keeps its activation date', (await customerRow('known@example.com')).emailVerifiedAt?.getTime() === knownVerifiedAt);
+      cookieJar.delete('oc_customer');
+
+      // sending the activation link again
+      const RESENT = 'Αν υπάρχει λογαριασμός που περιμένει ενεργοποίηση με αυτό το e-mail, σας στείλαμε νέο σύνδεσμο. Ισχύει για 24 ώρες.';
+      await db.insert(customers).values({ email: 'waiting@example.com', passwordHash: await hashPassword('περιμένει-1'), firstName: 'Τεστ', lastName: 'Αναμονή', verifyTokenHash: 'old-hash', verifyTokenExpires: new Date(Date.now() + 3600_000) });
+      const r1 = await resend('waiting@example.com', '192.0.2.50');
+      const waiting = await customerRow('waiting@example.com');
+      check('resend: a waiting account gets a new link (the old one stops working)', r1?.ok === true && r1.message === RESENT && waiting.verifyTokenHash !== 'old-hash' && mailsTo('waiting@example.com').length === 1 && sha256(tokenIn(mailsTo('waiting@example.com')[0])) === waiting.verifyTokenHash, r1);
+      const rUnknown = await resend('nobody-here@example.com', '192.0.2.51');
+      const rActive = await resend('fresh@example.com', '192.0.2.52');
+      check('…an unknown or an active address gets the same answer and no mail', JSON.stringify(rUnknown) === JSON.stringify(r1) && JSON.stringify(rActive) === JSON.stringify(r1) && mailsTo('nobody-here@example.com').length === 0 && mailsTo('fresh@example.com').length === 1 && (await customerRow('fresh@example.com')).verifyTokenHash === null);
+      await resend('waiting@example.com', '192.0.2.53');
+      await resend('waiting@example.com', '192.0.2.54');
+      const fourth = await resend('waiting@example.com', '192.0.2.55');
+      check('…limited per e-mail: the 4th request within the hour, from a 4th address, is refused', fourth?.ok === false && fourth.message.startsWith('Πολλές προσπάθειες') && mailsTo('waiting@example.com').length === 3, [fourth, mailsTo('waiting@example.com').length]);
+      const fromOneIp: Array<Awaited<ReturnType<typeof resend>>> = [];
+      for (let i = 0; i < 6; i++) fromOneIp.push(await resend(`spray-${i}@example.com`, '192.0.2.60'));
+      check('…and per address of the visitor: the 6th request from one address within 30 minutes is refused', fromOneIp.slice(0, 5).every((r) => r?.ok === true) && fromOneIp[5]?.ok === false, fromOneIp.map((r) => r?.ok));
+    } finally {
+      await saveSettingsGroup('storefront', storefrontBefore);
+      await flushAfter();
+      delete process.env.DATA_DIR;
+      await db.delete(customers).where(inArray(customers.email, ['known@example.com', 'fresh@example.com', 'legacy@example.com', 'reset-verifies@example.com', 'waiting@example.com', 'timing-0@example.com', 'timing-1@example.com', 'timing-2@example.com']));
+    }
   }
 
   console.log('Cleanup');

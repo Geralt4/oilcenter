@@ -7,10 +7,11 @@ import { Card, Check, Field, PageHeader } from '@/components/admin/ui';
 import { buttonClass } from '@/components/ui/button';
 import { totpUri } from '@/lib/auth/totp';
 import { backupsSupported, listBackups } from '@/lib/backup';
-import { offsiteConfigured, offsiteStatus } from '@/lib/backup-offsite';
+import { lastOffsiteSuccess, offsiteConfigured, offsiteStatus } from '@/lib/backup-offsite';
 import { db } from '@/lib/db';
 import { adminUsers } from '@/lib/db/schema';
 import { cardProvider } from '@/lib/payments';
+import { formatIban, isValidIban } from '@/lib/iban';
 import { DAY_NAMES } from '@/lib/settings';
 import { requireAdmin } from '@/lib/auth/session';
 import { hasSudoSession } from '@/lib/auth/session';
@@ -34,11 +35,19 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
   const mfaQr = mfaPending ? await QRCode.toDataURL(totpUri(mfa!.secret!, admin.email), { margin: 1, width: 220 }) : null;
   const { shop, storefront, reviews, shipping, payments, tax } = s;
   const provider = cardProvider();
+  // an IBAN saved before IBANs were checked: say so now, not when the owner next saves
+  const badIbans = payments.bankAccounts.flatMap((a, i) => (isValidIban(a.iban) ? [] : [i + 1]));
   const accounts = [...payments.bankAccounts, { bank: '', iban: '', holder: '' }, { bank: '', iban: '', holder: '' }, { bank: '', iban: '', holder: '' }, { bank: '', iban: '', holder: '' }].slice(0, 4);
 
   return (
     <>
       <PageHeader title="Ρυθμίσεις" description="Ό,τι αλλάζετε εδώ εφαρμόζεται αμέσως στο κατάστημα." />
+
+      {badIbans.length > 0 && (
+        <p role="alert" className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-950">
+          {badIbans.length === 1 ? `Ο τραπεζικός λογαριασμός ${badIbans[0]} έχει μη έγκυρο IBAN` : `Οι τραπεζικοί λογαριασμοί ${badIbans.join(', ')} έχουν μη έγκυρο IBAN`} — οι πελάτες το βλέπουν όπως είναι γραμμένο. Διορθώστε το στους «Τρόπους πληρωμής» και αποθηκεύστε· μέχρι τότε δεν θα αποθηκευτεί καμία ρύθμιση.
+        </p>
+      )}
 
       {(sudoParam || mfaParam) && (
         <p role="alert" className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-950">
@@ -176,7 +185,7 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
             {accounts.map((a, i) => (
               <div key={i} className="grid gap-2 md:grid-cols-[1fr_1.6fr_1.2fr]">
                 <input name={`bank${i}-name`} defaultValue={a.bank} placeholder="Τράπεζα" aria-label={`Τράπεζα ${i + 1}`} className="field" />
-                <input name={`bank${i}-iban`} defaultValue={a.iban} placeholder="IBAN — GR…" aria-label={`IBAN ${i + 1}`} className="field tabular uppercase" />
+                <input name={`bank${i}-iban`} defaultValue={formatIban(a.iban)} placeholder="IBAN — GR…" aria-label={`IBAN ${i + 1}`} className="field tabular uppercase" />
                 <input name={`bank${i}-holder`} defaultValue={a.holder} placeholder="Δικαιούχος" aria-label={`Δικαιούχος ${i + 1}`} className="field" />
               </div>
             ))}
@@ -325,7 +334,7 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
                   : offsiteLast?.ok
                     ? `Εξωτερικό αντίγραφο (Backblaze B2): ενημερώθηκε ${formatDate(new Date(offsiteLast.at))} — κρυπτογραφημένο, διατηρούνται 14 ημερήσια.`
                     : offsiteLast
-                      ? `Εξωτερικό αντίγραφο (Backblaze B2): Η ΤΕΛΕΥΤΑΙΑ ΑΠΟΣΤΟΛΗ ΑΠΕΤΥΧΕ (${formatDate(new Date(offsiteLast.at))}). Ελέγξτε τα στοιχεία σύνδεσης στο Railway.`
+                      ? `Εξωτερικό αντίγραφο (Backblaze B2): Η ΤΕΛΕΥΤΑΙΑ ΑΠΟΣΤΟΛΗ ΑΠΕΤΥΧΕ (${formatDate(new Date(offsiteLast.at))}).${lastOffsiteSuccess(offsiteLast) ? ` Τελευταίο επιτυχές: ${formatDate(new Date(lastOffsiteSuccess(offsiteLast)!))}.` : ''} Ελέγξτε τα στοιχεία σύνδεσης στο Railway.`
                       : 'Εξωτερικό αντίγραφο (Backblaze B2): ρυθμισμένο, αναμένεται η πρώτη αποστολή.'}
               </p>
             </>

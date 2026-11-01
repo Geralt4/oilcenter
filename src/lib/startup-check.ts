@@ -4,8 +4,33 @@
  * being discovered by the first broken e-mail link or unaccepted cookie.
  *
  * Fails the boot when a required setting is missing; never reads secret VALUES, only their shape.
+ * Things that are only worth a warning (the boot continues) come from checkProductionWarnings().
  */
+import { commerceEnabled } from '@/lib/commerce-flag';
 import { invalidWebhookIps } from '@/lib/payments/viva';
+
+/**
+ * Mail goes through Resend (it wins over SMTP, see src/lib/email.ts) but MAIL_FROM is unset or blank, so the sender is
+ * Resend's shared test address. Same trimming as email.ts; that file is not imported here because it pulls in the database.
+ */
+export function resendConfigured(): boolean {
+  return Boolean(process.env.RESEND_API_KEY?.trim());
+}
+
+export function resendWithoutSender(): boolean {
+  return resendConfigured() && !process.env.MAIL_FROM?.trim();
+}
+
+/** Settings that do not stop the boot but will hurt once ordering is open. Logged by src/instrumentation.ts. */
+export function checkProductionWarnings(): string[] {
+  const warnings: string[] = [];
+  // Fine for a catalogue site (only the shop's own notifications go out); with ordering on, customers would get no mail.
+  // The ordersEnabled setting lives in the database and the owner can flip it without a restart, so only the deployment flag counts here.
+  if (commerceEnabled() && resendWithoutSender()) {
+    warnings.push("MAIL_FROM is not set while mail goes through Resend (RESEND_API_KEY) and commerce is on — mail is sent from Resend's test address, which delivers only to the Resend account's own mailbox, so customers get no order or payment e-mails. Set MAIL_FROM to a sender on a domain verified in Resend (e.g. Oil Center <no-reply@oilcenter.gr>).");
+  }
+  return warnings;
+}
 
 export function checkProductionConfig(): string[] {
   const problems: string[] = [];

@@ -2,18 +2,20 @@
 
 import { redirect } from 'next/navigation';
 import { after } from 'next/server';
-import { and, eq, gt, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { ACTIVATION_LINK_INVALID, activateByToken, newActivationToken } from '@/lib/auth/activation';
 import { hashPassword, randomToken, sha256, verifyPassword } from '@/lib/auth/password';
 import { createSession, destroySession, getCustomer, requireCustomer, revokeAllSessions } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { customers } from '@/lib/db/schema';
-import { passwordResetMail, sendMail } from '@/lib/email';
+import { accountActivationMail, passwordResetMail, registrationAttemptMail, sendMail } from '@/lib/email';
 import { accountFailuresBlocked, clientIp, loginBudgets, rateLimit, recordAccountFailure } from '@/lib/rate-limit';
 import { getSettings } from '@/lib/settings.server';
 import { accountsAvailable, canOrderNow } from '@/lib/catalogue-mode';
 
-export type FormState = { ok: boolean; message: string; fieldErrors?: Record<string, string> } | null;
+/** `link`: a next step shown under the message (e.g. «send the activation mail again») */
+export type FormState = { ok: boolean; message: string; fieldErrors?: Record<string, string>; link?: { href: string; label: string } } | null;
 
 const email = z.string().trim().toLowerCase().email('Μη έγκυρο e-mail').max(160);
 const password = z.string().min(8, 'Τουλάχιστον 8 χαρακτήρες').max(200);
@@ -49,23 +51,37 @@ export async function registerCustomer(_prev: FormState, formData: FormData): Pr
   const limited = await rateLimit(`register:${await clientIp()}`, 6, 30 * 60 * 1000);
   if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.' };
 
-  const [existing] = await db.select({ id: customers.id }).from(customers).where(eq(customers.email, parsed.data.email));
-  if (existing) {
-    // the same work as a new registration, so the time to answer does not tell the two cases apart (the message still does: see the Notion Fix list)
-    await hashPassword(parsed.data.password);
-    return { ok: false, message: 'Υπάρχει ήδη λογαριασμός με αυτό το e-mail.', fieldErrors: { email: 'Συνδεθείτε ή κάντε επαναφορά κωδικού.' } };
-  }
-
+  // One answer for a new and for a known address, with the same work on both paths (a password hash, one statement, a mail sent
+  // after the reply), so neither the message nor the time to answer tells whether the address has an account.
+  const passwordHash = await hashPassword(parsed.data.password);
+  const activation = newActivationToken();
   const [created] = await db
     .insert(customers)
-    .values({ email: parsed.data.email, passwordHash: await hashPassword(parsed.data.password), firstName: parsed.data.firstName, lastName: parsed.data.lastName })
+    .values({ email: parsed.data.email, passwordHash, firstName: parsed.data.firstName, lastName: parsed.data.lastName, verifyTokenHash: activation.hash, verifyTokenExpires: activation.expires })
+    .onConflictDoNothing({ target: customers.email })
     .returning({ id: customers.id });
-  // Deliberately NOT linking earlier guest orders by e-mail: registration does not prove ownership
-  // of that address, so it must not surface another person's order history. Guest orders stay
-  // reachable through the order lookup (number + e-mail) or the secret link in the confirmation e-mail.
-  await createSession('customer', created.id, 0);
-  redirect(safeNext(formData.get('next')));
+  const settings = await getSettings();
+  if (created) {
+    // New address: the account exists but stays unverified (cannot sign in) until the link in this mail is followed.
+    // Deliberately NOT linking earlier guest orders by e-mail: registration does not prove ownership
+    // of that address, so it must not surface another person's order history. Guest orders stay
+    // reachable through the order lookup (number + e-mail) or the secret link in the confirmation e-mail.
+    const mail = accountActivationMail(parsed.data.email, activation.token, settings);
+    after(() => sendMail(mail));
+  } else {
+    // Known address: the account is left exactly as it is; its owner is told and pointed to sign-in and password reset. At most a
+    // few such notices an hour per address, so the form cannot be used to flood somebody's mailbox (the answer stays the same).
+    const notices = await rateLimit(`register-notice:${parsed.data.email}`, 3, 60 * 60 * 1000);
+    if (notices.ok) {
+      const mail = registrationAttemptMail(parsed.data.email, settings);
+      after(() => sendMail(mail));
+    }
+  }
+  return { ok: true, message: REGISTERED };
 }
+
+const REGISTERED = 'Σας στείλαμε e-mail. Ακολουθήστε τον σύνδεσμο για να ολοκληρωθεί η εγγραφή.';
+const NOT_ACTIVATED = 'Ο λογαριασμός σας δεν έχει ενεργοποιηθεί ακόμη. Ακολουθήστε τον σύνδεσμο στο e-mail που σας στείλαμε κατά την εγγραφή ή ζητήστε νέο.';
 
 export async function loginCustomer(_prev: FormState, formData: FormData): Promise<FormState> {
   // the pages are hidden in catalogue mode (lib/catalogue-mode.ts); the action must not be a way around that
@@ -93,8 +109,54 @@ export async function loginCustomer(_prev: FormState, formData: FormData): Promi
     return { ok: false, message: 'Λάθος e-mail ή κωδικός.' };
   }
 
+  // The right password, but the address was never confirmed: no session. Only someone who knows the password gets this far, so
+  // the answer tells nothing new about who has an account. Not a failed attempt either, so nothing is counted.
+  if (!customer.emailVerifiedAt) {
+    return { ok: false, message: NOT_ACTIVATED, link: { href: `/resend-activation?email=${encodeURIComponent(parsed.data.email)}`, label: 'Στείλτε μου ξανά τον σύνδεσμο ενεργοποίησης' } };
+  }
+
   await createSession('customer', customer.id, customer.tokenVersion);
   redirect(safeNext(formData.get('next')));
+}
+
+/**
+ * «Send the activation link again». The same answer whatever the address (unknown, already active, waiting); a new link only for
+ * an account that is waiting. Limited per address of the visitor and per e-mail, both counted before anything is looked up.
+ */
+export async function resendActivation(_prev: FormState, formData: FormData): Promise<FormState> {
+  // the pages are hidden in catalogue mode (lib/catalogue-mode.ts); the action must not be a way around that
+  if (!(await accountsAvailable())) return { ok: false, message: 'Οι λογαριασμοί πελατών θα ανοίξουν μαζί με τις online παραγγελίες.' };
+  const tooMany: FormState = { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.' };
+  if (!(await rateLimit(`activation-resend:ip:${await clientIp()}`, 5, 30 * 60 * 1000)).ok) return tooMany;
+  const parsed = email.safeParse(formData.get('email'));
+  if (!parsed.success) return { ok: false, message: 'Μη έγκυρο e-mail.' };
+  if (!(await rateLimit(`activation-resend:email:${parsed.data}`, 3, 60 * 60 * 1000)).ok) return tooMany;
+
+  const activation = newActivationToken();
+  const [waiting] = await db
+    .update(customers)
+    .set({ verifyTokenHash: activation.hash, verifyTokenExpires: activation.expires })
+    .where(and(eq(customers.email, parsed.data), isNull(customers.emailVerifiedAt)))
+    .returning({ id: customers.id });
+  if (waiting) {
+    const mail = accountActivationMail(parsed.data, activation.token, await getSettings());
+    // sent after the reply: waiting for the mail server only for a waiting account would tell which ones exist
+    after(() => sendMail(mail));
+  }
+  return { ok: true, message: 'Αν υπάρχει λογαριασμός που περιμένει ενεργοποίηση με αυτό το e-mail, σας στείλαμε νέο σύνδεσμο. Ισχύει για 24 ώρες.' };
+}
+
+/**
+ * The button on the activation page. The token comes from the page's hidden field; only a token that is still usable (see
+ * lib/auth/activation.ts) activates and signs in, anything else changes nothing and points to a new link.
+ */
+export async function activateAccount(_prev: FormState, formData: FormData): Promise<FormState> {
+  if (!(await accountsAvailable())) return { ok: false, message: 'Οι λογαριασμοί πελατών θα ανοίξουν μαζί με τις online παραγγελίες.' };
+  if (!(await rateLimit(`activate:${await clientIp()}`, 10, 10 * 60 * 1000)).ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.' };
+  const account = await activateByToken(String(formData.get('token') ?? ''));
+  if (!account) return { ok: false, message: ACTIVATION_LINK_INVALID, link: { href: '/resend-activation', label: 'Στείλτε μου νέο σύνδεσμο' } };
+  await createSession('customer', account.id, account.tokenVersion);
+  redirect('/account?activated=1');
 }
 
 export async function logoutCustomer(): Promise<void> {
@@ -142,7 +204,8 @@ export async function resetPassword(_prev: FormState, formData: FormData): Promi
   // old password) is invalidated, and only this browser stays signed in.
   const [customer] = await db
     .update(customers)
-    .set({ passwordHash, resetTokenHash: null, resetTokenExpires: null, tokenVersion: sql`${customers.tokenVersion} + 1` })
+    // the reset link reached the mailbox, which proves the address too: an account that was never activated is activated here
+    .set({ passwordHash, resetTokenHash: null, resetTokenExpires: null, emailVerifiedAt: sql`coalesce(${customers.emailVerifiedAt}, ${Date.now()})`, verifyTokenHash: null, verifyTokenExpires: null, tokenVersion: sql`${customers.tokenVersion} + 1` })
     .where(and(eq(customers.resetTokenHash, tokenHash), gt(customers.resetTokenExpires, new Date())))
     .returning({ id: customers.id, tokenVersion: customers.tokenVersion });
   if (!customer) return { ok: false, message: 'Ο σύνδεσμος επαναφοράς δεν ισχύει ή έχει λήξει. Ζητήστε νέο.' };

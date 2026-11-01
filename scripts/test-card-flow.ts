@@ -504,6 +504,81 @@ async function main() {
       }
     };
 
+    // not a card journey, but this is the browser run with ordering open, which customer accounts need
+    const s13 = async () => {
+      console.log('S13 a customer registers, activates the account and signs in');
+      const address = 'card-account@example.com';
+      const password = 'κωδικός-λογαριασμού-1';
+      const waitForMail = async (before: Set<string>, subject: string) => {
+        for (let i = 0; i < 40; i++) {
+          const mail = mailsSince(before).find((m) => m.to === address && m.subject.startsWith(subject));
+          if (mail) return mail;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        return undefined;
+      };
+      const registerAs = async (page: Page) => {
+        await page.goto(`${base}/register`);
+        await page.fill('#af-firstName', 'Νέα');
+        await page.fill('#af-lastName', 'Πελάτισσα');
+        await page.fill('#af-email', address);
+        await page.fill('#af-password', password);
+        await page.check('input[name="acceptTerms"]');
+        await page.getByRole('button', { name: 'Εγγραφή' }).click();
+        await page.getByText('Σας στείλαμε e-mail. Ακολουθήστε τον σύνδεσμο για να ολοκληρωθεί η εγγραφή.').waitFor({ timeout: 20_000 });
+      };
+      const { ctx, page } = await newPage();
+      try {
+        const before = snapshot();
+        await registerAs(page);
+        check('registering answers «Σας στείλαμε e-mail…» and stays signed out', !page.url().includes('/account'), page.url());
+        const activation = await waitForMail(before, 'Ενεργοποίηση λογαριασμού');
+        check('…and the activation mail arrives', !!activation, mailsSince(before).map((m) => m.subject));
+
+        await page.goto(`${base}/login`);
+        await page.fill('#af-email', address);
+        await page.fill('#af-password', password);
+        await page.getByRole('button', { name: 'Σύνδεση' }).click();
+        const resendLink = page.getByRole('link', { name: 'Στείλτε μου ξανά τον σύνδεσμο ενεργοποίησης' });
+        await resendLink.waitFor({ timeout: 20_000 });
+        check('signing in before activation is refused, with a link to a new activation mail', page.url().includes('/login'), page.url());
+        await resendLink.click();
+        await page.waitForURL(/\/resend-activation/);
+        check('…which opens the resend page with the address filled in', (await page.inputValue('#af-email')) === address);
+
+        const html = activation ? readFileSync(path.join(outbox, activation.file), 'utf8') : '';
+        const link = html.match(/href="([^"]*\/activate\?token=[^"]+)"/)?.[1]?.replace(/&amp;/g, '&') ?? '';
+        const { customers } = await import('../src/lib/db/schema');
+        const verifiedAt = async () => (await db.select({ at: customers.emailVerifiedAt }).from(customers).where(eq(customers.email, address)))[0]?.at ?? null;
+        const button = page.getByRole('button', { name: 'Ενεργοποίηση λογαριασμού' });
+        // a mail scanner opening the link first, then the customer opening it: neither visit activates anything
+        const firstVisit = await page.goto(link || `${base}/activate`);
+        await page.goto(link || `${base}/activate`);
+        await button.waitFor({ timeout: 20_000 });
+        check('opening the link (twice) shows the activation button and activates nothing yet', link.startsWith(`${base}/activate?token=`) && (await verifiedAt()) === null, link);
+        check('…the page sends no Referer and is kept out of search engines', firstVisit?.headers()['referrer-policy'] === 'no-referrer' && (await page.locator('meta[name="robots"]').getAttribute('content'))?.includes('noindex') === true && (await page.locator('meta[name="referrer"]').getAttribute('content')) === 'no-referrer', firstVisit?.headers()['referrer-policy']);
+        const legacy = await page.request.get(`${base}/api/account/activate?token=${encodeURIComponent(new URL(link || base).searchParams.get('token') ?? '')}`, { maxRedirects: 0 });
+        check('…and the address of the first mails only forwards to the page, spending nothing', legacy.status() === 303 && (legacy.headers().location ?? '').endsWith(`/activate?token=${encodeURIComponent(new URL(link || base).searchParams.get('token') ?? '')}`) && (await verifiedAt()) === null, legacy.status());
+        await button.click();
+        await page.waitForURL(/\/account/, { timeout: 20_000 });
+        check('pressing the button signs the customer in on the account page', page.url().includes('/account?activated=1') && (await page.getByText('Ο λογαριασμός σας ενεργοποιήθηκε').count()) === 1 && (await verifiedAt()) !== null, page.url());
+        await page.goto(link || `${base}/activate`);
+        check('…and a second visit of the same link says it no longer works, with a way to a new one', (await page.getByText('Ο σύνδεσμος ενεργοποίησης δεν ισχύει').count()) === 1 && (await page.getByRole('link', { name: 'Στείλτε μου νέο σύνδεσμο' }).count()) === 1 && (await button.count()) === 0, page.url());
+      } finally {
+        await ctx.close();
+      }
+
+      const second = await newPage();
+      try {
+        const before = snapshot();
+        await registerAs(second.page);
+        check('registering the same address again gets the same answer', true);
+        check('…and its owner gets the «someone tried to register» notice', !!(await waitForMail(before, 'Προσπάθεια εγγραφής')), mailsSince(before).map((m) => m.subject));
+      } finally {
+        await second.ctx.close();
+      }
+    };
+
     const run = async (fn: () => Promise<void>, label: string) => {
       // placeOrder allows 8 orders per 10 minutes per IP: each scenario starts with fresh limits
       await db.delete(rateLimits);
@@ -524,6 +599,7 @@ async function main() {
     await run(s9, 'S9');
     await run(s10, 'S10');
     await run(s12, 'S12');
+    await run(s13, 'S13');
   } finally {
     await browser?.close().catch(() => undefined);
     if (server && server.exitCode === null) {

@@ -30,12 +30,21 @@ const blank = (): VariantRow => ({ label: '', sku: '', price: '', compareAt: '',
 /** Edits a product's pack sizes. The rows travel to the server action as JSON in one hidden field. */
 export function VariantsEditor({ initial, images }: { initial: VariantRow[]; images: string[] }) {
   const [rows, setRows] = useState<VariantRow[]>(initial.length ? initial : [blank()]);
+  // Sizes are removed on the server only when named here (the trash button on a saved size). A size that is merely
+  // absent from the form, e.g. one added from another tab, is left alone.
+  const [removed, setRemoved] = useState<number[]>([]);
+  const removeRow = (i: number) => {
+    const id = rows[i]?.id;
+    if (id !== undefined) setRemoved((ids) => (ids.includes(id) ? ids : [...ids, id]));
+    setRows((rs) => (rs.length > 1 ? rs.filter((_, j) => j !== i) : rs));
+  };
   const patch = (i: number, change: Partial<VariantRow>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...change } : r)));
   const cell = 'field h-10 px-2.5 text-sm';
 
   return (
     <div>
       {/* a photo deleted since this row was loaded is no longer a choice: never send its dead link back */}
+      <input type="hidden" name="removedVariantIds" value={JSON.stringify(removed)} />
       <input type="hidden" name="variants" value={JSON.stringify(rows.map((r) => (r.imageUrl && !images.includes(r.imageUrl) ? { ...r, imageUrl: '' } : r)))} />
       <div className="-mx-4 overflow-x-auto px-4 sm:-mx-6 sm:px-6">
         <table className="w-full min-w-[80rem] border-separate border-spacing-y-1.5 text-sm">
@@ -81,7 +90,7 @@ export function VariantsEditor({ initial, images }: { initial: VariantRow[]; ima
                 <td className="pr-2"><input value={r.mpn} onChange={(e) => patch(i, { mpn: e.target.value })} aria-label="Κωδικός κατασκευαστή (MPN)" className={`${cell} tabular w-28`} /></td>
                 <td className="pr-2 text-center"><input type="checkbox" checked={r.isActive} onChange={(e) => patch(i, { isActive: e.target.checked })} aria-label="Ενεργή" className="h-4 w-4 cursor-pointer accent-ink-900" /></td>
                 <td className="pr-2 text-center"><input type="checkbox" checked={r.priceVerified} onChange={(e) => patch(i, { priceVerified: e.target.checked })} aria-label="Η τιμή είναι επιβεβαιωμένη" className="h-4 w-4 cursor-pointer accent-emerald-600" /></td>
-                <td><button type="button" onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((_, j) => j !== i) : rs))} disabled={rows.length === 1} aria-label="Αφαίρεση συσκευασίας" className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-ink-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30"><Trash2 className="h-4 w-4" /></button></td>
+                <td><button type="button" onClick={() => removeRow(i)} disabled={rows.length === 1} aria-label="Αφαίρεση συσκευασίας" className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-ink-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30"><Trash2 className="h-4 w-4" /></button></td>
               </tr>
             ))}
           </tbody>

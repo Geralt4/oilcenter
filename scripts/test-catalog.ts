@@ -270,6 +270,56 @@ async function main() {
     await db.delete(products).where(eq(products.id, pp.id));
   }
 
+  console.log('Unconfirmed prices on the product page');
+  {
+    const { sales } = await import('../src/lib/db/schema');
+    const { getProductBySlug } = await import('../src/lib/catalog');
+    const { productJsonLd } = await import('../src/lib/seo');
+    type Settings = Parameters<typeof productJsonLd>[1];
+    const asSettings = (demoMode: boolean, ordersEnabled: boolean) => ({ storefront: { demoMode, ordersEnabled } }) as unknown as Settings;
+
+    const [up] = await db.insert(products).values({ slug: 'test-unconfirmed-price', name: 'Δοκιμή ανεπιβεβαίωτης τιμής', searchText: 'dokimi unconfirmedprice', isActive: true }).returning();
+    const inserted = await db
+      .insert(variants)
+      .values([
+        { productId: up.id, label: '1L', sku: 'TEST-UNCONF-1L', volumeMl: 1000, priceCents: 1000, priceVerified: true, isActive: true, sort: 0 },
+        { productId: up.id, label: '5L', sku: 'TEST-UNCONF-5L', volumeMl: 5000, priceCents: 4500, compareAtCents: 5200, priceVerified: false, isActive: true, sort: 1 },
+      ])
+      .returning();
+    const confirmedId = inserted.find((v) => v.sku === 'TEST-UNCONF-1L')!.id;
+    const unconfirmedId = inserted.find((v) => v.sku === 'TEST-UNCONF-5L')!.id;
+    const sizes = async () => {
+      const detail = await getProductBySlug(up.slug);
+      return { detail, confirmed: detail?.variants.find((v) => v.id === confirmedId), unconfirmed: detail?.variants.find((v) => v.id === unconfirmedId) };
+    };
+
+    let s = await sizes();
+    check('an unconfirmed size has every price field at 0 and stays unconfirmed', s.unconfirmed?.priceCents === 0 && s.unconfirmed.compareAtCents === null && s.unconfirmed.saleId === null && s.unconfirmed.priceVerified === false, s.unconfirmed);
+    check('a confirmed size keeps its real price', s.confirmed?.priceCents === 1000 && s.confirmed.compareAtCents === null && s.confirmed.priceVerified === true, s.confirmed);
+    const offers = (detail: NonNullable<typeof s.detail>) => productJsonLd(detail, asSettings(false, true)).offers;
+    check('structured data offers only the confirmed size', offers(s.detail!)?.lowPrice === '10.00' && offers(s.detail!)?.highPrice === '10.00' && offers(s.detail!)?.offerCount === 1, offers(s.detail!));
+
+    const [sale] = await db.insert(sales).values({ name: 'Τεστ έκπτωση τιμής', type: 'percent', value: 20, productIds: [up.id], isActive: true }).returning();
+    s = await sizes();
+    check('a running sale lowers the confirmed size and shows its regular price as «was»', s.confirmed?.priceCents === 800 && s.confirmed.compareAtCents === 1000, s.confirmed);
+    check('…and leaks no sale price for the unconfirmed one', s.unconfirmed?.priceCents === 0 && s.unconfirmed.compareAtCents === null && s.unconfirmed.saleId === null, s.unconfirmed);
+    const ld = JSON.stringify(productJsonLd(s.detail!, asSettings(false, true)));
+    check('structured data carries the sale price of the confirmed size only: no 45.00, 52.00 or 36.00', ld.includes('"lowPrice":"8.00"') && !/45\.00|52\.00|36\.00|4500|5200|3600/.test(ld), ld);
+
+    const listed = (await listProducts({ q: 'unconfirmedprice', perPage: 100 })).products.find((p) => p.id === up.id);
+    const listedUnconfirmed = listed?.variants.find((v) => v.id === unconfirmedId);
+    check('the listing agrees: the unconfirmed size is not priced and shows 0', !!listedUnconfirmed && listedUnconfirmed.priced === false && listedUnconfirmed.priceCents === 0 && listedUnconfirmed.compareAtCents === null, listedUnconfirmed);
+    check('…and the confirmed one carries the sale', listed?.variants.find((v) => v.id === confirmedId)?.priceCents === 800);
+
+    await db.delete(sales).where(eq(sales.id, sale.id));
+    await db.update(variants).set({ isActive: false }).where(eq(variants.id, confirmedId));
+    s = await sizes();
+    check('a product with only unconfirmed sizes has no offer in its structured data', !!s.detail && productJsonLd(s.detail, asSettings(false, true)).offers === undefined && s.unconfirmed?.priceCents === 0, s.detail ? productJsonLd(s.detail, asSettings(false, true)).offers : null);
+
+    await db.delete(variants).where(eq(variants.productId, up.id));
+    await db.delete(products).where(eq(products.id, up.id));
+  }
+
   console.log('Cart and favourites across browser tabs');
   {
     // Two tabs of one browser: the same localStorage, a separate copy of the store in each, and the browser's `storage` event

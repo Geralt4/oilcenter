@@ -23,7 +23,9 @@ import { backupsDir, backupsSupported, writeSnapshot } from '@/lib/backup';
  * the B2 account: whoever reads the bucket must still not be able to read customer data.
  *
  * The uploader is deliberately dumb: it never deletes a local file, never runs without full configuration,
- * and its failures only log — they must never take the shop down.
+ * and its failures only log — they must never take the shop down. Every B2 call has a deadline (offsiteLimits), so a
+ * hung connection fails the run instead of freezing it; a run that is still marked as running after offsiteLimits.staleMs
+ * is taken for dead.
  */
 
 const MAGIC = Buffer.from('OCBK1');
@@ -56,36 +58,85 @@ export function decryptBackup(sealed: Buffer): Buffer {
 }
 
 // ─── Backblaze B2 (native API v2, plain fetch — no SDK) ─────────────────────
+/** Which part of a run a B2 failure belongs to. Named in the error message, so the one log line says where it went wrong. */
+export type OffsiteStep = 'authorize' | 'bucket' | 'list' | 'upload URL' | 'upload' | 'cleanup';
+
+export class B2Error extends Error {
+  constructor(readonly step: OffsiteStep, readonly timedOut: boolean, message: string) {
+    super(message);
+    this.name = 'B2Error';
+  }
+}
+
+/**
+ * Limits in milliseconds. Read at call time (and mutable) so that a test can shorten them; production never changes them.
+ *   callMs         every call except the upload: B2's API answers in well under 2 s, 30 s only ends a hang
+ *   uploadBaseMs + uploadPerMibMs per MiB of body, capped at uploadMaxMs: a floor of about 2 Mbit/s, ten times slower than usual
+ *   staleMs        a run marked as running for longer than this is taken for dead (see ensureOffsiteBackup)
+ */
+export const offsiteLimits = { callMs: 30_000, uploadBaseMs: 60_000, uploadPerMibMs: 4_000, uploadMaxMs: 30 * 60_000, staleMs: 2 * 60 * 60_000 };
+
+export function uploadTimeoutMs(bytes: number): number {
+  return Math.min(offsiteLimits.uploadMaxMs, offsiteLimits.uploadBaseMs + Math.ceil(bytes / (1024 * 1024)) * offsiteLimits.uploadPerMibMs);
+}
+
+const duration = (ms: number) => (ms >= 1000 ? `${Math.round(ms / 1000)} s` : `${ms} ms`);
+
+/**
+ * One B2 round trip: the request AND reading the answer share one deadline, so a call that connects and then stalls is cut off too.
+ * Returns the body text of a 2xx answer; a timeout, a network error or a non-2xx status becomes a B2Error that names the step.
+ */
+async function b2Request(step: OffsiteStep, url: string, init: RequestInit, timeoutMs: number): Promise<string> {
+  let res: Response;
+  let text: string;
+  try {
+    res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    text = await res.text();
+  } catch (err) {
+    const name = (err as { name?: string } | null)?.name;
+    if (name === 'TimeoutError' || name === 'AbortError') throw new B2Error(step, true, `B2 ${step} timed out after ${duration(timeoutMs)}`);
+    throw new B2Error(step, false, `B2 ${step} failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!res.ok) throw new B2Error(step, false, `B2 ${step} failed: ${res.status} ${text.slice(0, 300)}`);
+  return text;
+}
+
+function parseJson<T>(step: OffsiteStep, text: string): T {
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new B2Error(step, false, `B2 ${step} failed: the answer was not JSON`);
+  }
+}
+
 type B2Auth = { apiUrl: string; authorizationToken: string; accountId: string };
 
-async function b2Call<T>(auth: B2Auth, operation: string, body: unknown): Promise<T> {
-  const res = await fetch(`${auth.apiUrl}/b2api/v2/${operation}`, {
+async function b2Call<T>(auth: B2Auth, step: OffsiteStep, operation: string, body: unknown): Promise<T> {
+  const text = await b2Request(step, `${auth.apiUrl}/b2api/v2/${operation}`, {
     method: 'POST',
     headers: { Authorization: auth.authorizationToken, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`B2 ${operation} failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
-  return (await res.json()) as T;
+  }, offsiteLimits.callMs);
+  return parseJson<T>(step, text);
 }
 
 async function b2Auth(): Promise<B2Auth> {
   const basic = Buffer.from(`${process.env.B2_KEY_ID}:${process.env.B2_APP_KEY}`).toString('base64');
-  const res = await fetch('https://api.backblazeb2.com/b2api/v2/b2_authorize_account', { headers: { Authorization: `Basic ${basic}` } });
-  if (!res.ok) throw new Error(`B2 authorize failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
-  const json = (await res.json()) as { apiUrl: string; authorizationToken: string; accountId: string };
+  const text = await b2Request('authorize', 'https://api.backblazeb2.com/b2api/v2/b2_authorize_account', { headers: { Authorization: `Basic ${basic}` } }, offsiteLimits.callMs);
+  const json = parseJson<{ apiUrl: string; authorizationToken: string; accountId: string }>('authorize', text);
   return { apiUrl: json.apiUrl, authorizationToken: json.authorizationToken, accountId: json.accountId };
 }
 
 async function b2BucketId(auth: B2Auth): Promise<string> {
-  const res = await b2Call<{ buckets: Array<{ bucketId: string; bucketName: string }> }>(auth, 'b2_list_buckets', { accountId: auth.accountId, bucketName: process.env.B2_BUCKET });
+  const res = await b2Call<{ buckets: Array<{ bucketId: string; bucketName: string }> }>(auth, 'bucket', 'b2_list_buckets', { accountId: auth.accountId, bucketName: process.env.B2_BUCKET });
   const bucket = res.buckets.find((b) => b.bucketName === process.env.B2_BUCKET);
   if (!bucket) throw new Error(`B2 bucket "${process.env.B2_BUCKET}" not found for this application key.`);
   return bucket.bucketId;
 }
 
 async function b2Upload(auth: B2Auth, bucketId: string, name: string, data: Buffer): Promise<void> {
-  const { uploadUrl, authorizationToken } = await b2Call<{ uploadUrl: string; authorizationToken: string }>(auth, 'b2_get_upload_url', { bucketId });
-  const res = await fetch(uploadUrl, {
+  const { uploadUrl, authorizationToken } = await b2Call<{ uploadUrl: string; authorizationToken: string }>(auth, 'upload URL', 'b2_get_upload_url', { bucketId });
+  await b2Request('upload', uploadUrl, {
     method: 'POST',
     headers: {
       Authorization: authorizationToken,
@@ -94,15 +145,14 @@ async function b2Upload(auth: B2Auth, bucketId: string, name: string, data: Buff
       'X-Bz-Content-Sha1': createHash('sha1').update(data).digest('hex'),
     },
     body: new Uint8Array(data),
-  });
-  if (!res.ok) throw new Error(`B2 upload ${name} failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
+  }, uploadTimeoutMs(data.length));
 }
 
 async function b2List(auth: B2Auth, bucketId: string, prefix: string): Promise<Array<{ fileName: string; fileId: string }>> {
   const out: Array<{ fileName: string; fileId: string }> = [];
   let startFileName: string | undefined;
   for (let page = 0; page < 20; page++) {
-    const res = await b2Call<{ files: Array<{ fileName: string; fileId: string }>; nextFileName: string | null }>(auth, 'b2_list_file_names', {
+    const res = await b2Call<{ files: Array<{ fileName: string; fileId: string }>; nextFileName: string | null }>(auth, 'list', 'b2_list_file_names', {
       bucketId, prefix, maxFileCount: 1000, ...(startFileName ? { startFileName } : {}),
     });
     out.push(...res.files.map((f) => ({ fileName: f.fileName, fileId: f.fileId })));
@@ -120,7 +170,7 @@ async function b2ListVersions(auth: B2Auth, bucketId: string, prefix: string): P
   let startFileName: string | undefined;
   let startFileId: string | undefined;
   for (let page = 0; page < 20; page++) {
-    const res = await b2Call<{ files: RemoteVersion[]; nextFileName: string | null; nextFileId: string | null }>(auth, 'b2_list_file_versions', {
+    const res = await b2Call<{ files: RemoteVersion[]; nextFileName: string | null; nextFileId: string | null }>(auth, 'cleanup', 'b2_list_file_versions', {
       bucketId, prefix, maxFileCount: 1000, ...(startFileName && startFileId ? { startFileName, startFileId } : {}),
     });
     out.push(...res.files.map((f) => ({ fileName: f.fileName, fileId: f.fileId, uploadTimestamp: f.uploadTimestamp })));
@@ -164,7 +214,7 @@ export function expiredBackups<T extends { fileName: string; uploadTimestamp: nu
 async function pruneRemote(auth: B2Auth, bucketId: string): Promise<void> {
   const versions = await b2ListVersions(auth, bucketId, '');
   const doomed = expiredBackups(versions);
-  for (const v of doomed) await b2Call(auth, 'b2_delete_file_version', { fileName: v.fileName, fileId: v.fileId });
+  for (const v of doomed) await b2Call(auth, 'cleanup', 'b2_delete_file_version', { fileName: v.fileName, fileId: v.fileId });
 }
 
 // ─── Retention (pure, so it can be tested without B2) ───────────────────────
@@ -177,14 +227,19 @@ export function expired(names: string[], prefix: string, suffix: string, keep: n
 }
 
 // ─── Orchestration ──────────────────────────────────────────────────────────
-type OffsiteStatus = { at: number; ok: boolean; object: string | null; error?: string };
+/** `at` is the last attempt that wrote a status; `lastOkAt` is the last successful upload, kept through failures. */
+export type OffsiteStatus = { at: number; ok: boolean; object: string | null; error?: string; lastOkAt?: number };
 const statusFile = () => path.join(backupsDir(), 'offsite.json');
 const exec = promisify(execFile);
-let running = false;
+// When the run that is working now started (null = none), and a number per run so that a run taken for dead cannot end its successor.
+let runningSince: number | null = null;
+let lastRun = 0;
 
 async function writeStatus(status: OffsiteStatus): Promise<void> {
+  const previous = await offsiteStatus();
+  const lastOkAt = status.ok ? status.at : (previous?.lastOkAt ?? (previous?.ok ? previous.at : undefined));
   await mkdir(backupsDir(), { recursive: true });
-  await writeFile(statusFile(), JSON.stringify(status)).catch(() => undefined);
+  await writeFile(statusFile(), JSON.stringify({ ...status, ...(lastOkAt !== undefined ? { lastOkAt } : {}) })).catch(() => undefined);
 }
 
 export async function offsiteStatus(): Promise<OffsiteStatus | null> {
@@ -195,9 +250,18 @@ export async function offsiteStatus(): Promise<OffsiteStatus | null> {
   }
 }
 
-/** Fresh = a successful upload within the last 36 h (one missed nightly run is tolerated, two are not). */
+/** When the newest successful upload happened, also when a later attempt failed. Files written before `lastOkAt` existed still read right. */
+export function lastOffsiteSuccess(status: OffsiteStatus | null): number | null {
+  return status?.lastOkAt ?? (status?.ok ? status.at : null);
+}
+
+/**
+ * Fresh = a successful upload within the last 26 h. The night's copy is made by the first hourly run after midnight, so
+ * successes are about 24 h apart; 26 h only trips when two hourly runs in a row have failed.
+ */
 export function offsiteIsFresh(status: OffsiteStatus | null): boolean {
-  return Boolean(status?.ok && Date.now() - status.at < 36 * 3600 * 1000);
+  const last = lastOffsiteSuccess(status);
+  return last !== null && Date.now() - last < 26 * 3600 * 1000;
 }
 
 /** Newest local database snapshot, if any. */
@@ -239,8 +303,14 @@ const KEEP_UPLOADS = 14;
  */
 export async function ensureOffsiteBackup(): Promise<'uploaded' | 'exists' | 'unconfigured' | 'no-snapshot'> {
   if (!offsiteConfigured() || !backupsSupported()) return 'unconfigured';
-  if (running) return 'exists';
-  running = true;
+  if (runningSince !== null) {
+    const age = Date.now() - runningSince;
+    if (age < offsiteLimits.staleMs) return 'exists';
+    // every B2 call has a deadline, so a run this old is stuck somewhere else (tar, the disk): do not let it block the backups for good
+    console.warn(`[backup] an off-site run has been marked as running for ${Math.round(age / 60_000)} min (limit ${Math.round(offsiteLimits.staleMs / 60_000)} min) — treating it as dead and starting a new one`);
+  }
+  const thisRun = ++lastRun;
+  runningSince = Date.now();
   try {
     const auth = await b2Auth();
     const bucketId = await b2BucketId(auth);
@@ -278,7 +348,7 @@ export async function ensureOffsiteBackup(): Promise<'uploaded' | 'exists' | 'un
     await writeStatus({ at: Date.now(), ok: false, object: null, error: message.slice(0, 500) });
     throw err;
   } finally {
-    running = false;
+    if (lastRun === thisRun) runningSince = null;
   }
 }
 
