@@ -578,6 +578,10 @@ async function main() {
     const { decryptBackup } = await import('../src/lib/backup-crypto');
     const { pendingMigrations, preMigrateName, expiredPreMigrate, readJournal } = await import('../src/lib/pre-migrate');
     const KEY = Buffer.alloc(32, 5).toString('base64');
+    // this block switches the key on and off, and leaves the environment as it found it: it starts from a known value so the check below can fail
+    const originalKey = process.env.BACKUP_ENCRYPTION_KEY;
+    const keyBefore = 'a-value-this-block-must-give-back';
+    process.env.BACKUP_ENCRYPTION_KEY = keyBefore;
 
     // ── the decision, without starting anything ──
     const journal = await readJournal();
@@ -672,7 +676,7 @@ async function main() {
     check('with a backup key the snapshot is encrypted', sealed.status === 0 && sealedName?.endsWith(`-${total - 2}to${total}.db.gz.enc`) === true && sealed.stdout.includes('encrypted'), [sealed.status, sealedName, sealed.stderr.slice(0, 200)]);
     process.env.BACKUP_ENCRYPTION_KEY = KEY;
     check('…and one decryption opens it to a SQLite file', gunzipSync(decryptBackup(await readF(nodePath.join(sealedRun.backups, sealedName!)))).subarray(0, 15).toString() === 'SQLite format 3');
-    delete process.env.BACKUP_ENCRYPTION_KEY;
+    process.env.BACKUP_ENCRYPTION_KEY = keyBefore;
 
     // 4. pending and the snapshot cannot be made: the boot stops, the migration does not run
     const stuck = await makeInstall(1);
@@ -694,6 +698,8 @@ async function main() {
     const after = await filesIn(many.backups);
     check('older pre-migration snapshots are pruned to the newest 5 (the new one included)', pruned.status === 0 && after.filter((f) => f.startsWith('pre-migrate-')).length === 5, after);
     check('…the oldest went first and the daily snapshot was left alone', !after.includes('pre-migrate-20260101-000000-1to2.db.gz') && after.includes('pre-migrate-20260107-000000-1to2.db.gz') && after.includes('shop-2026-01-01.db.gz'), after);
+    check('the block leaves BACKUP_ENCRYPTION_KEY as it found it', process.env.BACKUP_ENCRYPTION_KEY === keyBefore, process.env.BACKUP_ENCRYPTION_KEY);
+    if (originalKey === undefined) delete process.env.BACKUP_ENCRYPTION_KEY; else process.env.BACKUP_ENCRYPTION_KEY = originalKey;
   }
 
   console.log('Request-size boundaries');
