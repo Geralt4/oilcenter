@@ -190,6 +190,14 @@ export const customers = sqliteTable(
     marketingOptIn: integer('marketing_opt_in', { mode: 'boolean' }).notNull().default(false),
     resetTokenHash: text('reset_token_hash'),
     resetTokenExpires: integer('reset_token_expires', { mode: 'timestamp_ms' }),
+    /**
+     * When the owner of the address proved it (activation link, or a password reset). NULL = registered but not activated:
+     * such an account cannot sign in. Accounts that existed before activation was added were backfilled with created_at (0022).
+     */
+    emailVerifiedAt: integer('email_verified_at', { mode: 'timestamp_ms' }),
+    /** sha256 of the single-use activation link token, and when it stops working (24 h) */
+    verifyTokenHash: text('verify_token_hash'),
+    verifyTokenExpires: integer('verify_token_expires', { mode: 'timestamp_ms' }),
     /** bumped on password change / reset so existing session cookies stop validating */
     tokenVersion: integer('token_version').notNull().default(0),
     createdAt: createdAt(),

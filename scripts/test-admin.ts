@@ -33,6 +33,13 @@ async function main() {
     },
   } as unknown as NodeJS.Module;
   // revalidatePath needs a request's cache store; outside a request there is nothing to revalidate.
+  // after(): the account actions send their mails after the reply; here the work is collected and awaited by the test
+  const afterTasks: Promise<unknown>[] = [];
+  await import('next/server');
+  (require.cache[require.resolve('next/server')]!.exports as { after: unknown }).after = (task: () => unknown) => void afterTasks.push(Promise.resolve().then(task));
+  const flushAfter = async () => {
+    while (afterTasks.length) await afterTasks.shift();
+  };
   const cachePath = require.resolve('next/cache');
   require.cache[cachePath] = { id: cachePath, filename: cachePath, loaded: true, exports: { revalidatePath: () => undefined, revalidateTag: () => undefined } } as unknown as NodeJS.Module;
   const { asc, eq, inArray } = await import('drizzle-orm');
@@ -1155,7 +1162,7 @@ async function main() {
     const customerLogin = (email: string, password: string) => () => loginCustomer(null, form({ email, password }));
     const adminLogin = (email: string, password: string, totp = '') => () => loginAdmin(null, form({ email, password, totp }));
     const pw = 'σωστός-κωδικός-1';
-    await db.insert(customers).values({ email: 'victim@example.com', passwordHash: await hashPassword(pw), firstName: 'Θύμα', lastName: 'Τεστ' });
+    await db.insert(customers).values({ email: 'victim@example.com', passwordHash: await hashPassword(pw), firstName: 'Θύμα', lastName: 'Τεστ', emailVerifiedAt: new Date() });
 
     // customers: strangers cannot lock an account out
     let wrongOnes = 0;
@@ -1173,7 +1180,7 @@ async function main() {
     check('an unknown e-mail and a wrong password get the same answer', ghost.message === WRONG && real.message === WRONG, [ghost, real]);
 
     // the account-wide ceiling: about 50 failures an hour from anywhere, the same answer with or without an account
-    await db.insert(customers).values({ email: 'ceiling@example.com', passwordHash: await hashPassword(pw), firstName: 'Όριο', lastName: 'Τεστ' });
+    await db.insert(customers).values({ email: 'ceiling@example.com', passwordHash: await hashPassword(pw), firstName: 'Όριο', lastName: 'Τεστ', emailVerifiedAt: new Date() });
     for (let i = 1; i <= 50; i++) {
       await attempt(`192.0.2.${i}`, customerLogin('ceiling@example.com', 'λάθος-κωδικός'));
       await attempt(`192.0.2.${i}`, customerLogin('ghost-ceiling@example.com', 'λάθος-κωδικός'));
@@ -1241,6 +1248,181 @@ async function main() {
     await db.delete(customers).where(inArray(customers.email, ['victim@example.com', 'ceiling@example.com']));
     currentIp = '203.0.113.1';
     await createSession('admin', admin.id, admin.tokenVersion); // the sign-ins above replaced the session cookie
+  }
+
+  console.log('Registration does not tell who has an account; activation');
+  {
+    const { customers } = await import('../src/lib/db/schema');
+    const { hashPassword, randomToken, sha256 } = await import('../src/lib/auth/password');
+    const { registerCustomer, loginCustomer, resendActivation, resetPassword } = await import('../src/app/(store)/account/actions');
+    const { GET: activate } = await import('../src/app/api/account/activate/route');
+    const { getSettings, saveSettingsGroup } = await import('../src/lib/settings.server');
+    const { readdirSync } = await import('node:fs');
+    const { sql: rawSql } = await import('drizzle-orm');
+    const dataDir = path.join(dir, 'data-accounts');
+    const outboxDir = path.join(dataDir, 'outbox');
+    process.env.DATA_DIR = dataDir;
+    const mailsTo = (address: string) => {
+      try {
+        return readdirSync(outboxDir).filter((f) => f.endsWith(`__${address}.html`)).map((f) => readFileSync(path.join(outboxDir, f), 'utf8'));
+      } catch {
+        return [] as string[];
+      }
+    };
+    const customerRow = async (address: string) => (await db.select().from(customers).where(eq(customers.email, address)))[0];
+    const REGISTERED = 'Σας στείλαμε e-mail. Ακολουθήστε τον σύνδεσμο για να ολοκληρωθεί η εγγραφή.';
+    const WRONG = 'Λάθος e-mail ή κωδικός.';
+    let registerMs = 0;
+    const register = async (address: string, password: string, ip: string) => {
+      currentIp = ip;
+      const started = performance.now();
+      let r: Awaited<ReturnType<typeof registerCustomer>>;
+      try {
+        r = await registerCustomer(null, form({ firstName: 'Νέος', lastName: 'Πελάτης', email: address, password, acceptTerms: 'on' }));
+      } catch (err) {
+        if (!String((err as { digest?: string }).digest ?? '').startsWith('NEXT_REDIRECT')) throw err;
+        r = { ok: false, message: 'redirected (signed in at once)' };
+      }
+      registerMs = performance.now() - started;
+      await flushAfter();
+      return r;
+    };
+    const login = async (address: string, password: string, ip: string) => {
+      currentIp = ip;
+      try {
+        const r = await loginCustomer(null, form({ email: address, password }));
+        return { signedIn: false, message: r?.message ?? '', link: r?.link };
+      } catch (err) {
+        if (String((err as { digest?: string }).digest ?? '').startsWith('NEXT_REDIRECT')) return { signedIn: true, message: '', link: undefined };
+        throw err;
+      }
+    };
+    const resend = async (address: string, ip: string) => {
+      currentIp = ip;
+      const r = await resendActivation(null, form({ email: address }));
+      await flushAfter();
+      // the development mail fallback names its files by the millisecond: two quick mails to one address would share a file
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return r;
+    };
+    const follow = (token: string) => activate(new Request(`http://localhost/api/account/activate?token=${encodeURIComponent(token)}`));
+    const tokenIn = (mail: string) => decodeURIComponent(mail.match(/\/api\/account\/activate\?token=([^"&<\s]+)/)?.[1] ?? '');
+    const storefrontBefore = (await getSettings()).storefront;
+    await saveSettingsGroup('storefront', { ...storefrontBefore, ordersEnabled: true });
+    try {
+      cookieJar.delete('oc_customer');
+      await db.insert(customers).values({ email: 'known@example.com', passwordHash: await hashPassword('παλιός-κωδικός-1'), firstName: 'Γνωστός', lastName: 'Πελάτης', emailVerifiedAt: new Date() });
+      const knownBefore = await customerRow('known@example.com');
+
+      const rNew = await register('fresh@example.com', 'νέος-κωδικός-1', '192.0.2.10');
+      const rKnown = await register('known@example.com', 'άλλος-κωδικός-9', '192.0.2.11');
+      check('a new and a known address get the very same answer', rNew?.ok === true && rNew.message === REGISTERED && JSON.stringify(rNew) === JSON.stringify(rKnown), [rNew, rKnown]);
+      check('…and registering opens no session', !cookieJar.has('oc_customer'));
+
+      const fresh = await customerRow('fresh@example.com');
+      const expiresIn = (fresh?.verifyTokenExpires?.getTime() ?? 0) - Date.now();
+      check('a new address: the account is created unverified, with a hashed token valid for 24 h', !!fresh && fresh.emailVerifiedAt === null && /^[0-9a-f]{64}$/.test(fresh.verifyTokenHash ?? '') && expiresIn > 23.9 * 3600_000 && expiresIn <= 24 * 3600_000, fresh);
+      const activationMails = mailsTo('fresh@example.com');
+      const token = tokenIn(activationMails[0] ?? '');
+      check('…and an activation mail is sent, carrying the link', activationMails.length === 1 && token.length >= 20 && activationMails[0].includes('Ενεργοποίηση λογαριασμού'), activationMails.length);
+      check('…the database keeps only the hash of the link token', sha256(token) === fresh?.verifyTokenHash && !(fresh?.verifyTokenHash ?? '').includes(token));
+
+      const knownAfter = await customerRow('known@example.com');
+      check('a known address: the account is not changed', knownAfter.passwordHash === knownBefore.passwordHash && knownAfter.firstName === 'Γνωστός' && knownAfter.tokenVersion === knownBefore.tokenVersion && knownAfter.emailVerifiedAt?.getTime() === knownBefore.emailVerifiedAt?.getTime() && knownAfter.verifyTokenHash === null, knownAfter);
+      const notices = mailsTo('known@example.com');
+      check('…and its owner gets a notice with sign-in and reset links', notices.length === 1 && notices[0].includes('Κάποιος προσπάθησε να δημιουργήσει λογαριασμό') && notices[0].includes('/login') && notices[0].includes('/forgot-password') && !notices[0].includes('activate?token'), notices.length);
+      check('…the old password still works and the new one does not', (await login('known@example.com', 'παλιός-κωδικός-1', '192.0.2.12')).signedIn && !(await login('known@example.com', 'άλλος-κωδικός-9', '192.0.2.13')).signedIn);
+      cookieJar.delete('oc_customer');
+      // the time to answer: both paths hash the password (c2a3529), so neither is several times faster than the other
+      const median = (xs: number[]) => xs.sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+      const newTimes: number[] = [];
+      const knownTimes: number[] = [];
+      for (let i = 0; i < 3; i++) {
+        await register(`timing-${i}@example.com`, 'νέος-κωδικός-1', `192.0.2.${70 + i}`);
+        newTimes.push(registerMs);
+        await register('timing-0@example.com', 'νέος-κωδικός-1', `192.0.2.${80 + i}`);
+        knownTimes.push(registerMs);
+      }
+      const ratio = median(newTimes) / median(knownTimes);
+      check('a new and a known address take about as long to answer', ratio > 0.5 && ratio < 2, { newMs: newTimes, knownMs: knownTimes });
+      for (let i = 0; i < 4; i++) await register('known@example.com', 'άλλος-κωδικός-9', `192.0.2.${30 + i}`);
+      check('…repeated attempts mail the owner at most 3 times an hour (same answer every time)', mailsTo('known@example.com').length === 3, mailsTo('known@example.com').length);
+
+      const refused = await login('fresh@example.com', 'νέος-κωδικός-1', '192.0.2.20');
+      check('an unverified account with the right password is refused, with a link to a new activation mail', !refused.signedIn && refused.message.startsWith('Ο λογαριασμός σας δεν έχει ενεργοποιηθεί') && refused.link?.href === '/resend-activation?email=fresh%40example.com' && !cookieJar.has('oc_customer'), refused);
+      const wrongPw = await login('fresh@example.com', 'λάθος-κωδικός', '192.0.2.21');
+      check('…while a wrong password on it gets the usual answer and no link', !wrongPw.signedIn && wrongPw.message === WRONG && !wrongPw.link, wrongPw);
+
+      await db.update(customers).set({ verifyTokenExpires: new Date(Date.now() - 1000) }).where(eq(customers.id, fresh.id));
+      const late = await follow(token);
+      check('an expired link activates nothing and leads to the page for a new one', !!late.headers.get('location')?.endsWith('/resend-activation?link=invalid') && (await customerRow('fresh@example.com')).emailVerifiedAt === null && !cookieJar.has('oc_customer'), late.headers.get('location'));
+      await db.update(customers).set({ verifyTokenExpires: new Date(Date.now() + 60_000) }).where(eq(customers.id, fresh.id));
+      const madeUp = await follow(randomToken());
+      check('a made-up link activates nothing', !!madeUp.headers.get('location')?.endsWith('/resend-activation?link=invalid') && (await customerRow('fresh@example.com')).emailVerifiedAt === null);
+      const opened = await follow(token);
+      const activated = await customerRow('fresh@example.com');
+      check('following the link activates the account and signs the customer in', !!opened.headers.get('location')?.endsWith('/account?activated=1') && activated.emailVerifiedAt !== null && activated.verifyTokenHash === null && cookieJar.has('oc_customer'), [opened.headers.get('location'), activated.emailVerifiedAt]);
+      cookieJar.delete('oc_customer');
+      const twice = await follow(token);
+      check('…and the link works only once', !!twice.headers.get('location')?.endsWith('/resend-activation?link=invalid') && !cookieJar.has('oc_customer'), twice.headers.get('location'));
+      check('…after which the customer signs in normally', (await login('fresh@example.com', 'νέος-κωδικός-1', '192.0.2.22')).signedIn);
+      cookieJar.delete('oc_customer');
+
+      // a customer from before activation existed: the migration's own backfill statement makes the account usable
+      const legacyCreated = new Date('2026-09-30T10:00:00Z');
+      await db.insert(customers).values({ email: 'legacy@example.com', passwordHash: await hashPassword('παλιός-πελάτης-1'), firstName: 'Παλιός', lastName: 'Πελάτης', createdAt: legacyCreated });
+      check('(a row as it was before the migration cannot sign in)', !(await login('legacy@example.com', 'παλιός-πελάτης-1', '192.0.2.40')).signedIn);
+      const migrationFile = readdirSync('drizzle').find((f) => f.startsWith('0022_') && f.endsWith('.sql'))!;
+      const backfill = readFileSync(path.join('drizzle', migrationFile), 'utf8').split('--> statement-breakpoint').map((st) => st.trim()).find((st) => st.startsWith('UPDATE'));
+      check('migration 0022 carries the backfill of existing customers', !!backfill && backfill.includes('`email_verified_at` = `created_at`'), backfill);
+      if (backfill) await db.run(rawSql.raw(backfill));
+      const legacy = await customerRow('legacy@example.com');
+      check('…which sets email_verified_at to the account creation time', legacy.emailVerifiedAt?.getTime() === legacyCreated.getTime(), legacy.emailVerifiedAt);
+      check('…and the existing customer signs in as before', (await login('legacy@example.com', 'παλιός-πελάτης-1', '192.0.2.41')).signedIn);
+      cookieJar.delete('oc_customer');
+
+      // a password reset proves the address too
+      const resetToken = randomToken();
+      await db.insert(customers).values({ email: 'reset-verifies@example.com', passwordHash: await hashPassword('ξεχασμένος-1'), firstName: 'Τεστ', lastName: 'Reset', verifyTokenHash: sha256(randomToken()), verifyTokenExpires: new Date(Date.now() + 3600_000), resetTokenHash: sha256(resetToken), resetTokenExpires: new Date(Date.now() + 3600_000) });
+      try {
+        await resetPassword(null, form({ token: resetToken, password: 'καινούριος-κωδικός-1' }));
+      } catch (err) {
+        if (!String((err as { digest?: string }).digest ?? '').startsWith('NEXT_REDIRECT')) throw err;
+      }
+      const afterReset = await customerRow('reset-verifies@example.com');
+      check('a password reset activates an account that was never activated', afterReset.emailVerifiedAt !== null && afterReset.verifyTokenHash === null && afterReset.verifyTokenExpires === null, afterReset);
+      cookieJar.delete('oc_customer');
+      check('…and the new password signs in', (await login('reset-verifies@example.com', 'καινούριος-κωδικός-1', '192.0.2.42')).signedIn);
+      cookieJar.delete('oc_customer');
+      const knownVerifiedAt = (await customerRow('known@example.com')).emailVerifiedAt?.getTime();
+      const knownReset = randomToken();
+      await db.update(customers).set({ resetTokenHash: sha256(knownReset), resetTokenExpires: new Date(Date.now() + 3600_000) }).where(eq(customers.email, 'known@example.com'));
+      await resetPassword(null, form({ token: knownReset, password: 'νέος-κωδικός-γνωστού' })).catch(() => undefined);
+      check('…while an account that was already active keeps its activation date', (await customerRow('known@example.com')).emailVerifiedAt?.getTime() === knownVerifiedAt);
+      cookieJar.delete('oc_customer');
+
+      // sending the activation link again
+      const RESENT = 'Αν υπάρχει λογαριασμός που περιμένει ενεργοποίηση με αυτό το e-mail, σας στείλαμε νέο σύνδεσμο. Ισχύει για 24 ώρες.';
+      await db.insert(customers).values({ email: 'waiting@example.com', passwordHash: await hashPassword('περιμένει-1'), firstName: 'Τεστ', lastName: 'Αναμονή', verifyTokenHash: 'old-hash', verifyTokenExpires: new Date(Date.now() + 3600_000) });
+      const r1 = await resend('waiting@example.com', '192.0.2.50');
+      const waiting = await customerRow('waiting@example.com');
+      check('resend: a waiting account gets a new link (the old one stops working)', r1?.ok === true && r1.message === RESENT && waiting.verifyTokenHash !== 'old-hash' && mailsTo('waiting@example.com').length === 1 && sha256(tokenIn(mailsTo('waiting@example.com')[0])) === waiting.verifyTokenHash, r1);
+      const rUnknown = await resend('nobody-here@example.com', '192.0.2.51');
+      const rActive = await resend('fresh@example.com', '192.0.2.52');
+      check('…an unknown or an active address gets the same answer and no mail', JSON.stringify(rUnknown) === JSON.stringify(r1) && JSON.stringify(rActive) === JSON.stringify(r1) && mailsTo('nobody-here@example.com').length === 0 && mailsTo('fresh@example.com').length === 1 && (await customerRow('fresh@example.com')).verifyTokenHash === null);
+      await resend('waiting@example.com', '192.0.2.53');
+      await resend('waiting@example.com', '192.0.2.54');
+      const fourth = await resend('waiting@example.com', '192.0.2.55');
+      check('…limited per e-mail: the 4th request within the hour, from a 4th address, is refused', fourth?.ok === false && fourth.message.startsWith('Πολλές προσπάθειες') && mailsTo('waiting@example.com').length === 3, [fourth, mailsTo('waiting@example.com').length]);
+      const fromOneIp: Array<Awaited<ReturnType<typeof resend>>> = [];
+      for (let i = 0; i < 6; i++) fromOneIp.push(await resend(`spray-${i}@example.com`, '192.0.2.60'));
+      check('…and per address of the visitor: the 6th request from one address within 30 minutes is refused', fromOneIp.slice(0, 5).every((r) => r?.ok === true) && fromOneIp[5]?.ok === false, fromOneIp.map((r) => r?.ok));
+    } finally {
+      await saveSettingsGroup('storefront', storefrontBefore);
+      await flushAfter();
+      delete process.env.DATA_DIR;
+      await db.delete(customers).where(inArray(customers.email, ['known@example.com', 'fresh@example.com', 'legacy@example.com', 'reset-verifies@example.com', 'waiting@example.com', 'timing-0@example.com', 'timing-1@example.com', 'timing-2@example.com']));
+    }
   }
 
   console.log('Cleanup');

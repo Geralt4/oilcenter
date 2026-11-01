@@ -214,6 +214,19 @@ export function contactMail(input: { name: string; email: string; phone?: string
   return { to: process.env.ORDERS_NOTIFY_EMAIL || settings.shop.email, subject: `${input.heading ?? 'Μήνυμα από το site'}: ${input.subject || input.name}`, html: layout(settings.shop, input.heading ?? 'Νέο μήνυμα επικοινωνίας', body), replyTo: input.email || undefined };
 }
 
+/** The single-use link that activates a new account (it also signs the customer in). */
+export function accountActivationMail(to: string, token: string, settings: ShopSettings): Mail {
+  const url = `${siteUrl()}/api/account/activate?token=${encodeURIComponent(token)}`;
+  const body = `<p style="margin:0;font-size:15px;line-height:1.6;">Για να ολοκληρωθεί η εγγραφή σας στο Oil Center, πατήστε το κουμπί. Ο σύνδεσμος ισχύει για 24 ώρες και χρησιμοποιείται μία φορά. Αν δεν κάνατε εσείς την εγγραφή, αγνοήστε αυτό το μήνυμα: χωρίς ενεργοποίηση ο λογαριασμός δεν μπορεί να χρησιμοποιηθεί.</p>${button(url, 'Ενεργοποίηση λογαριασμού')}`;
+  return { to, subject: 'Ενεργοποίηση λογαριασμού — Oil Center', html: layout(settings.shop, 'Ολοκλήρωση εγγραφής', body) };
+}
+
+/** Somebody tried to register with an address that already has an account: the owner is told, nothing changes. */
+export function registrationAttemptMail(to: string, settings: ShopSettings): Mail {
+  const body = `<p style="margin:0;font-size:15px;line-height:1.6;">Κάποιος προσπάθησε να δημιουργήσει λογαριασμό στο Oil Center με αυτό το e-mail, αλλά υπάρχει ήδη λογαριασμός. Αν ήσασταν εσείς, συνδεθείτε· αν δεν θυμάστε τον κωδικό σας, ορίστε νέο. Αν δεν ήσασταν εσείς, δεν χρειάζεται να κάνετε τίποτα: ο λογαριασμός σας δεν άλλαξε.</p>${button(`${siteUrl()}/login`, 'Σύνδεση')}<p style="margin:16px 0 0;font-size:15px;line-height:1.6;"><a href="${esc(`${siteUrl()}/forgot-password`)}" style="color:#11141a;">Ορισμός νέου κωδικού</a></p>`;
+  return { to, subject: 'Προσπάθεια εγγραφής με το e-mail σας — Oil Center', html: layout(settings.shop, 'Υπάρχει ήδη λογαριασμός', body) };
+}
+
 export function passwordResetMail(to: string, token: string, settings: ShopSettings): Mail {
   const url = `${siteUrl()}/reset-password?token=${encodeURIComponent(token)}`;
   const body = `<p style="margin:0;font-size:15px;line-height:1.6;">Λάβαμε αίτημα επαναφοράς του κωδικού σας. Ο σύνδεσμος ισχύει για 1 ώρα. Αν δεν το ζητήσατε εσείς, αγνοήστε αυτό το μήνυμα.</p>${button(url, 'Ορισμός νέου κωδικού')}`;

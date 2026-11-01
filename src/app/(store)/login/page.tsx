@@ -28,6 +28,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           ]}
         />
         <p className="mt-4 text-center text-sm"><Link href="/forgot-password" className="font-semibold text-petrol-500 hover:text-petrol-700">Ξεχάσατε τον κωδικό σας;</Link></p>
+        <p className="mt-2 text-center text-sm"><Link href="/resend-activation" className="text-ink-600 hover:text-ink-900">Δεν λάβατε το e-mail ενεργοποίησης;</Link></p>
       </div>
       <p className="mt-6 text-center text-ink-600">Δεν έχετε λογαριασμό; <Link href={`/register${next ? `?next=${encodeURIComponent(next)}` : ''}`} className="font-semibold text-ink-950 underline underline-offset-4">Εγγραφή</Link></p>
       <p className="mt-2 text-center text-sm text-ink-500">Μπορείτε να παραγγείλετε και χωρίς λογαριασμό.</p>

@@ -504,6 +504,70 @@ async function main() {
       }
     };
 
+    // not a card journey, but this is the browser run with ordering open, which customer accounts need
+    const s13 = async () => {
+      console.log('S13 a customer registers, activates the account and signs in');
+      const address = 'card-account@example.com';
+      const password = 'κωδικός-λογαριασμού-1';
+      const waitForMail = async (before: Set<string>, subject: string) => {
+        for (let i = 0; i < 40; i++) {
+          const mail = mailsSince(before).find((m) => m.to === address && m.subject.startsWith(subject));
+          if (mail) return mail;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        return undefined;
+      };
+      const registerAs = async (page: Page) => {
+        await page.goto(`${base}/register`);
+        await page.fill('#af-firstName', 'Νέα');
+        await page.fill('#af-lastName', 'Πελάτισσα');
+        await page.fill('#af-email', address);
+        await page.fill('#af-password', password);
+        await page.check('input[name="acceptTerms"]');
+        await page.getByRole('button', { name: 'Εγγραφή' }).click();
+        await page.getByText('Σας στείλαμε e-mail. Ακολουθήστε τον σύνδεσμο για να ολοκληρωθεί η εγγραφή.').waitFor({ timeout: 20_000 });
+      };
+      const { ctx, page } = await newPage();
+      try {
+        const before = snapshot();
+        await registerAs(page);
+        check('registering answers «Σας στείλαμε e-mail…» and stays signed out', !page.url().includes('/account'), page.url());
+        const activation = await waitForMail(before, 'Ενεργοποίηση λογαριασμού');
+        check('…and the activation mail arrives', !!activation, mailsSince(before).map((m) => m.subject));
+
+        await page.goto(`${base}/login`);
+        await page.fill('#af-email', address);
+        await page.fill('#af-password', password);
+        await page.getByRole('button', { name: 'Σύνδεση' }).click();
+        const resendLink = page.getByRole('link', { name: 'Στείλτε μου ξανά τον σύνδεσμο ενεργοποίησης' });
+        await resendLink.waitFor({ timeout: 20_000 });
+        check('signing in before activation is refused, with a link to a new activation mail', page.url().includes('/login'), page.url());
+        await resendLink.click();
+        await page.waitForURL(/\/resend-activation/);
+        check('…which opens the resend page with the address filled in', (await page.inputValue('#af-email')) === address);
+
+        const html = activation ? readFileSync(path.join(outbox, activation.file), 'utf8') : '';
+        const link = html.match(/href="([^"]*\/api\/account\/activate\?token=[^"]+)"/)?.[1]?.replace(/&amp;/g, '&') ?? '';
+        await page.goto(link || `${base}/api/account/activate`);
+        await page.waitForURL(/\/account/, { timeout: 20_000 });
+        check('the activation link signs the customer in on the account page', page.url().includes('/account?activated=1') && (await page.getByText('Ο λογαριασμός σας ενεργοποιήθηκε').count()) === 1, page.url());
+        await page.goto(link || `${base}/api/account/activate`);
+        check('…and a second visit of the same link leads to the resend page', page.url().includes('/resend-activation?link=invalid'), page.url());
+      } finally {
+        await ctx.close();
+      }
+
+      const second = await newPage();
+      try {
+        const before = snapshot();
+        await registerAs(second.page);
+        check('registering the same address again gets the same answer', true);
+        check('…and its owner gets the «someone tried to register» notice', !!(await waitForMail(before, 'Προσπάθεια εγγραφής')), mailsSince(before).map((m) => m.subject));
+      } finally {
+        await second.ctx.close();
+      }
+    };
+
     const run = async (fn: () => Promise<void>, label: string) => {
       // placeOrder allows 8 orders per 10 minutes per IP: each scenario starts with fresh limits
       await db.delete(rateLimits);
@@ -524,6 +588,7 @@ async function main() {
     await run(s9, 'S9');
     await run(s10, 'S10');
     await run(s12, 'S12');
+    await run(s13, 'S13');
   } finally {
     await browser?.close().catch(() => undefined);
     if (server && server.exitCode === null) {

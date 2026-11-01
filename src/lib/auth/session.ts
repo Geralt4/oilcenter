@@ -149,8 +149,9 @@ export const getCustomer = cache(async () => {
   const session = await verify((await cookies()).get(COOKIE.customer.name)?.value, 'customer');
   if (!session) return null;
   const [customer] = await db.select().from(customers).where(eq(customers.id, session.id));
-  if (!customer || customer.tokenVersion !== session.ver) return null;
-  const { passwordHash: _p, resetTokenHash: _r, resetTokenExpires: _e, tokenVersion: _v, ...safe } = customer;
+  // an account that was never activated has no business holding a session (none is issued for it; this is the second lock)
+  if (!customer || customer.tokenVersion !== session.ver || !customer.emailVerifiedAt) return null;
+  const { passwordHash: _p, resetTokenHash: _r, resetTokenExpires: _e, verifyTokenHash: _vh, verifyTokenExpires: _ve, tokenVersion: _v, ...safe } = customer;
   return safe;
 });
 

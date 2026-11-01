@@ -1,11 +1,13 @@
 'use client';
 
+import Link from 'next/link';
 import { CircleCheck, LoaderCircle } from 'lucide-react';
 import { buttonClass } from '@/components/ui/button';
 import { useKeptForm } from '@/components/ui/use-kept-form';
 import { cn } from '@/lib/utils';
 
-export type ActionFormState = { ok: boolean; message: string; fieldErrors?: Record<string, string> } | null;
+/** `link`: an optional next step shown under the message */
+export type ActionFormState = { ok: boolean; message: string; fieldErrors?: Record<string, string>; link?: { href: string; label: string } } | null;
 
 export type FieldSpec = {
   name: string;
@@ -47,7 +49,12 @@ export function ActionForm({ action, fields, submitLabel, hidden, variant = 'pri
 
   return (
     <form ref={formRef} action={formAction} onSubmit={onSubmit} noValidate className="grid gap-4 sm:grid-cols-2">
-      {state && <p role={state.ok ? 'status' : 'alert'} className={cn('rounded-2xl border p-3 text-sm font-medium sm:col-span-2', state.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800')}>{state.message}</p>}
+      {state && (
+        <div role={state.ok ? 'status' : 'alert'} className={cn('rounded-2xl border p-3 text-sm font-medium sm:col-span-2', state.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800')}>
+          <p>{state.message}</p>
+          {state.link && <Link href={state.link.href} className="mt-2 inline-block font-semibold underline underline-offset-2">{state.link.label}</Link>}
+        </div>
+      )}
       {Object.entries(hidden ?? {}).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
       {fields.map((f) => {
         const error = state?.fieldErrors?.[f.name];
