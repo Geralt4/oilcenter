@@ -16,7 +16,7 @@ export async function cloneDatabase(prefix: string): Promise<string> {
   const sourceUrl = process.env.DATABASE_URL || 'file:./data/shop.db';
   // The tests write to the copy only, but they start by reading the source: a DATABASE_URL that points at a hosted database
   // (an env file loaded by mistake) must stop here, before anything connects to it.
-  if (!sourceUrl.startsWith('file:')) throw new Error(`cloneDatabase: DATABASE_URL must be a local file: URL for tests, got "${sourceUrl.split('?')[0].slice(0, 24)}…"`);
+  if (!sourceUrl.startsWith('file:')) throw new Error(`cloneDatabase: DATABASE_URL must be a local file: URL for tests, got a ${sourceUrl.split(':')[0]}: URL`);
   const source = createClient({ url: sourceUrl });
   await source.execute(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
   source.close();
