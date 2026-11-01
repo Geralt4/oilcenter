@@ -412,6 +412,28 @@ async function main() {
       await page.goto(`${base}/admin`);
       check('once the order is confirmed the box is gone', (await page.getByRole('heading', { name: /Παραγγελίες σε αναμονή πάνω από 7 ημέρες/ }).count()) === 0);
 
+      // a transfer that arrives after the order expired: marking it paid flags it for the owner, and nothing else moves
+      const [expired] = await db.insert(orders).values({ ...person, number: 'OC-FLOWS-LATE', accessToken: 'flows-late-token', paymentMethod: 'bank_transfer', status: 'cancelled', paymentStatus: 'pending', createdAt: new Date(Date.now() - 6 * DAY) }).returning();
+      await page.goto(`${base}/admin/orders/${expired.id}`);
+      await page.locator('select[name="paymentStatus"]').selectOption('paid');
+      await page.getByRole('button', { name: 'Ενημέρωση παραγγελίας' }).click();
+      await page.waitForLoadState('networkidle');
+      await delay(800);
+      await page.goto(`${base}/admin/orders/${expired.id}`);
+      const notices = (await page.getByRole('alert').allInnerTexts()).join(' | ');
+      check('the order page says it is cancelled but marked as paid, and still needs a check', notices.includes('Η παραγγελία είναι ακυρωμένη, αλλά σημειωμένη ως εξοφλημένη') && notices.includes('Χρειάζεται έλεγχο η πληρωμή αυτής της παραγγελίας'), notices);
+      check('…the status stays «Ακυρώθηκε»', (await page.locator('select[name="status"]').inputValue()) === 'cancelled');
+      await page.goto(`${base}/admin`);
+      const review = page.locator('section', { has: page.getByRole('heading', { name: 'Πληρωμές που θέλουν έλεγχο' }) });
+      const reviewText = (await review.count()) === 1 ? await review.innerText() : '';
+      check('the dashboard lists it in «Πληρωμές που θέλουν έλεγχο» with the reason', reviewText.includes('OC-FLOWS-LATE') && reviewText.includes('ήδη ακυρωμένη'), reviewText.slice(0, 300));
+      // handled: «Το χειρίστηκα» clears the flag and the row goes (the flag also shows as a count in the sidebar, so it must not be left behind)
+      await review.locator('li', { hasText: 'OC-FLOWS-LATE' }).getByRole('button', { name: 'Το χειρίστηκα' }).click();
+      await page.waitForLoadState('networkidle');
+      await delay(800);
+      await page.goto(`${base}/admin`);
+      check('«Το χειρίστηκα» clears it: the row is gone and the order is no longer flagged', (await page.getByRole('heading', { name: 'Πληρωμές που θέλουν έλεγχο' }).count()) === 0 && (await db.select().from(orders).where(eq(orders.id, expired.id)))[0]!.paymentFlag === null);
+
       // the buyer is told up front (order page)
       await page.goto(`${base}/order/${transfer.number}?t=${transfer.accessToken}`);
       const orderText = (await page.locator('main').innerText()).replace(/\s+/g, ' ');

@@ -394,6 +394,32 @@ async function main() {
     const rCancel = await updateOrder(null, pageForm(await orderNow(o4.id), { status: 'cancelled' }));
     const o4After = await orderNow(o4.id);
     check('cancelling a paid order from the editor still works as one save', rCancel?.ok === true && o4After.status === 'cancelled' && o4After.paymentFlag === 'review', [rCancel, o4After.status, o4After.paymentFlag]);
+
+    // marking an ALREADY cancelled order as paid (a transfer that arrived after the order expired): flagged, nothing else moves
+    const { orderItems } = await import('../src/lib/db/schema');
+    const [stockSize] = await db.select().from(variants).limit(1);
+    await db.update(variants).set({ trackStock: true, stock: 7 }).where(eq(variants.id, stockSize.id));
+    const late = await makeOrder({ paymentMethod: 'bank_transfer', status: 'cancelled', paymentStatus: 'pending' });
+    await db.insert(orderItems).values({ orderId: late.id, variantId: stockSize.id, name: 'Δοκιμή', variantLabel: '1L', sku: 'LATE-1', unitPriceCents: 1000, quantity: 2, lineTotalCents: 2000, stockReserved: true });
+    const stockOf = async () => (await db.select({ s: variants.stock }).from(variants).where(eq(variants.id, stockSize.id)))[0]!.s;
+    const rLate = await updateOrder(null, pageForm(await orderNow(late.id), { paymentStatus: 'paid' }));
+    const lateAfter = await orderNow(late.id);
+    check('marking a cancelled order as paid is accepted', rLate?.ok === true && lateAfter.paymentStatus === 'paid', rLate);
+    check('…it gets the payment flag, so it shows in «Πληρωμές που θέλουν έλεγχο»', lateAfter.paymentFlag === 'review', lateAfter.paymentFlag);
+    check('…the status stays «cancelled» and the stock is not reserved again', lateAfter.status === 'cancelled' && (await stockOf()) === 7, [lateAfter.status, await stockOf()]);
+    const lateEvents = await eventsNow(late.id);
+    check('…the history says so in a «ΠΡΟΣΟΧΗ» line (the dashboard shows the latest one)', lateEvents.some((m) => m.startsWith('ΠΡΟΣΟΧΗ: σημειώθηκε εξοφλημένη μια παραγγελία που είναι ήδη ακυρωμένη')) && lateEvents.includes('Σημειώθηκε ως εξοφλημένη.'), lateEvents);
+    // handled by refunding: the flag goes (as for every refund) and the order stays cancelled
+    const rRefund = await updateOrder(null, pageForm(await orderNow(late.id), { paymentStatus: 'refunded' }));
+    check('refunding it clears the flag and still changes nothing else', rRefund?.ok === true && (await orderNow(late.id)).paymentFlag === null && (await orderNow(late.id)).status === 'cancelled' && (await stockOf()) === 7, rRefund);
+
+    // the cases that must NOT flag: a live order marked paid, and a note saved on a cancelled order that was already paid
+    const live = await makeOrder({ paymentMethod: 'bank_transfer', status: 'pending', paymentStatus: 'pending' });
+    await updateOrder(null, pageForm(await orderNow(live.id), { paymentStatus: 'paid' }));
+    check('a live order marked paid is not flagged', (await orderNow(live.id)).paymentFlag === null);
+    const settled = await makeOrder({ paymentMethod: 'bank_transfer', status: 'cancelled', paymentStatus: 'paid', paidAt: new Date() });
+    await updateOrder(null, pageForm(await orderNow(settled.id), { adminNotes: 'σημείωση' }));
+    check('saving a note on a cancelled order that is already paid raises no new flag', (await orderNow(settled.id)).paymentFlag === null);
   }
 
   console.log('Payment review and unmatched payments (admin actions)');

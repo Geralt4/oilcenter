@@ -375,6 +375,13 @@ export async function updateOrder(_prev: AdminFormState, fd: FormData): Promise<
           refunded: 'Σημειώθηκε ως επιστραφείσα (χειροκίνητη επιστροφή από τον πάροχο πληρωμών).',
         }[payment];
         await addOrderEvent(id, 'payment', message, actor, tx);
+        // Money marked as received for an order that is ALREADY cancelled (a bank transfer that arrived after the order expired, a
+        // payment against a cancelled order): nothing is re-reserved and the status stays, because a cancelled order does not come
+        // back. It goes on the owner's list (dashboard, order list) until he refunds it or places a new order for the customer.
+        if (payment === 'paid' && order.status === 'cancelled') {
+          await flagForReview(id, tx);
+          await addOrderEvent(id, 'payment', 'ΠΡΟΣΟΧΗ: σημειώθηκε εξοφλημένη μια παραγγελία που είναι ήδη ακυρωμένη (π.χ. η κατάθεση ήρθε μετά τη λήξη της). Το απόθεμα δεν δεσμεύεται ξανά και η κατάσταση δεν αλλάζει. Επιστρέψτε τα χρήματα στον πελάτη και σημειώστε «Επιστροφή χρημάτων», ή δημιουργήστε νέα παραγγελία για τον πελάτη.', actor, tx);
+        }
       }
 
       if (status === 'cancelled' && order.status !== 'cancelled') {

@@ -53,6 +53,13 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
         </div>
       )}
 
+      {order.status === 'cancelled' && order.paymentStatus === 'paid' && (
+        <div role="alert" className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 print:hidden">
+          <p className="font-bold text-amber-900">Η παραγγελία είναι ακυρωμένη, αλλά σημειωμένη ως εξοφλημένη</p>
+          <p className="mt-1 text-sm text-amber-900">Το απόθεμά της έχει ήδη αποδεσμευτεί και δεν δεσμεύεται ξανά, ενώ η κατάσταση δεν αλλάζει. Επιστρέψτε τα χρήματα στον πελάτη και επιλέξτε «Επιστροφή χρημάτων», ή δημιουργήστε νέα παραγγελία για τον πελάτη.</p>
+        </div>
+      )}
+
       {givenUp.length > 0 && (
         <div role="alert" className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 print:hidden">
           <p className="font-bold text-amber-900">{givenUp.length === 1 ? 'Ένα e-mail αυτής της παραγγελίας δεν στάλθηκε' : `${givenUp.length} e-mail αυτής της παραγγελίας δεν στάλθηκαν`}</p>
