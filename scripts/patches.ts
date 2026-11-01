@@ -152,7 +152,8 @@ async function linkToyotaSizePhotos(): Promise<string> {
  * only give the intended result in the order they are listed (the shop-details patch resets e-mail and opening hours to the
  * seed's, the e-mail and Saturday patches then change them). Since a failing patch no longer stops the boot, a later one
  * must not run ahead of it: a retry of the earlier patch would otherwise undo what the later one did, and the later one is
- * recorded and never runs again.
+ * recorded and never runs again. (The search-keywords patch rebuilds every search text from the specs; run before the specs
+ * patch, the specs would then be appended behind the keywords instead of sitting in their place, another text than a clean run.)
  */
 export type Patch = { id: string; run: () => Promise<string>; requires?: string[] };
 
@@ -172,7 +173,7 @@ export const PATCHES: Patch[] = [
   // No Facebook link any more: drop the stored address too.
   { id: '2026-10-09-remove-facebook', run: removeFacebookLink },
   // Search synonyms get their own column; search texts the product editor had stripped of them are rebuilt.
-  { id: '2026-10-09-search-keywords', run: applySearchKeywords },
+  { id: '2026-10-09-search-keywords', run: applySearchKeywords, requires: ['2026-09-22-manufacturer-specs'] },
   // Saturday closes at 13:00 from 12.10.2026 (the owner's instruction): only a stored 14:00 is moved.
   { id: '2026-10-12-saturday-hours', run: saturdayClosesAt13, requires: ['2026-09-22-shop-details'] },
   // Founded 1998 and accelerate dealer, both confirmed by the owner on 12.10.2026; a founding year already entered is kept.

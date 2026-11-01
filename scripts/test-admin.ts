@@ -1679,6 +1679,38 @@ async function main() {
     await write('dataPatches', keep.patches ?? []);
   }
 
+  console.log('scripts/patches.ts: the specs patch before the search-keywords patch');
+  {
+    const { products } = await import('../src/lib/db/schema');
+    const { PATCHES, runPatches } = await import('./patches');
+    const { settings } = await import('../src/lib/db/schema');
+    const { loadManufacturerSpecs } = await import('./manufacturer-data');
+    const mute = { log: () => undefined, warn: () => undefined };
+    const SPECS = '2026-09-22-manufacturer-specs';
+    const KEYWORDS = '2026-10-09-search-keywords';
+    const pair = [SPECS, KEYWORDS].map((id) => PATCHES.find((p) => p.id === id)!);
+    const slug = [...loadManufacturerSpecs().keys()].find(Boolean)!;
+    const [orig] = await db.select().from(products).where(eq(products.slug, slug));
+    const recordedBefore = (await db.select().from(settings).where(eq(settings.key, 'dataPatches')))[0]?.value ?? [];
+    const row = async () => JSON.stringify((await db.select({ specs: products.specs, searchText: products.searchText, keywords: products.keywords, internalNotes: products.internalNotes }).from(products).where(eq(products.slug, slug)))[0]);
+    const fresh = async () => {
+      await db.update(products).set({ specs: [], searchText: orig.searchText, keywords: orig.keywords, internalNotes: null }).where(eq(products.slug, slug));
+      await db.update(settings).set({ value: [] }).where(eq(settings.key, 'dataPatches'));
+    };
+    await fresh();
+    await runPatches(pair, mute);
+    const clean = await row();
+    check('one clean run gives the product its specs from the data sheet', (JSON.parse(clean) as { specs: string[] }).specs.length > 0, clean);
+    await fresh();
+    const failSpecs = pair.map((p) => (p.id === SPECS ? { ...p, run: async () => { throw new Error('transient'); } } : p));
+    const first = await runPatches(failSpecs, mute);
+    check('the specs patch fails once: the search-keywords patch waits', first.failed.join() === SPECS && first.skipped.join() === KEYWORDS, first);
+    await runPatches(pair, mute);
+    check('…and after the retry the search text is the one of a clean run', (await row()) === clean, await row());
+    await db.update(products).set({ specs: orig.specs, searchText: orig.searchText, keywords: orig.keywords, internalNotes: orig.internalNotes }).where(eq(products.slug, slug));
+    await db.update(settings).set({ value: recordedBefore }).where(eq(settings.key, 'dataPatches'));
+  }
+
   console.log('scripts/skroutz-prices.ts --force');
   {
     const { applySkroutzPrices, loadSkroutzPrices } = await import('./skroutz-prices');
