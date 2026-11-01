@@ -69,6 +69,9 @@ export function proxyHops(value: string | undefined): number {
 export function pickClientIp(xff: string | null, hops: number, realIp: string | null): string {
   if (xff) {
     const chain = xff.split(',').map((s) => s.trim()).filter(Boolean);
+    // `?? chain[0]` matters only when TRUSTED_PROXY_HOPS is set (hops > 0) and the header has fewer entries than that: the request did
+    // not come through the proxies, so the leftmost entry is whatever the client wrote. With hops 0 (the Railway setting, checked
+    // above) it is the intended answer. Left as it was; if hops is ever set, answering x-real-ip or «local» here would be stricter.
     const ip = hops > 0 ? (chain[chain.length - hops] ?? chain[0]) : chain[0];
     if (ip) return ip;
   }
