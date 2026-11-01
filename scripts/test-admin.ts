@@ -4,6 +4,7 @@
  * Covers the mistakes that would change what the public sees: a price list that comes back different from how it
  * left, a price read ten times too small, a product that stops answering to «λαδι» after it is saved.
  */
+import { spawnSync } from 'node:child_process';
 import { readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { cloneDatabase } from './test-db';
@@ -1539,6 +1540,27 @@ async function main() {
       delete process.env.DATA_DIR;
       await db.delete(customers).where(inArray(customers.email, ['known@example.com', 'fresh@example.com', 'legacy@example.com', 'reset-verifies@example.com', 'waiting@example.com', 'timing-0@example.com', 'timing-1@example.com', 'timing-2@example.com']));
     }
+  }
+
+  console.log('scripts/create-admin.ts');
+  {
+    const { hashPassword } = await import('../src/lib/auth/password');
+    const email = 'script-admin@example.com';
+    await db.insert(adminUsers).values({ email, name: 'Ηλίας', passwordHash: await hashPassword('old-password-1') });
+    // a real run of the script against this test's copy of the database (DATABASE_URL points at it; env files never override it)
+    const run = (...args: string[]) => spawnSync(path.resolve('node_modules/.bin/tsx'), ['scripts/create-admin.ts', ...args], { env: process.env, encoding: 'utf8' });
+    const row = async (mail: string) => (await db.select().from(adminUsers).where(eq(adminUsers.email, mail)))[0];
+    const before = await row(email);
+    const reset = run(email, 'new-password-12345');
+    const after = await row(email);
+    check('a password reset without a name succeeds', reset.status === 0, reset.stderr || reset.stdout);
+    check('…keeps the stored name', after.name === 'Ηλίας', after.name);
+    check('…changes the password and signs every session out (tokenVersion + 1)', after.passwordHash !== before.passwordHash && after.tokenVersion === before.tokenVersion + 1, [before.tokenVersion, after.tokenVersion]);
+    const renamed = run(email, 'new-password-12345', 'Νέο Όνομα');
+    check('…with a name, the name is changed', renamed.status === 0 && (await row(email)).name === 'Νέο Όνομα', renamed.stderr);
+    const created = run('script-new@example.com', 'another-password-12');
+    check('a new admin without a name is called «Διαχειριστής»', created.status === 0 && (await row('script-new@example.com'))?.name === 'Διαχειριστής', created.stderr);
+    await db.delete(adminUsers).where(inArray(adminUsers.email, [email, 'script-new@example.com']));
   }
 
   console.log('Cleanup');
