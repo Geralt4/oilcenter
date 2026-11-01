@@ -22,6 +22,7 @@ import { isValidIban, normalizeIban } from '@/lib/iban';
 import { addOrderEvent, cancelOrder, flagForReview, getOrderByNumber, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/orders';
 import { resendGivenUpMails } from '@/lib/payments/mail-delivery';
 import { applyPriceChanges } from '@/lib/price-apply';
+import { PRODUCT_HAS_HISTORY, productHasHistory } from '@/lib/product-history';
 import { describePriceImport, MAX_PRICE_CENTS, parseCsv, planPriceImport } from '@/lib/price-csv';
 import { accountFailuresBlocked, clientIp, loginBudgets, peekLimit, rateLimit, recordAccountFailure } from '@/lib/rate-limit';
 import { DEFAULT_SETTINGS, SKROUTZ_AVAILABILITY, type BankAccount, type DayHours, type ShopSettings } from '@/lib/settings';
@@ -725,16 +726,24 @@ export async function saveProduct(_prev: AdminFormState, fd: FormData): Promise<
   redirect(`/admin/products/${productId}?saved=1`);
 }
 
-export async function deleteProduct(fd: FormData): Promise<void> {
+/**
+ * A product with past orders or price changes (on any size, archived ones too) is never deleted: its sizes would take the price
+ * log with them and the order lines would point at nothing. The owner switches it off instead. The check runs inside the delete
+ * transaction, so nothing is removed on a refusal; the disabled button on the page is only a hint.
+ */
+export async function deleteProduct(_prev: AdminFormState, fd: FormData): Promise<AdminFormState> {
   await requireAdmin();
   const id = int(fd, 'id');
   const images = await db.select().from(productImages).where(eq(productImages.productId, id));
   const [row] = await db.select({ hazard: products.hazard }).from(products).where(eq(products.id, id));
-  await db.transaction(async (tx) => {
+  const deleted = await db.transaction(async (tx) => {
+    if (await productHasHistory(id, tx)) return false;
     await tx.delete(variants).where(eq(variants.productId, id));
     await tx.delete(productImages).where(eq(productImages.productId, id));
     await tx.delete(products).where(eq(products.id, id));
+    return true;
   });
+  if (!deleted) return { ok: false, message: PRODUCT_HAS_HISTORY };
   await forgetTarget('product', id);
   await Promise.all([...images.map((i) => i.url), ...(row?.hazard?.sdsUrl ? [row.hazard.sdsUrl] : [])].map(removeUpload));
   invalidateSkroutzFeed();

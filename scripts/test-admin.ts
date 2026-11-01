@@ -493,12 +493,87 @@ async function main() {
   const [fixProduct] = await db.insert(products).values({ slug: 'e2e-fix-product', name: 'Τεστ προϊόν διαγραφής' }).returning();
   await db.insert(variants).values({ productId: fixProduct.id, sku: 'E2E-FIX-DEL', label: '1L', volumeMl: 1000, priceCents: 1000 });
   const prodCoupon = await addCoupon('FIXPROD', { productIds: [fixProduct.id] });
-  const productRedirected = await redirected(() => deleteProduct(form({ id: String(fixProduct.id) })));
+  const productRedirected = await redirected(() => deleteProduct(null, form({ id: String(fixProduct.id) })));
   check('deleteProduct redirects back to the product list', productRedirected);
   const prodAfter = await couponNow(prodCoupon.id);
   check('the same holds for a deleted product', prodAfter.productIds.length === 0 && prodAfter.isActive === false, prodAfter);
   const [gone] = await db.select().from(products).where(eq(products.id, fixProduct.id));
   check('the deleted product row is gone', gone === undefined);
+
+  console.log('A product with order or price history is not deleted');
+  {
+    const { orderItems, priceChanges, productImages } = await import('../src/lib/db/schema');
+    const HAS_HISTORY = 'Το προϊόν έχει ιστορικό παραγγελιών ή τιμών και δεν διαγράφεται. Απενεργοποιήστε το για να μην εμφανίζεται στο κατάστημα.';
+    const line = { orderId: createdOrderIds[0], name: 'x', variantLabel: 'x', sku: 'x', imageUrl: null, unitPriceCents: 100, quantity: 1, lineTotalCents: 100, weightGrams: 0 };
+    const makeProduct = async (key: string, sizes: Array<{ archived?: boolean }> = [{}]) => {
+      const [p] = await db.insert(products).values({ slug: `e2e-hist-${key}`, name: `Τεστ ιστορικού ${key}` }).returning();
+      const vs = [];
+      for (const [i, s] of sizes.entries()) {
+        const [v] = await db.insert(variants).values({ productId: p.id, sku: `E2E-HIST-${key}-${i}`, label: `${i + 1}L`, volumeMl: 1000 * (i + 1), priceCents: 1000, ...(s.archived ? { isActive: false, archivedAt: new Date() } : {}) }).returning();
+        vs.push(v);
+      }
+      await db.insert(productImages).values({ productId: p.id, url: `/catalog/e2e-hist-${key}.webp`, alt: 'x', sort: 0 });
+      const coupon = await addCoupon(`FIXHIST${key.toUpperCase()}`, { productIds: [p.id] });
+      return { p, vs, coupon };
+    };
+    const tryDelete = async (id: number) => {
+      try {
+        return await deleteProduct(null, form({ id: String(id) }));
+      } catch (err) {
+        if (String((err as { digest?: string }).digest ?? '').startsWith('NEXT_REDIRECT')) return 'deleted' as const;
+        throw err;
+      }
+    };
+    const untouched = async (fx: Awaited<ReturnType<typeof makeProduct>>) => {
+      const [p] = await db.select().from(products).where(eq(products.id, fx.p.id));
+      const vs = await db.select().from(variants).where(eq(variants.productId, fx.p.id));
+      const imgs = await db.select().from(productImages).where(eq(productImages.productId, fx.p.id));
+      const coupon = await couponNow(fx.coupon.id);
+      return !!p && vs.length === fx.vs.length && imgs.length === 1 && coupon.isActive === true && JSON.stringify(coupon.productIds) === JSON.stringify([fx.p.id]);
+    };
+    const refusedWith = (r: unknown) => typeof r === 'object' && r !== null && (r as { ok: boolean }).ok === false && (r as { message: string }).message === HAS_HISTORY;
+
+    const byProduct = await makeProduct('order');
+    await db.insert(orderItems).values({ ...line, productId: byProduct.p.id, variantId: null });
+    const r1 = await tryDelete(byProduct.p.id);
+    check('a product with an order line pointing at it is refused with the message', refusedWith(r1), r1);
+    check('…and nothing of it is deleted (product, sizes, photos, coupon target)', await untouched(byProduct));
+
+    const bySize = await makeProduct('ordersize');
+    await db.insert(orderItems).values({ ...line, productId: null, variantId: bySize.vs[0].id });
+    const r2 = await tryDelete(bySize.p.id);
+    check('a product whose size appears in an order line (no product id on the line) is refused', refusedWith(r2) && (await untouched(bySize)), r2);
+
+    const byPrice = await makeProduct('price');
+    await db.insert(priceChanges).values({ variantId: byPrice.vs[0].id, oldCents: 900, newCents: 1000, source: 'editor' });
+    const r3 = await tryDelete(byPrice.p.id);
+    const pricesKept = await db.select().from(priceChanges).where(eq(priceChanges.variantId, byPrice.vs[0].id));
+    check('a product with price history only is refused', refusedWith(r3), r3);
+    check('…and its price history and sizes stay', pricesKept.length === 1 && (await untouched(byPrice)), pricesKept.length);
+
+    const byArchived = await makeProduct('archived', [{}, { archived: true }]);
+    await db.insert(priceChanges).values({ variantId: byArchived.vs[1].id, oldCents: 900, newCents: 1000, source: 'editor' });
+    const r4 = await tryDelete(byArchived.p.id);
+    check('a product whose history is only on an archived size is refused', refusedWith(r4) && (await untouched(byArchived)), r4);
+
+    const clean = await makeProduct('clean', [{}, {}]);
+    const r5 = await tryDelete(clean.p.id);
+    const [cleanGone] = await db.select().from(products).where(eq(products.id, clean.p.id));
+    const cleanSizes = await db.select().from(variants).where(eq(variants.productId, clean.p.id));
+    check('a product without history is deleted, with its sizes', r5 === 'deleted' && cleanGone === undefined && cleanSizes.length === 0, r5);
+
+    const { productHasHistory } = await import('../src/lib/product-history');
+    check('the page knows which products have history (the delete button is disabled for them)', (await productHasHistory(byPrice.p.id)) && (await productHasHistory(byArchived.p.id)) && !(await productHasHistory(clean.p.id)));
+    for (const fx of [byProduct, bySize, byPrice, byArchived]) {
+      await db.delete(orderItems).where(eq(orderItems.productId, fx.p.id));
+      await db.delete(orderItems).where(inArray(orderItems.variantId, fx.vs.map((v) => v.id)));
+      await db.delete(variants).where(eq(variants.productId, fx.p.id));
+      await db.delete(productImages).where(eq(productImages.productId, fx.p.id));
+      await db.delete(products).where(eq(products.id, fx.p.id));
+      await db.delete(coupons).where(eq(coupons.id, fx.coupon.id));
+    }
+    await db.delete(coupons).where(eq(coupons.id, clean.coupon.id));
+  }
 
   // The owner's deliberate choice: re-saving a switched-off coupon with no targets widens it to the whole shop and turns it on again.
   const widened = await runCoupon(form({ id: String(soloB.id), code: 'FIXSOLO', type: 'percent', value: '10', isActive: 'on' }));

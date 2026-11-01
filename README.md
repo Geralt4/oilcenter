@@ -29,7 +29,7 @@ Admin login = `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env.local`. Change the pas
 | `npm run catalog:build` | rebuild `catalog/catalog.json` + `public/catalog/*.webp` from the client's photos |
 | `npm run test:orders` | order-logic regression test, incl. availability and payment outcomes (runs on a throwaway snapshot of the DB) — 290 checks |
 | `npm run test:viva` | Viva adapter with a mocked `fetch`: create, return, webhook, IP allow-list, unmatched payments — 190 checks |
-| `npm run test:admin` | admin actions: prices and CSV round trip, sales, coupons, orders and payment review, categories, product sizes, IBANs, customer and admin sign-in limits, given-up payment mails, registration and account activation — 297 checks |
+| `npm run test:admin` | admin actions: prices and CSV round trip, sales, coupons, orders and payment review, categories, product sizes, IBANs, customer and admin sign-in limits, given-up payment mails, registration and account activation, products with history kept — 305 checks |
 | `npm run test:catalog` | catalogue data, search, sizes and hazard tables — 120 checks |
 | `npm run test:security` | commerce switch, MFA, limits, upload tokens/deadline/rollback, backup encryption and statistics limits — 149 checks |
 | `npm run test:feed` | Skroutz feed regression test: what is listed, valid XML, barcodes, cache and rate limit (same throwaway snapshot) — 104 checks |
