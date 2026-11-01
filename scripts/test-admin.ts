@@ -1563,6 +1563,37 @@ async function main() {
     await db.delete(adminUsers).where(inArray(adminUsers.email, [email, 'script-new@example.com']));
   }
 
+  console.log('scripts/patches.ts');
+  {
+    const { settings } = await import('../src/lib/db/schema');
+    const { runPatches } = await import('./patches');
+    const quiet = { log: () => undefined, warn: (m: string) => void warnings.push(m) };
+    const warnings: string[] = [];
+    const ran: string[] = [];
+    const recordedNow = async () => ((await db.select().from(settings).where(eq(settings.key, 'dataPatches')))[0]?.value ?? []) as string[];
+    const before = await recordedNow();
+    const list = [
+      { id: 'test-patch-a', run: async () => (ran.push('a'), 'a done') },
+      { id: 'test-patch-broken', run: async () => { ran.push('broken'); throw new Error('boom'); } },
+      { id: 'test-patch-c', run: async () => (ran.push('c'), 'c done') },
+    ];
+    let thrown = false;
+    let first = { applied: [] as string[], failed: [] as string[] };
+    try {
+      first = await runPatches(list, quiet);
+    } catch {
+      thrown = true;
+    }
+    check('a failing patch does not make the run throw (the boot goes on)', !thrown);
+    check('…the patches around it ran and are recorded', ran.join() === 'a,broken,c' && first.applied.join() === 'test-patch-a,test-patch-c' && (await recordedNow()).includes('test-patch-a') && (await recordedNow()).includes('test-patch-c'), [ran, first]);
+    check('…the failing one is NOT recorded', !(await recordedNow()).includes('test-patch-broken') && first.failed.join() === 'test-patch-broken', await recordedNow());
+    check('…and the warning names the patch and the error', warnings.some((w) => w.includes('[patches] WARNING') && w.includes('test-patch-broken') && w.includes('boom')), warnings);
+    ran.length = 0;
+    await runPatches(list, quiet);
+    check('at the next start only the unrecorded one runs again', ran.join() === 'broken', ran);
+    await db.update(settings).set({ value: before }).where(eq(settings.key, 'dataPatches'));
+  }
+
   console.log('Cleanup');
   for (const code of fixCodes) await db.delete(coupons).where(eq(coupons.code, code));
   for (const name of fixSaleNames) await db.delete(sales).where(eq(sales.name, name));

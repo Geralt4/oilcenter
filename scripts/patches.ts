@@ -147,7 +147,9 @@ async function linkToyotaSizePhotos(): Promise<string> {
  * Patches must be safe on a freshly seeded database too (they simply find nothing to do there).
  */
 
-const PATCHES: Array<{ id: string; run: () => Promise<string> }> = [
+export type Patch = { id: string; run: () => Promise<string> };
+
+const PATCHES: Patch[] = [
   // Real prices from the shop's Skroutz listing. Never overwrites a price the owner has already confirmed.
   { id: '2026-09-20-skroutz-prices', run: () => applySkroutzPrices({ verbose: false }) },
   // Specifications from the manufacturers' data sheets, only where the product had none.
@@ -179,25 +181,46 @@ const PATCHES: Array<{ id: string; run: () => Promise<string> }> = [
 
 const KEY = 'dataPatches';
 
-async function main() {
+/**
+ * Runs the patches that are not recorded yet, one by one. A patch that throws is reported as a WARNING, is NOT recorded (it runs
+ * again at the next start) and does not stop the others or the boot: a data patch must never be the reason the shop is down.
+ * The cost: patches are not atomic with their record (a patch that half-applied runs again) and a later patch may find the
+ * data an earlier, failed one should have prepared, so every patch has to be safe to run twice.
+ */
+export async function runPatches(list: Patch[], log: Pick<Console, 'log' | 'warn'> = console): Promise<{ applied: string[]; failed: string[] }> {
   const [row] = await db.select().from(settings).where(eq(settings.key, KEY));
-  const applied = new Set(Array.isArray(row?.value) ? (row.value as string[]) : []);
-  const pending = PATCHES.filter((p) => !applied.has(p.id));
+  const recorded = new Set(Array.isArray(row?.value) ? (row.value as string[]) : []);
+  const pending = list.filter((p) => !recorded.has(p.id));
+  const result = { applied: [] as string[], failed: [] as string[] };
   if (!pending.length) {
-    console.log('Data patches: nothing to apply.');
-    return;
+    log.log('Data patches: nothing to apply.');
+    return result;
   }
   for (const patch of pending) {
-    console.log(`Data patch ${patch.id}: ${await patch.run()}`);
-    applied.add(patch.id);
-    const value = [...applied];
-    await db.insert(settings).values({ key: KEY, value }).onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: new Date() } });
+    try {
+      const outcome = await patch.run();
+      recorded.add(patch.id);
+      const value = [...recorded];
+      await db.insert(settings).values({ key: KEY, value }).onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: new Date() } });
+      log.log(`Data patch ${patch.id}: ${outcome}`);
+      result.applied.push(patch.id);
+    } catch (err) {
+      recorded.delete(patch.id);
+      log.warn(`[patches] WARNING: ${patch.id} failed and was not recorded; it runs again at the next start: ${err instanceof Error ? err.message : String(err)}`);
+      result.failed.push(patch.id);
+    }
   }
+  if (result.failed.length) log.warn(`[patches] WARNING: ${result.failed.length} of ${pending.length} data patch(es) failed: ${result.failed.join(', ')}`);
+  return result;
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+// run directly (db:patch, the boot chain), not when a test imports runPatches
+if (require.main === module) {
+  runPatches(PATCHES)
+    .then(() => process.exit(0))
+    .catch((err) => {
+      // only reached when the patch record itself cannot be read: nothing is known, so the boot stops as before
+      console.error(err);
+      process.exit(1);
+    });
+}
