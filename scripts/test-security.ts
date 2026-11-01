@@ -7,7 +7,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 import { cloneDatabase } from './test-db';
 
 let dir = '';
