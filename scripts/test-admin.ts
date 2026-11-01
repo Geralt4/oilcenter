@@ -1330,7 +1330,7 @@ async function main() {
   {
     const { customers } = await import('../src/lib/db/schema');
     const { hashPassword, randomToken, sha256 } = await import('../src/lib/auth/password');
-    const { registerCustomer, loginCustomer, resendActivation, resetPassword, activateAccount } = await import('../src/app/(store)/account/actions');
+    const { registerCustomer, loginCustomer, resendActivation, requestPasswordReset, resetPassword, activateAccount } = await import('../src/app/(store)/account/actions');
     const { GET: activate } = await import('../src/app/api/account/activate/route');
     const { default: ActivatePage } = await import('../src/app/(store)/activate/page');
     const { ACTIVATION_LINK_INVALID } = await import('../src/lib/auth/activation');
@@ -1517,6 +1517,32 @@ async function main() {
       await resetPassword(null, form({ token: knownReset, password: 'νέος-κωδικός-γνωστού' })).catch(() => undefined);
       check('…while an account that was already active keeps its activation date', (await customerRow('known@example.com')).emailVerifiedAt?.getTime() === knownVerifiedAt);
       cookieJar.delete('oc_customer');
+
+      // limits on reset requests (per address) and on the reset itself (per visitor address)
+      const TOO_MANY = 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.';
+      const askReset = async (address: string, ip: string) => {
+        currentIp = ip;
+        return requestPasswordReset(null, form({ email: address }));
+      };
+      const asked = [await askReset('limit-me@example.com', '192.0.2.70'), await askReset('limit-me@example.com', '192.0.2.71'), await askReset('limit-me@example.com', '192.0.2.72')];
+      check('reset requests: three for one address within an hour go through, from three different visitors', asked.every((r) => r?.ok === true), asked);
+      const fourthAsk = await askReset('limit-me@example.com', '192.0.2.73');
+      check('…the fourth, from a fresh visitor address, is refused (limit per account)', fourthAsk?.ok === false && fourthAsk.message === TOO_MANY, fourthAsk);
+      check('…another address from the same fresh visitor is not affected', (await askReset('other-address@example.com', '192.0.2.73'))?.ok === true);
+      const lateToken = randomToken();
+      await db.insert(customers).values({ email: 'limit-reset@example.com', passwordHash: await hashPassword('vorher-passwort-1'), firstName: 'Τεστ', lastName: 'Όριο', emailVerifiedAt: new Date(), resetTokenHash: sha256(lateToken), resetTokenExpires: new Date(Date.now() + 3600_000) });
+      currentIp = '192.0.2.80';
+      const guesses: Array<Awaited<ReturnType<typeof resetPassword>>> = [];
+      for (let i = 0; i < 10; i++) guesses.push(await resetPassword(null, form({ token: `${'x'.repeat(30)}${i}`, password: 'irgendein-passwort-1' })));
+      check('the reset itself: ten wrong links from one visitor are answered as invalid', guesses.every((r) => r?.ok === false && r.message.startsWith('Ο σύνδεσμος επαναφοράς δεν ισχύει')), guesses.map((r) => r?.message));
+      const eleventh = await resetPassword(null, form({ token: lateToken, password: 'neues-passwort-12345' }));
+      check('…the eleventh is refused even with a valid link (the limit comes before the lookup)', eleventh?.ok === false && eleventh.message === TOO_MANY, eleventh);
+      check('…and that link is not spent', (await customerRow('limit-reset@example.com')).resetTokenHash === sha256(lateToken));
+      currentIp = '192.0.2.81';
+      await resetPassword(null, form({ token: lateToken, password: 'neues-passwort-12345' })).catch(() => undefined);
+      check('…from another visitor address the same link still works', (await customerRow('limit-reset@example.com')).resetTokenHash === null);
+      cookieJar.delete('oc_customer');
+      await db.delete(customers).where(inArray(customers.email, ['limit-me@example.com', 'other-address@example.com', 'limit-reset@example.com']));
 
       // sending the activation link again
       const RESENT = 'Αν υπάρχει λογαριασμός που περιμένει ενεργοποίηση με αυτό το e-mail, σας στείλαμε νέο σύνδεσμο. Ισχύει για 24 ώρες.';
