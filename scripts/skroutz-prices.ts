@@ -20,7 +20,9 @@ const eur = (cents: number) => `${(cents / 100).toFixed(2).replace('.', ',')} â‚
 /**
  * Applies the file to an EXISTING database. "exact" matches are marked as confirmed; "probable" ones get the price but
  * stay flagged for the owner to check. A price the owner has already confirmed by hand is never overwritten unless
- * `force` is set. Safe to run twice: a price that is already in place is left alone.
+ * `force` is set, and even then only by an "exact" match: a "probable" one never replaces a confirmed price, because that
+ * would also clear the owner's confirmation (price_verified is set to the match's own confidence). Safe to run twice: a
+ * price that is already in place is left alone.
  */
 export async function applySkroutzPrices({ force = false, dry = false, verbose = true } = {}): Promise<string> {
   const prices = loadSkroutzPrices();
@@ -35,9 +37,9 @@ export async function applySkroutzPrices({ force = false, dry = false, verbose =
       continue;
     }
     const verified = match.confidence === 'exact';
-    if (v.priceVerified && !force && v.priceCents !== match.priceCents) {
+    if (v.priceVerified && v.priceCents !== match.priceCents && (!force || !verified)) {
       kept++;
-      if (verbose) console.log(`  kept ${sku}: ${eur(v.priceCents)} was confirmed by the owner (Skroutz says ${eur(match.priceCents)})`);
+      if (verbose) console.log(`  kept ${sku}: ${eur(v.priceCents)} was confirmed by the owner (Skroutz says ${eur(match.priceCents)}${force ? ', only a probable match: --force does not replace a confirmed price with it' : ''})`);
       continue;
     }
     if (v.priceCents === match.priceCents) {

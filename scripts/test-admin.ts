@@ -1594,6 +1594,33 @@ async function main() {
     await db.update(settings).set({ value: before }).where(eq(settings.key, 'dataPatches'));
   }
 
+  console.log('scripts/skroutz-prices.ts --force');
+  {
+    const { applySkroutzPrices, loadSkroutzPrices } = await import('./skroutz-prices');
+    const { variants } = await import('../src/lib/db/schema');
+    const file = loadSkroutzPrices();
+    const rows = new Map((await db.select().from(variants)).map((v) => [v.sku, v]));
+    const exact = [...file.values()].find((m) => m.confidence === 'exact' && rows.has(m.sku));
+    const probable = [...file.values()].find((m) => m.confidence === 'probable' && rows.has(m.sku));
+    check('the local data holds an exact and a probable Skroutz match to test with', Boolean(exact && probable), [exact?.sku, probable?.sku]);
+    if (exact && probable) {
+      const originals = [exact, probable].map((m) => rows.get(m.sku)!);
+      const owner = (m: { sku: string; priceCents: number }) => m.priceCents + 137; // a price the owner typed and confirmed, unlike Skroutz's
+      for (const m of [exact, probable]) await db.update(variants).set({ priceCents: owner(m), priceVerified: true }).where(eq(variants.sku, m.sku));
+      const now = async (sku: string) => (await db.select().from(variants).where(eq(variants.sku, sku)))[0];
+      await applySkroutzPrices({ verbose: false });
+      check('without --force a confirmed price is left alone (exact and probable)', (await now(exact.sku)).priceCents === owner(exact) && (await now(probable.sku)).priceCents === owner(probable));
+      const summary = await applySkroutzPrices({ force: true, verbose: false });
+      const p = await now(probable.sku);
+      check('--force does not replace a confirmed price with a PROBABLE match', p.priceCents === owner(probable), p.priceCents);
+      check('…and the owner\'s confirmation stays', p.priceVerified === true);
+      const e = await now(exact.sku);
+      check('--force does replace it with an EXACT match, which stays confirmed', e.priceCents === exact.priceCents && e.priceVerified === true, [e.priceCents, e.priceVerified]);
+      check('…and the summary counts the kept one', /\d+ kept/.test(summary) && !summary.startsWith('0 prices changed'), summary);
+      for (const o of originals) await db.update(variants).set({ priceCents: o.priceCents, priceVerified: o.priceVerified }).where(eq(variants.sku, o.sku));
+    }
+  }
+
   console.log('Cleanup');
   for (const code of fixCodes) await db.delete(coupons).where(eq(coupons.code, code));
   for (const name of fixSaleNames) await db.delete(sales).where(eq(sales.name, name));
