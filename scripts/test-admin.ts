@@ -1452,6 +1452,13 @@ async function main() {
     check('guessing the password is limited', limited === '/admin/settings?mfa=rate', limited);
     check('…and once limited even the right password is refused', (await begin({ currentPassword: enrolPw })) === '/admin/settings?mfa=rate' && (await stateOf()).secret === null);
 
+    // …but wrong passwords at the start do not use up the attempts for confirming the code (a separate budget)
+    const { confirmTotpEnrollment } = await import('../src/app/admin/actions');
+    const pendingSecret = newTotpSecret();
+    await db.update(adminUsers).set({ totpSecret: pendingSecret, totpConfirmedAt: null, totpLastStep: null }).where(eq(adminUsers.id, me.id));
+    const confirmed = await confirmTotpEnrollment(null, form({ totp: totpFor(pendingSecret, enrolEmail).generate() }));
+    check('after the start step is limited, confirming the scanned code still works (separate limit)', confirmed?.ok === true && (await stateOf()).confirmedAt !== null, confirmed);
+
     await db.delete(adminUsers).where(eq(adminUsers.id, me.id));
     currentIp = '203.0.113.1';
     await createSession('admin', admin.id, admin.tokenVersion);

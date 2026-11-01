@@ -129,7 +129,9 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
  */
 export async function beginTotpEnrollment(fd: FormData): Promise<void> {
   const me = await requireAdmin();
-  const limited = await rateLimit(`mfa:${await clientIp()}:${me.id}`, 8, 15 * 60 * 1000);
+  // its own budget: wrong passwords here must not use up the attempts of confirmTotpEnrollment (key `mfa:`), or a few typos would
+  // lock the owner out of confirming the code he has just scanned
+  const limited = await rateLimit(`mfa-start:${await clientIp()}:${me.id}`, 8, 15 * 60 * 1000);
   if (!limited.ok) redirect('/admin/settings?mfa=rate');
   const [row] = await db.select({ secret: adminUsers.totpSecret, confirmedAt: adminUsers.totpConfirmedAt, passwordHash: adminUsers.passwordHash }).from(adminUsers).where(eq(adminUsers.id, me.id));
   if (row?.confirmedAt) {
