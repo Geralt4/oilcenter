@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { desc, eq } from 'drizzle-orm';
-import { LogOut, Package } from 'lucide-react';
-import { logoutCustomer, updateProfile } from '@/app/(store)/account/actions';
+import { Package } from 'lucide-react';
+import { updateProfile } from '@/app/(store)/account/actions';
+import { LogoutForm } from '@/components/store/logout-form';
 import { ActionForm } from '@/components/ui/action-form';
 import { buttonClass } from '@/components/ui/button';
 import { requireCustomer } from '@/lib/auth/session';
@@ -29,9 +30,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
           <p className="mt-1 text-ink-600">{customer.email}</p>
           {activated === '1' && <p role="status" className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">Ο λογαριασμός σας ενεργοποιήθηκε. Καλώς ήρθατε!</p>}
         </div>
-        <form action={logoutCustomer}>
-          <button type="submit" className={buttonClass({ variant: 'outline' })}><LogOut className="h-4 w-4" />Αποσύνδεση</button>
-        </form>
+        <LogoutForm />
       </div>
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[1.3fr_1fr] lg:items-start">

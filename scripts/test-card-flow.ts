@@ -596,6 +596,11 @@ async function main() {
         await button.click();
         await page.waitForURL(/\/account/, { timeout: 20_000 });
         check('pressing the button signs the customer in on the account page', page.url().includes('/account?activated=1') && (await page.getByText('Ο λογαριασμός σας ενεργοποιήθηκε').count()) === 1 && (await verifiedAt()) !== null, page.url());
+        // signing out takes the checkout draft of this tab with it
+        await page.evaluate(() => sessionStorage.setItem('oilcenter-checkout', JSON.stringify({ form: { firstName: 'Ελένη' } })));
+        await page.getByRole('button', { name: 'Αποσύνδεση' }).click();
+        await page.waitForURL((url) => url.pathname === '/', { timeout: 20_000 });
+        check('signing out deletes the checkout draft of the tab', (await page.evaluate(() => sessionStorage.getItem('oilcenter-checkout'))) === null);
         await page.goto(link || `${base}/activate`);
         check('…and a second visit of the same link says it no longer works, with a way to a new one', (await page.getByText('Ο σύνδεσμος ενεργοποίησης δεν ισχύει').count()) === 1 && (await page.getByRole('link', { name: 'Στείλτε μου νέο σύνδεσμο' }).count()) === 1 && (await button.count()) === 0, page.url());
       } finally {
@@ -676,6 +681,9 @@ async function main() {
         await page.goto(`${base}/cart`);
         await page.waitForLoadState('domcontentloaded');
         check('on the card page, not paid, back in the shop: the cart still holds the product', (await cartLines()) === 1, await cartLines());
+        await page.goto(`${base}/cookies`);
+        const cookiesText = ((await page.locator('main').textContent()) ?? '').replace(/\s+/g, ' ');
+        check('the cookies page says the checkout form is kept in the tab\'s session storage and when it is deleted', cookiesText.includes('oilcenter-checkout') && cookiesText.includes('session storage') && cookiesText.includes('όταν αποσυνδεθείτε') && cookiesText.includes('όταν αδειάσει το καλάθι'), cookiesText.slice(0, 200));
       } finally {
         await ctx.close();
       }

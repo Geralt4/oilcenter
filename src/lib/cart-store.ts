@@ -4,6 +4,7 @@ import { useSyncExternalStore } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { Availability } from '@/lib/availability';
+import { clearDraft } from '@/lib/checkout-draft';
 import { track } from '@/lib/track';
 
 /*
@@ -194,6 +195,10 @@ export const useWishlist = create<WishlistState>()(
  * The browser tells the OTHER tabs when localStorage changes; re-reading it keeps every tab current before it writes.
  */
 if (typeof window !== 'undefined') {
+  // a cart that has just been emptied (the last item removed, the order placed) takes the checkout draft with it
+  useCart.subscribe((state, previous) => {
+    if (previous.lines.length > 0 && state.lines.length === 0) clearDraft();
+  });
   window.addEventListener('storage', (event) => {
     if (event.key === 'oilcenter-cart') void useCart.persist.rehydrate();
     else if (event.key === 'oilcenter-wishlist') void useWishlist.persist.rehydrate();

@@ -357,11 +357,13 @@ async function main() {
     // Two tabs of one browser: the same localStorage, a separate copy of the store in each, and the browser's `storage` event
     // delivered to the OTHER tab after a write (it is never sent to the tab that wrote).
     const shared = new Map<string, string>();
+    const session = new Map<string, string>(); // this tab's sessionStorage
     const listeners: Array<{ tab: number; fn: (event: { key: string | null }) => void }> = [];
     let loading = 0;
     const g = globalThis as unknown as { window?: unknown };
     g.window = {
       localStorage: { getItem: (k: string) => shared.get(k) ?? null, setItem: (k: string, v: string) => void shared.set(k, v), removeItem: (k: string) => void shared.delete(k) },
+      sessionStorage: { getItem: (k: string) => session.get(k) ?? null, setItem: (k: string, v: string) => void session.set(k, v), removeItem: (k: string) => void session.delete(k) },
       addEventListener: (type: string, fn: (event: { key: string | null }) => void) => { if (type === 'storage') listeners.push({ tab: loading, fn }); },
       removeEventListener: () => undefined,
     };
@@ -417,6 +419,24 @@ async function main() {
     check('…and keeps its coupon code', migrated.couponCode === 'WELCOME5', migrated.couponCode);
     check('an older saved favourites list keeps whole product ids, each once', tab3.useWishlist.getState().ids.join() === '5,7', tab3.useWishlist.getState().ids);
     check('sanitizing nonsense gives an empty cart, not an error', tab3.sanitizeCartState(null).lines.length === 0 && tab3.sanitizeCartState('x').couponCode === null && tab3.sanitizeWishlistState(42).ids.length === 0);
+
+    // the checkout draft goes with the cart when the cart is emptied, not while something is still in it
+    const { writeDraft, readDraft } = await import('../src/lib/checkout-draft');
+    const draftThere = () => readDraft() !== null;
+    tab1.useCart.getState().add(55, snapshot('z1'), 1);
+    tab1.useCart.getState().add(56, snapshot('z2'), 1);
+    writeDraft({ form: { firstName: 'Ελένη' } });
+    tab1.useCart.getState().remove(55);
+    check('removing one of two items keeps the checkout draft', draftThere());
+    tab1.useCart.getState().remove(56);
+    check('removing the last item deletes it', !draftThere());
+    tab1.useCart.getState().add(57, snapshot('z3'), 1);
+    writeDraft({ form: { firstName: 'Ελένη' } });
+    tab1.useCart.getState().clear();
+    check('emptying the cart (clear) deletes it', !draftThere());
+    writeDraft({ form: { firstName: 'Ελένη' } });
+    tab1.useCart.getState().clear();
+    check('clearing an already empty cart leaves a draft alone (nothing was emptied)', draftThere());
     delete g.window;
   }
 
