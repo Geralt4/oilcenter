@@ -385,6 +385,39 @@ async function main() {
       check('…and the history shows the resend', (await page.locator('main').innerText()).includes('Επαναποστολή e-mail από διαχειριστή: στάλθηκαν 1 από 1.'));
     }
 
+    console.log('Orders that wait too long, and the transfer deadline');
+    {
+      const { orders } = await import('../src/lib/db/schema');
+      const person = { email: 'buyer@example.com', phone: '6900000000', firstName: 'Τεστ', lastName: 'Αγοραστής', shippingMethod: 'courier' as const, subtotalCents: 1999, totalCents: 1999, isTest: false };
+      const DAY = 24 * 60 * 60 * 1000;
+      const [waiting] = await db.insert(orders).values({ ...person, number: 'OC-FLOWS-WAIT', accessToken: 'flows-wait-token', paymentMethod: 'cod', createdAt: new Date(Date.now() - 8 * DAY) }).returning();
+      await db.insert(orders).values({ ...person, number: 'OC-FLOWS-FRESH', accessToken: 'flows-fresh-token', paymentMethod: 'cod', createdAt: new Date(Date.now() - 2 * DAY) });
+      const [transfer] = await db.insert(orders).values({ ...person, number: 'OC-FLOWS-BANK', accessToken: 'flows-bank-token', paymentMethod: 'bank_transfer', createdAt: new Date(Date.now() - 1 * DAY) }).returning();
+
+      await page.goto(`${base}/admin`);
+      const box = page.locator('section', { has: page.getByRole('heading', { name: /Παραγγελίες σε αναμονή πάνω από 7 ημέρες/ }) });
+      check('the dashboard shows the box for an order that has waited more than 7 days', (await box.count()) === 1);
+      const boxText = await box.innerText();
+      check('…it lists that order with its method and its age, and not the 2-day-old one', boxText.includes('OC-FLOWS-WAIT') && boxText.includes('8 ημέρες') && boxText.includes('Αντικαταβολή') && !boxText.includes('OC-FLOWS-FRESH'), boxText);
+      check('…and says nothing cancels them by itself', boxText.includes('δεν ακυρώνονται μόνες τους'));
+      await box.getByRole('link', { name: /Δείτε όλες/ }).click();
+      await page.waitForURL((url) => url.searchParams.get('stale') === '1', { timeout: 20_000 });
+      const listed = await page.locator('main a', { hasText: /^OC-FLOWS-/ }).allInnerTexts();
+      check('the link opens the orders list filtered to those orders', listed.includes('OC-FLOWS-WAIT') && !listed.includes('OC-FLOWS-FRESH') && !listed.includes('OC-FLOWS-BANK'), listed);
+      check('…with a chip that removes the filter', (await page.getByRole('link', { name: /Σε αναμονή πάνω από 7 ημέρες/ }).count()) === 1);
+      await page.getByRole('link', { name: /Σε αναμονή πάνω από 7 ημέρες/ }).click();
+      await page.waitForURL((url) => !url.searchParams.has('stale'), { timeout: 20_000 });
+      check('…and with the filter off the list has the other orders again', (await page.locator('main a', { hasText: 'OC-FLOWS-FRESH' }).count()) === 1);
+      await db.update(orders).set({ status: 'confirmed' }).where(eq(orders.id, waiting.id));
+      await page.goto(`${base}/admin`);
+      check('once the order is confirmed the box is gone', (await page.getByRole('heading', { name: /Παραγγελίες σε αναμονή πάνω από 7 ημέρες/ }).count()) === 0);
+
+      // the buyer is told up front (order page)
+      await page.goto(`${base}/order/${transfer.number}?t=${transfer.accessToken}`);
+      const orderText = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+      check('a transfer order page says it is cancelled automatically after 5 days, with the date', orderText.includes('Αν η κατάθεση δεν εισπραχθεί μέσα σε 5 ημέρες (έως') && orderText.includes('η παραγγελία ακυρώνεται αυτόματα'), orderText.slice(0, 300));
+    }
+
     console.log('Edits typed while a save is in flight');
     page.on('dialog', (dialog) => void dialog.accept());
     // hold the server action back so there is time to type while it is running

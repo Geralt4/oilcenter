@@ -4,14 +4,15 @@ import { PageHeader, PaymentBadge, StatusBadge, td, th } from '@/components/admi
 import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { mailOutbox, orders, type OrderStatus } from '@/lib/db/schema';
-import { ORDER_STATUS_LABELS } from '@/lib/orders';
+import { ORDER_STATUS_LABELS, staleOpenOrdersCondition } from '@/lib/orders';
+import { OPEN_ORDER_FLAG_DAYS } from '@/lib/order-ageing';
 import { PAYMENT_LABELS, SHIPPING_LABELS } from '@/lib/pricing';
 import { cn, formatDateTime, formatPrice } from '@/lib/utils';
 
 export const metadata = { title: 'Παραγγελίες' };
 const PER_PAGE = 30;
 
-export default async function AdminOrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string; page?: string; review?: string; mail?: string }> }) {
+export default async function AdminOrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string; page?: string; review?: string; mail?: string; stale?: string }> }) {
   await requireAdmin();
   const sp = await searchParams;
   const status = (Object.keys(ORDER_STATUS_LABELS) as OrderStatus[]).find((s) => s === sp.status);
@@ -20,10 +21,13 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
   const review = sp.review === '1';
   // from the dashboard line «E-mail πληρωμών που δεν στάλθηκαν»: orders with a payment mail that was given up and never sent
   const mailFailed = sp.mail === 'failed';
+  // from the dashboard box «Παραγγελίες σε αναμονή πάνω από 7 ημέρες»: cash-on-delivery / pay-in-store orders nobody has acted on
+  const stale = sp.stale === '1';
 
   const filters: SQL[] = [];
   if (status) filters.push(eq(orders.status, status));
   if (review) filters.push(eq(orders.paymentFlag, 'review'));
+  if (stale) filters.push(staleOpenOrdersCondition()!);
   if (mailFailed) filters.push(inArray(orders.id, db.select({ id: mailOutbox.orderId }).from(mailOutbox).where(and(isNotNull(mailOutbox.givenUpAt), isNull(mailOutbox.sentAt)))));
   if (q) filters.push(or(like(orders.number, `%${q.toUpperCase()}%`), like(orders.email, `%${q.toLowerCase()}%`), like(orders.lastName, `%${q}%`), like(orders.phone, `%${q}%`))!);
   const where = filters.length ? and(...filters) : undefined;
@@ -37,7 +41,7 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
   const counts = new Map(byStatus.map((r) => [r.status, r.n]));
   const href = (params: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
-    for (const [k, v] of Object.entries({ status, q, review: review ? '1' : undefined, mail: mailFailed ? 'failed' : undefined, ...params })) if (v) p.set(k, v);
+    for (const [k, v] of Object.entries({ status, q, review: review ? '1' : undefined, mail: mailFailed ? 'failed' : undefined, stale: stale ? '1' : undefined, ...params })) if (v) p.set(k, v);
     const s = p.toString();
     return s ? `/admin/orders?${s}` : '/admin/orders';
   };
@@ -50,13 +54,19 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
           {status && <input type="hidden" name="status" value={status} />}
           {review && <input type="hidden" name="review" value="1" />}
           {mailFailed && <input type="hidden" name="mail" value="failed" />}
+          {stale && <input type="hidden" name="stale" value="1" />}
           <input name="q" defaultValue={q} placeholder="Αριθμός, e-mail, επώνυμο, τηλέφωνο" className="field h-10 w-72 max-w-full text-sm" />
           <button type="submit" className="h-10 cursor-pointer rounded-xl bg-ink-900 px-4 text-sm font-semibold text-white hover:bg-ink-700">Αναζήτηση</button>
         </form>
       </PageHeader>
 
       <nav aria-label="Φίλτρο κατάστασης" className="no-scrollbar mb-4 flex gap-1.5 overflow-x-auto">
-        <Link href={href({ status: undefined, review: undefined, mail: undefined, page: undefined })} className={cn('shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium', !status && !review && !mailFailed ? 'bg-ink-900 text-white' : 'bg-white text-ink-700 ring-1 ring-line hover:bg-ink-50')}>Όλες</Link>
+        <Link href={href({ status: undefined, review: undefined, mail: undefined, stale: undefined, page: undefined })} className={cn('shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium', !status && !review && !mailFailed && !stale ? 'bg-ink-900 text-white' : 'bg-white text-ink-700 ring-1 ring-line hover:bg-ink-50')}>Όλες</Link>
+        {stale && (
+          <Link href={href({ stale: undefined, page: undefined })} className="shrink-0 rounded-full bg-amber-700 px-3.5 py-1.5 text-sm font-medium text-white" title="Αφαίρεση φίλτρου">
+            Σε αναμονή πάνω από {OPEN_ORDER_FLAG_DAYS} ημέρες ✕
+          </Link>
+        )}
         {mailFailed && (
           <Link href={href({ mail: undefined, page: undefined })} className="shrink-0 rounded-full bg-amber-700 px-3.5 py-1.5 text-sm font-medium text-white" title="Αφαίρεση φίλτρου">
             E-mail που δεν στάλθηκαν ✕

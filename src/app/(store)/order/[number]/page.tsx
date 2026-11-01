@@ -16,7 +16,8 @@ import { cardProvider } from '@/lib/payments';
 import { PAYMENT_LABELS, SHIPPING_LABELS } from '@/lib/pricing';
 import { fullAddress, mapsDirectionsUrl } from '@/lib/settings';
 import { getSettings } from '@/lib/settings.server';
-import { cn, formatDateTime, formatPrice, telHref } from '@/lib/utils';
+import { cn, formatDate, formatDateTime, formatPrice, telHref } from '@/lib/utils';
+import { bankTransferExpiryNotice } from '@/lib/order-ageing';
 
 // the address carries the secret access token: nothing this page links to or loads may receive it as a Referer (next.config.ts sends the same header)
 export const metadata: Metadata = { title: 'Η παραγγελία σας', robots: { index: false, follow: false }, referrer: 'no-referrer' };
@@ -165,6 +166,7 @@ export default async function OrderPage({ params, searchParams }: Props) {
         <section className="mt-6 rounded-3xl border border-oil-200 bg-oil-50 p-6">
           <h3 className="font-bold text-ink-950">Πληρωμή με τραπεζική κατάθεση</h3>
           <p className="mt-1 text-sm text-ink-700">Καταθέστε <strong className="tabular">{formatPrice(order.totalCents)}</strong> με αιτιολογία <strong className="tabular">{order.number}</strong>. Η παραγγελία αποστέλλεται μόλις επιβεβαιωθεί η κατάθεση.</p>
+          <p className="mt-1 text-sm font-medium text-ink-800">{bankTransferExpiryNotice(order.createdAt, formatDate)}</p>
           {payments.bankAccounts.length > 0 ? (
             <ul className="mt-4 grid gap-3 sm:grid-cols-2">
               {payments.bankAccounts.map((a) => (

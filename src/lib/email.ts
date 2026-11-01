@@ -3,13 +3,14 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import nodemailer, { type Transporter } from 'nodemailer';
 import { AVAILABILITY_LABELS } from '@/lib/availability';
+import { BANK_TRANSFER_EXPIRY_DAYS, bankTransferExpiryNotice } from '@/lib/order-ageing';
 import type { OrderWithItems } from '@/lib/orders';
 import { ORDER_STATUS_LABELS } from '@/lib/orders';
 import { formatIban } from '@/lib/iban';
 import { PAYMENT_LABELS, SHIPPING_LABELS } from '@/lib/pricing';
 import { fullAddress, mapsDirectionsUrl, type ShopSettings } from '@/lib/settings';
 import { siteUrl } from '@/lib/site-url';
-import { formatDateTime, formatPrice, telHref } from '@/lib/utils';
+import { formatDate, formatDateTime, formatPrice, telHref } from '@/lib/utils';
 
 /*
  * Three ways out, first match wins: the Resend HTTPS API when RESEND_API_KEY is set (hosts that block
@@ -182,7 +183,7 @@ export function orderConfirmationMail(order: OrderWithItems, settings: ShopSetti
   let next = '';
   if (order.paymentMethod === 'bank_transfer') {
     const accounts = payments.bankAccounts.map((a) => `<li style="margin-bottom:6px;"><strong>${esc(a.bank)}</strong><br>IBAN: ${esc(formatIban(a.iban))}<br>Δικαιούχος: ${esc(a.holder)}</li>`).join('');
-    next = `<div style="margin-top:20px;padding:16px;background:#fff8e6;border-radius:12px;font-size:14px;line-height:1.6;"><strong>Πληρωμή με τραπεζική κατάθεση</strong><br>Καταθέστε ${formatPrice(order.totalCents)} με αιτιολογία <strong>${esc(order.number)}</strong>. Η παραγγελία αποστέλλεται μόλις επιβεβαιωθεί η κατάθεση.${accounts ? `<ul style="padding-left:18px;margin:10px 0 0;">${accounts}</ul>` : '<br>Θα επικοινωνήσουμε μαζί σας με τα στοιχεία του λογαριασμού.'}</div>`;
+    next = `<div style="margin-top:20px;padding:16px;background:#fff8e6;border-radius:12px;font-size:14px;line-height:1.6;"><strong>Πληρωμή με τραπεζική κατάθεση</strong><br>Καταθέστε ${formatPrice(order.totalCents)} με αιτιολογία <strong>${esc(order.number)}</strong>. Η παραγγελία αποστέλλεται μόλις επιβεβαιωθεί η κατάθεση.<br>${esc(bankTransferExpiryNotice(order.createdAt, formatDate))}${accounts ? `<ul style="padding-left:18px;margin:10px 0 0;">${accounts}</ul>` : '<br>Θα επικοινωνήσουμε μαζί σας με τα στοιχεία του λογαριασμού.'}</div>`;
   } else if (order.shippingMethod === 'pickup') {
     next = `<div style="margin-top:20px;padding:16px;background:#fff8e6;border-radius:12px;font-size:14px;line-height:1.6;"><strong>Παραλαβή από το κατάστημα</strong><br>Θα σας ειδοποιήσουμε μόλις η παραγγελία είναι έτοιμη. ${esc(fullAddress(shop))} — <a href="${esc(mapsDirectionsUrl(shop))}" style="color:#15406b;">οδηγίες στο Google Maps</a>.</div>`;
   }
@@ -211,6 +212,16 @@ export function orderPaidNotificationMail(order: OrderWithItems, settings: ShopS
 export function orderCancelledNotificationMail(order: OrderWithItems, settings: ShopSettings): Mail {
   const body = `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;"><strong>Η παραγγελία ακυρώθηκε επειδή η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει.</strong></p><p style="margin:0;font-size:15px;line-height:1.6;">${esc(order.firstName)} ${esc(order.lastName)} · ${esc(order.email)} · ${esc(order.phone)}<br>Σύνολο παραγγελίας <strong>${formatPrice(order.totalCents)}</strong>${order.isTest ? ' · <strong>ΔΟΚΙΜΑΣΤΙΚΗ</strong>' : ''}<br>Δεν έγινε καμία χρέωση και το απόθεμα επανήλθε.</p>${button(`${siteUrl()}/admin/orders/${order.id}`, 'Άνοιγμα στη διαχείριση')}`;
   return { to: process.env.ORDERS_NOTIFY_EMAIL || settings.shop.email, subject: `Ακυρώθηκε: ${order.number} · η πληρωμή δεν ξεκίνησε`, html: layout(settings.shop, `Ακυρώθηκε ${order.number}`, body) };
+}
+
+/**
+ * To the CUSTOMER: the bank-transfer order was cancelled by itself because the transfer did not arrive in time. Says what to do if
+ * they did pay (the shop checks it) and how to order again.
+ */
+export function orderExpiredMail(order: OrderWithItems, settings: ShopSettings): Mail {
+  const { shop } = settings;
+  const body = `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;">Γεια σας ${esc(order.firstName)}, η παραγγελία σας <strong>${esc(order.number)}</strong> ακυρώθηκε, επειδή η τραπεζική κατάθεση δεν εισπράχθηκε μέσα σε ${BANK_TRANSFER_EXPIRY_DAYS} ημέρες. Τα προϊόντα επέστρεψαν στο απόθεμα και δεν υπάρχει καμία οφειλή.</p><p style="margin:0;font-size:15px;line-height:1.6;">Αν έχετε ήδη κάνει την κατάθεση, καλέστε μας στο <a href="${esc(telHref(shop.phone))}" style="color:#11141a;">${esc(shop.phone)}</a> ή απαντήστε σε αυτό το e-mail: θα το ελέγξουμε αμέσως. Αν θέλετε ακόμη τα προϊόντα, μπορείτε να παραγγείλετε ξανά.</p>${button(`${siteUrl()}/products`, 'Δείτε τα προϊόντα')}`;
+  return { to: order.email, subject: `Η παραγγελία ${order.number} ακυρώθηκε: δεν εισπράχθηκε η κατάθεση`, html: layout(shop, `Ακυρώθηκε ${order.number}`, body), replyTo: shop.email || undefined };
 }
 
 /** Tells the owner a card payment needs a human: the money and the order do not agree. */

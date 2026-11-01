@@ -329,6 +329,12 @@ src/lib/            db/ (schema, client) · catalog (read model) · orders · pr
   and checkout re-prices everything from the database, then re-runs the same pure functions in `src/lib/pricing.ts`.
 - **Stock** is reserved with an atomic `UPDATE … WHERE stock >= qty`, so the last unit cannot be sold twice. Cancelling
   an order restocks exactly once. Variants are sold freely until the owner opts them into stock tracking.
+- **Orders that nobody settles do not hold stock for ever.** An unpaid card order is released after 2 hours (or at once when
+  the card payment cannot even start). A **bank-transfer** order still unpaid and untouched **5 days** after it was placed is
+  cancelled by the hourly sweep: the stock and coupon use go back and the customer gets an e-mail; the order page, the
+  confirmation e-mail and the shipping page say so up front. **Cash-on-delivery and pay-in-store** orders are never cancelled
+  by themselves; one still «pending» after **7 days** is listed on the admin dashboard (and under Orders → the link in that
+  box). The two periods are constants in `src/lib/order-ageing.ts`.
 - **Products have size variants** (1L / 4L / 5L / 20L …), each with its own price, SKU, weight, stock and photo.
 - **Search** is accent- and case-insensitive for Greek via a normalised `search_text` column (SQLite's `LIKE` only folds ASCII).
 - **Listings** are filtered from a per-request in-memory index with exact facet counts; filter state lives in the URL.
