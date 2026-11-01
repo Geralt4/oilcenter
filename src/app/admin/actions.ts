@@ -121,15 +121,25 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
 }
 
 // ─── Admin second factor (TOTP) ─────────────────────────────────────────────
-/** Step 1: create (or replace) an unconfirmed secret. The owner scans the QR on the settings page. */
+/**
+ * Step 1: create (or replace) an unconfirmed secret. The owner scans the QR on the settings page.
+ * Starting needs proof that the person at the keyboard is the account's owner, not just whoever holds the session cookie: the
+ * current code while a factor is active, the current PASSWORD while there is none (the identity confirmation cannot be used
+ * here: it needs a factor, and a factor is what is being created).
+ */
 export async function beginTotpEnrollment(fd: FormData): Promise<void> {
   const me = await requireAdmin();
   const limited = await rateLimit(`mfa:${await clientIp()}:${me.id}`, 8, 15 * 60 * 1000);
   if (!limited.ok) redirect('/admin/settings?mfa=rate');
-  const [row] = await db.select({ secret: adminUsers.totpSecret, confirmedAt: adminUsers.totpConfirmedAt }).from(adminUsers).where(eq(adminUsers.id, me.id));
-  // Replacing an ACTIVE secret silently would let a stolen session swap in its own authenticator. Require a
-  // current code first (the UI only offers "enable" when nothing is active; this guards direct action calls).
-  if (row?.confirmedAt && (!row.secret || !(await consumeTotp(me.id, row.secret, me.email, str(fd, 'totp'))))) redirect('/admin/settings?mfa=wrong');
+  const [row] = await db.select({ secret: adminUsers.totpSecret, confirmedAt: adminUsers.totpConfirmedAt, passwordHash: adminUsers.passwordHash }).from(adminUsers).where(eq(adminUsers.id, me.id));
+  if (row?.confirmedAt) {
+    // Replacing an ACTIVE secret silently would let a stolen session swap in its own authenticator. Require a
+    // current code first (the UI only offers "enable" when nothing is active; this guards direct action calls).
+    if (!row.secret || !(await consumeTotp(me.id, row.secret, me.email, str(fd, 'totp')))) redirect('/admin/settings?mfa=wrong');
+  } else if (!row || !(await verifyPassword(String(fd.get('currentPassword') ?? ''), row.passwordHash))) {
+    // No factor yet: a stolen session must not be able to enrol its own authenticator without the password
+    redirect('/admin/settings?mfa=password');
+  }
   await db.update(adminUsers).set({ totpSecret: newTotpSecret(), totpConfirmedAt: null, totpLastStep: null }).where(eq(adminUsers.id, me.id));
   revalidatePath('/admin/settings');
 }

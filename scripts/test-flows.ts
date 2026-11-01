@@ -567,6 +567,17 @@ async function main() {
     check('it cannot obtain the privileged confirmation', ((await secondAlert.textContent()) ?? '').includes('2FA'));
     const secondDownload = await secondContext.request.get(`${base}/admin/backup`, { maxRedirects: 0 });
     check('…so it cannot download the database either', secondDownload.status() === 307 && Boolean(secondDownload.headers().location?.includes('sudo=1')));
+
+    // starting the enrolment asks for the password (a stolen session must not be able to enrol its own authenticator)
+    const mfaBox = secondPage.locator('#mfa');
+    check('its 2FA section asks for the current password before enabling', (await mfaBox.locator('input[name="currentPassword"]').count()) === 1);
+    await mfaBox.locator('input[name="currentPassword"]').fill('λάθος-κωδικός');
+    await mfaBox.getByRole('button', { name: 'Ενεργοποίηση' }).click();
+    await secondPage.waitForURL((url) => url.searchParams.get('mfa') === 'password', { timeout: 20_000 });
+    check('a wrong password is turned away with a message and no QR code', (await secondPage.getByRole('alert').filter({ hasText: 'Ο κωδικός που γράψατε δεν ήταν σωστός' }).count()) === 1 && (await secondPage.locator('img[alt^="QR"]').count()) === 0);
+    await secondPage.locator('#mfa input[name="currentPassword"]').fill(password);
+    await secondPage.locator('#mfa').getByRole('button', { name: 'Ενεργοποίηση' }).click();
+    check('the right password starts the enrolment: the QR code appears', await secondPage.locator('img[alt^="QR"]').waitFor({ timeout: 20_000 }).then(() => true, () => false));
     await secondContext.close();
   } finally {
     await browser?.close().catch(() => undefined);

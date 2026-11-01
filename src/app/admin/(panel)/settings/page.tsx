@@ -55,7 +55,9 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
             ? 'Για αλλαγές διαχειριστών χρειάζεται πρώτα επιβεβαίωση ταυτότητας (κωδικός και, αν έχετε 2FA, κωδικός εφαρμογής).'
             : mfaParam === 'wrong'
               ? 'Ο κωδικός επαλήθευσης δεν ήταν σωστός ή είχε ήδη χρησιμοποιηθεί. Περιμένετε τον επόμενο κωδικό.'
-              : 'Πολλές προσπάθειες. Δοκιμάστε ξανά σε λίγα λεπτά.'}
+              : mfaParam === 'password'
+                ? 'Ο κωδικός που γράψατε δεν ήταν σωστός. Για να ενεργοποιήσετε την επαλήθευση δύο βημάτων χρειάζεται ο τρέχων κωδικός σας.'
+                : 'Πολλές προσπάθειες. Δοκιμάστε ξανά σε λίγα λεπτά.'}
         </p>
       )}
 
@@ -242,7 +244,10 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
             <>
               <p className="text-sm text-ink-600">Δεν είναι ενεργή. Συνιστάται ανεπιφύλακτα πριν ανοίξει το site στο κοινό.</p>
               <form action={beginTotpEnrollment} className="mt-4">
-                <button type="submit" className={buttonClass({ variant: 'dark' })}>Ενεργοποίηση</button>
+                <Field label="Τρέχων κωδικός" hint="Για επιβεβαίωση ότι είστε εσείς πριν ξεκινήσει η ρύθμιση.">
+                  <input type="password" name="currentPassword" autoComplete="current-password" required className="field" />
+                </Field>
+                <button type="submit" className={cn(buttonClass({ variant: 'dark' }), 'mt-3')}>Ενεργοποίηση</button>
               </form>
             </>
           )}

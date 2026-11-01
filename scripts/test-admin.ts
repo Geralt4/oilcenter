@@ -1329,6 +1329,54 @@ async function main() {
     await createSession('admin', admin.id, admin.tokenVersion); // the sign-ins above replaced the session cookie
   }
 
+  console.log('Starting 2FA enrolment');
+  {
+    const { hashPassword } = await import('../src/lib/auth/password');
+    const { totpFor, newTotpSecret } = await import('../src/lib/auth/totp');
+    const { beginTotpEnrollment } = await import('../src/app/admin/actions');
+    const enrolEmail = 'enrol-admin@example.com';
+    const enrolPw = 'σωστός-κωδικός-2';
+    const [me] = await db.insert(adminUsers).values({ email: enrolEmail, name: 'Enrol', passwordHash: await hashPassword(enrolPw) }).returning();
+    currentIp = '203.0.113.77';
+    await createSession('admin', me.id, me.tokenVersion);
+    // redirect() throws: where it goes is the answer; no redirect means the step went through
+    const begin = async (fields: Record<string, string>) => {
+      try {
+        await beginTotpEnrollment(form(fields));
+        return null;
+      } catch (err) {
+        const digest = String((err as { digest?: string }).digest ?? '');
+        if (!digest.startsWith('NEXT_REDIRECT')) throw err;
+        return digest.split(';')[2] ?? '';
+      }
+    };
+    const stateOf = async () => (await db.select({ secret: adminUsers.totpSecret, confirmedAt: adminUsers.totpConfirmedAt }).from(adminUsers).where(eq(adminUsers.id, me.id)))[0]!;
+
+    check('no password: refused, and no secret is created', (await begin({})) === '/admin/settings?mfa=password' && (await stateOf()).secret === null);
+    check('a wrong password: refused, and no secret is created', (await begin({ currentPassword: 'λάθος-κωδικός' })) === '/admin/settings?mfa=password' && (await stateOf()).secret === null);
+    check('the right password of ANOTHER account does not count', (await begin({ currentPassword: 'admin-test-password-not-this-one' })) === '/admin/settings?mfa=password' && (await stateOf()).secret === null);
+    check('the right password starts the enrolment: an unconfirmed secret is stored', (await begin({ currentPassword: enrolPw })) === null && (await stateOf()).secret !== null && (await stateOf()).confirmedAt === null);
+    const pending = (await stateOf()).secret;
+    check('while the enrolment is pending, starting again without the password is refused and keeps the secret', (await begin({})) === '/admin/settings?mfa=password' && (await stateOf()).secret === pending);
+
+    // with an ACTIVE factor the code is what counts (unchanged): the password alone is not enough to swap the authenticator
+    const active = newTotpSecret();
+    await db.update(adminUsers).set({ totpSecret: active, totpConfirmedAt: new Date(), totpLastStep: null }).where(eq(adminUsers.id, me.id));
+    check('with an active factor the password alone does not replace the authenticator', (await begin({ currentPassword: enrolPw })) === '/admin/settings?mfa=wrong' && (await stateOf()).secret === active);
+    check('…a current code does', (await begin({ totp: totpFor(active, enrolEmail).generate() })) === null && (await stateOf()).secret !== active && (await stateOf()).confirmedAt === null);
+
+    // the existing limit (8 attempts in 15 minutes) also covers guessing the password
+    await db.update(adminUsers).set({ totpSecret: null, totpConfirmedAt: null, totpLastStep: null }).where(eq(adminUsers.id, me.id));
+    let limited: string | null = null;
+    for (let i = 0; i < 12 && limited !== '/admin/settings?mfa=rate'; i++) limited = await begin({ currentPassword: `guess-${i}` });
+    check('guessing the password is limited', limited === '/admin/settings?mfa=rate', limited);
+    check('…and once limited even the right password is refused', (await begin({ currentPassword: enrolPw })) === '/admin/settings?mfa=rate' && (await stateOf()).secret === null);
+
+    await db.delete(adminUsers).where(eq(adminUsers.id, me.id));
+    currentIp = '203.0.113.1';
+    await createSession('admin', admin.id, admin.tokenVersion);
+  }
+
   console.log('Registration does not tell who has an account; activation');
   {
     const { customers } = await import('../src/lib/db/schema');
