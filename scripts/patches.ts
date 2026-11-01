@@ -7,34 +7,59 @@ import { saveSettingsGroup } from '../src/lib/settings.server';
 import { pruneDeadTargets } from '../src/lib/discount-cleanup';
 import { applyHazardLabels, applyManufacturerSpecs } from './manufacturer-data';
 
-/**
- * The owner's own details as given on 22.09.2026 — ΑΦΜ, ΓΕΜΗ, ΔΟΥ, the one landline he keeps (the old fax, mobile and
- * e-mail are gone; the new store Gmail follows), and the opening hours confirmed exactly as seeded. Whatever else the
- * settings form holds (address, links, tagline) is kept.
- */
 async function pruneDeadTargetsPatch(): Promise<string> {
   const { cleaned, switchedOff } = await pruneDeadTargets();
   return `${cleaned} coupon(s)/sale(s) had dead targets removed, ${switchedOff} switched off`;
 }
 
+/** the opening hours the shop was first seeded with (a guess): Saturday until 14:00, not yet confirmed by the owner */
+const OLD_HOURS = [
+  { day: 1, closed: false, open: '08:30', close: '17:00' },
+  { day: 2, closed: false, open: '08:30', close: '17:00' },
+  { day: 3, closed: false, open: '08:30', close: '17:00' },
+  { day: 4, closed: false, open: '08:30', close: '17:00' },
+  { day: 5, closed: false, open: '08:30', close: '17:00' },
+  { day: 6, closed: false, open: '09:00', close: '14:00' },
+  { day: 7, closed: true, open: '', close: '' },
+];
+/** what these fields held when the database was first seeded (before the owner's details of 22.09.2026) */
+const OLD_SEED = {
+  phone: '2310 850778',
+  mobile: '6977 440388',
+  fax: '2310 850267',
+  email: 'iliastsakiridis@hotmail.com',
+  vatNumber: '',
+  taxOffice: '',
+  gemi: '',
+  hours: OLD_HOURS,
+} as const;
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * The owner's own details as given on 22.09.2026 — ΑΦΜ, ΓΕΜΗ, ΔΟΥ, the one landline he keeps (the old fax, mobile and
+ * e-mail are gone; the new store Gmail follows), and the opening hours confirmed exactly as seeded. Whatever else the
+ * settings form holds (address, links, tagline) is kept.
+ *
+ * A field is overwritten only while it still holds the value this database was seeded with (OLD_SEED below): a value the
+ * owner has typed in Admin → Ρυθμίσεις since is kept, which matters when this patch failed once and is retried at a later
+ * start (see runPatches). A field that is missing gets the new value, as does a database with nothing stored.
+ */
 async function applyShopDetails(): Promise<string> {
   const [row] = await db.select().from(settings).where(eq(settings.key, 'shop'));
   const stored = (row && typeof row.value === 'object' && row.value !== null && !Array.isArray(row.value) ? row.value : {}) as Partial<ShopSettings['shop']>;
   const d = DEFAULT_SETTINGS.shop;
-  await saveSettingsGroup('shop', {
-    ...d,
-    ...stored,
-    phone: d.phone,
-    mobile: '',
-    fax: '',
-    email: '',
-    vatNumber: d.vatNumber,
-    taxOffice: d.taxOffice,
-    gemi: d.gemi,
-    hours: structuredClone(d.hours),
-    hoursVerified: true,
-  });
-  return `ΑΦΜ ${d.vatNumber} · ΓΕΜΗ ${d.gemi} · ΔΟΥ ${d.taxOffice} · phone ${d.phone} only (fax, mobile, e-mail cleared) · hours confirmed`;
+  const next: ShopSettings['shop'] = { ...d, ...stored };
+  const target: Pick<ShopSettings['shop'], keyof typeof OLD_SEED> = { phone: d.phone, mobile: '', fax: '', email: '', vatNumber: d.vatNumber, taxOffice: d.taxOffice, gemi: d.gemi, hours: structuredClone(d.hours) };
+  const kept: string[] = [];
+  for (const key of Object.keys(OLD_SEED) as Array<keyof typeof OLD_SEED>) {
+    const have = stored[key];
+    if (have === undefined || same(have, OLD_SEED[key])) (next[key] as unknown) = target[key];
+    else if (!same(have, target[key])) kept.push(key);
+  }
+  // «confirmed» describes the hours this patch wrote: only then does it switch the flag on
+  if (same(next.hours, d.hours)) next.hoursVerified = true;
+  await saveSettingsGroup('shop', next);
+  return `ΑΦΜ ${next.vatNumber} · ΓΕΜΗ ${next.gemi} · ΔΟΥ ${next.taxOffice} · phone ${next.phone} · fax, mobile, e-mail cleared where they were still the seeded ones · hours ${next.hoursVerified ? 'confirmed' : 'left as the owner set them'}${kept.length ? ` · kept what the owner entered: ${kept.join(', ')}` : ''}`;
 }
 
 /**

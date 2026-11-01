@@ -1638,9 +1638,9 @@ async function main() {
     const DETAILS = '2026-09-22-shop-details';
     const group = [DETAILS, '2026-10-09-remove-facebook', '2026-10-09-shop-email', '2026-10-12-saturday-hours', '2026-10-12-shop-since-1998', '2026-10-13-instagram-link'].map((id) => PATCHES.find((p) => p.id === id)!);
     check('the shop-group patches all exist', group.every(Boolean));
-    // a database from before these patches: other details, Saturday until 14:00, no e-mail, no Instagram, a Facebook link, no founding year
+    // a database as first seeded: the old mobile, fax and e-mail, no ΑΦΜ, Saturday until 14:00, no Instagram, a Facebook link, no founding year
     const hours = structuredClone(DEFAULT_SETTINGS.shop.hours).map((d) => (d.day === 6 ? { ...d, close: '14:00' } : d));
-    const older = { ...DEFAULT_SETTINGS.shop, phone: '2310000000', mobile: '6900000000', fax: '2310000001', email: '', hours, hoursVerified: false, instagramUrl: '', foundedYear: 0, accelerateDealer: false, facebookUrl: 'https://facebook.com/oil' };
+    const older = { ...DEFAULT_SETTINGS.shop, phone: '2310 850778', mobile: '6977 440388', fax: '2310 850267', email: 'iliastsakiridis@hotmail.com', vatNumber: '', taxOffice: '', gemi: '', hours, hoursVerified: false, instagramUrl: '', foundedYear: 0, accelerateDealer: false, facebookUrl: 'https://facebook.com/oil' };
     const fresh = async () => {
       await write('shop', older);
       await write('dataPatches', []);
@@ -1661,11 +1661,24 @@ async function main() {
     check('…at the retry everything runs in order', second.applied.length === 5 && second.failed.length === 0 && second.skipped.length === 0, second);
     check('…and the result is exactly that of one clean run', (await shopNow()) === clean, await shopNow());
 
-    // without the requirement, the same failure would have lost the e-mail for good (the retry resets it, its patch is already recorded)
+    // without the order requirement the e-mail patch would meet the seeded e-mail and keep it, and the retry of the details patch would then clear it for good
     await fresh();
     await runPatches(failDetails.map((p) => ({ ...p, requires: undefined })), mute);
     await runPatches(group.map((p) => ({ ...p, requires: undefined })), mute);
-    check('(without `requires` the retry gives a different result: the e-mail patch would be lost)', (await shopNow()) !== clean && (JSON.parse(await shopNow()) as typeof older).email === '');
+    check('(without `requires` the retry gives a different result: the e-mail ends up empty)', (await shopNow()) !== clean && (JSON.parse(await shopNow()) as typeof older).email === '');
+
+    // what the owner typed in the meantime is kept: only fields still holding the seeded value are overwritten
+    await fresh();
+    await runPatches(failDetails, mute);
+    await write('shop', { ...older, mobile: '6999999999', vatNumber: '123456783', taxOffice: 'Β΄ Θεσσαλονίκης', phone: '2310 111111', hours: hours.map((d) => (d.day === 6 ? { ...d, close: '15:00' } : d)), hoursVerified: true });
+    await runPatches(group, mute);
+    const kept = JSON.parse(await shopNow()) as typeof older;
+    check('the owner edits his own mobile, ΑΦΜ, ΔΟΥ, phone and Saturday hours before the retry: all five survive it', kept.mobile === '6999999999' && kept.vatNumber === '123456783' && kept.taxOffice === 'Β΄ Θεσσαλονίκης' && kept.phone === '2310 111111' && kept.hours.find((d) => d.day === 6)?.close === '15:00', kept);
+    check('…while the fields he did not touch still get the owner\'s details (fax cleared, ΓΕΜΗ set, e-mail from its own patch)', kept.fax === '' && kept.gemi === DEFAULT_SETTINGS.shop.gemi && kept.email === 'oilcenterthess@gmail.com', [kept.fax, kept.gemi, kept.email]);
+    await fresh();
+    await write('shop', { ...older, hoursVerified: false, hours: hours.map((d) => (d.day === 6 ? { ...d, close: '15:00' } : d)) });
+    await runPatches(group, mute);
+    check('edited hours that were not yet confirmed stay unconfirmed (the patch only confirms the hours it wrote)', (JSON.parse(await shopNow()) as typeof older).hoursVerified === false);
 
     // a crash after the patches were applied but before they were recorded: all of them run again
     await fresh();
