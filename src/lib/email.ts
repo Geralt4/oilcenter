@@ -61,15 +61,32 @@ async function sendWithResend(mail: Mail): Promise<void> {
   if (!res.ok) throw new Error(`Resend answered ${res.status}: ${(await res.text()).slice(0, 300)}`);
 }
 
-let transport: Transporter | null = null;
-function smtp(): Transporter | null {
-  if (!process.env.SMTP_HOST) return null;
-  transport ??= nodemailer.createTransport({
+/**
+ * Without limits a mail server that accepts the connection and then says nothing holds every caller of sendMail (they await it:
+ * checkout, the payment return page, the retry sweep) until the operating system gives up, minutes later.
+ */
+export function smtpOptions() {
+  return {
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
     secure: process.env.SMTP_SECURE === 'true',
     auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
-  });
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
+  };
+}
+
+/** «giannis@example.gr» → «g***@example.gr»: enough to tell which mail failed, not enough for the log to hold a customer's address. */
+export function redactEmail(address: string): string {
+  const at = address.lastIndexOf('@');
+  return at < 1 ? '***' : `${address[0]}***${address.slice(at)}`;
+}
+
+let transport: Transporter | null = null;
+function smtp(): Transporter | null {
+  if (!process.env.SMTP_HOST) return null;
+  transport ??= nodemailer.createTransport(smtpOptions());
   return transport;
 }
 
@@ -100,7 +117,7 @@ export async function sendMail(mail: Mail): Promise<boolean> {
     console.log(`[mail] no mail service configured → wrote ${path.join('outbox', file)} ("${mail.subject}")`);
     return true;
   } catch (err) {
-    console.error(`[mail] failed to send "${mail.subject}" to ${mail.to}:`, err);
+    console.error(`[mail] failed to send "${mail.subject}" to ${redactEmail(mail.to)}:`, err);
     return false;
   }
 }

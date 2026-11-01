@@ -621,6 +621,33 @@ async function main() {
     }
   }
 
+  console.log('SMTP transport and mail failure log');
+  {
+    const { redactEmail, sendMail, smtpOptions } = await import('../src/lib/email');
+    const saved = { host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, resend: process.env.RESEND_API_KEY };
+    process.env.SMTP_HOST = '127.0.0.1';
+    process.env.SMTP_PORT = '1'; // nothing listens there: the connection is refused at once
+    delete process.env.RESEND_API_KEY;
+    const logged: string[] = [];
+    const realError = console.error;
+    console.error = (...args: unknown[]) => void logged.push(args.map(String).join(' '));
+    let sent: boolean;
+    try {
+      sent = await sendMail({ to: 'customer.name@example.gr', subject: 'Παραγγελία', html: '<p>x</p>' });
+    } finally {
+      console.error = realError;
+      for (const [key, value] of [['SMTP_HOST', saved.host], ['SMTP_PORT', saved.port], ['RESEND_API_KEY', saved.resend]] as const) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+    }
+    const o = smtpOptions();
+    check('the SMTP connection has a connection, a greeting and a socket timeout (all set, none longer than 30 s)', [o.connectionTimeout, o.greetingTimeout, o.socketTimeout].every((t) => t > 0 && t <= 30_000), o);
+    check('a mail that cannot be sent reports failure', sent === false);
+    check('…the failure is logged', logged.some((l) => l.includes('[mail] failed to send')), logged);
+    check('…without the recipient\'s address', !logged.some((l) => l.includes('customer.name@example.gr')) && logged.some((l) => l.includes('c***@example.gr')), logged);
+    check('redactEmail keeps the first letter and the domain only', redactEmail('a@b.gr') === 'a***@b.gr' && redactEmail('no-at-sign') === '***' && redactEmail('') === '***');
+  }
+
   console.log('package.json');
   {
     const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string>; engines?: { node?: string } };
