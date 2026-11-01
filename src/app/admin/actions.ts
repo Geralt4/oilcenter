@@ -1255,6 +1255,18 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
   if (vatRaw && (!/^\d{1,2}([.,]0+)?$/.test(vatRaw) || vatRate > 50)) problems.push(`ΦΠΑ: «${vatRaw}» δεν είναι ακέραιο ποσοστό`);
   if (problems.length) return { ok: false, message: `Δεν αποθηκεύτηκε τίποτα. ${problems.slice(0, 3).join(' · ')}${problems.length > 3 ? ` · και ${problems.length - 3} ακόμη` : ''}.` };
 
+  // Two settings decide where customers' money goes and whether they can order at all: the bank accounts shown for transfers and
+  // the online-orders switch. A stolen session alone must not change them (an IBAN swapped in the middle of the night), so they
+  // need the identity confirmation (password + authenticator code, five minutes) like the administrator changes. Everything else in
+  // this form saves without it. Nothing is saved when the confirmation is missing, as with every other refusal here.
+  const accountKey = (list: BankAccount[]) => JSON.stringify(list.map((a) => [a.bank.trim(), normalizeIban(a.iban), a.holder.trim()]));
+  const guarded: string[] = [];
+  if (accountKey(bankAccounts) !== accountKey(current.payments.bankAccounts)) guarded.push('τους τραπεζικούς λογαριασμούς');
+  if (bool(fd, 'ordersEnabled') !== current.storefront.ordersEnabled) guarded.push('το άνοιγμα ή το κλείσιμο των online παραγγελιών');
+  if (guarded.length && !(await hasSudoSession())) {
+    return { ok: false, message: `Δεν αποθηκεύτηκε τίποτα. Για να αλλάξετε ${guarded.join(' και ')} χρειάζεται πρώτα επιβεβαίωση ταυτότητας (κωδικός και κωδικός εφαρμογής) στην ενότητα «Επιβεβαίωση ταυτότητας» στην κορυφή της σελίδας.` };
+  }
+
   await saveSettingsGroup('shop', shop);
   await saveSettingsGroup('storefront', { demoMode: bool(fd, 'demoMode'), ordersEnabled: bool(fd, 'ordersEnabled'), launchSignup: bool(fd, 'launchSignup'), announcement: str(fd, 'announcement'), lowStockThreshold: int(fd, 'lowStockThreshold', 3), b2bPage: bool(fd, 'b2bPage') });
   await saveSettingsGroup('reviews', {
