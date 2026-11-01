@@ -147,9 +147,16 @@ async function linkToyotaSizePhotos(): Promise<string> {
  * Patches must be safe on a freshly seeded database too (they simply find nothing to do there).
  */
 
-export type Patch = { id: string; run: () => Promise<string> };
+/**
+ * `requires`: ids of patches that must have been applied (recorded) first. Several patches work on the same stored value and
+ * only give the intended result in the order they are listed (the shop-details patch resets e-mail and opening hours to the
+ * seed's, the e-mail and Saturday patches then change them). Since a failing patch no longer stops the boot, a later one
+ * must not run ahead of it: a retry of the earlier patch would otherwise undo what the later one did, and the later one is
+ * recorded and never runs again.
+ */
+export type Patch = { id: string; run: () => Promise<string>; requires?: string[] };
 
-const PATCHES: Patch[] = [
+export const PATCHES: Patch[] = [
   // Real prices from the shop's Skroutz listing. Never overwrites a price the owner has already confirmed.
   { id: '2026-09-20-skroutz-prices', run: () => applySkroutzPrices({ verbose: false }) },
   // Specifications from the manufacturers' data sheets, only where the product had none.
@@ -161,19 +168,19 @@ const PATCHES: Patch[] = [
   // The accelerate dealership is no longer stated until the owner confirms it (questions.md T4, Admin → Ρυθμίσεις).
   { id: '2026-10-09-accelerate-claim', run: removeAccelerateClaim },
   // The shop's Gmail: shown on the site and used as the recipient of form messages.
-  { id: '2026-10-09-shop-email', run: applyShopEmail },
+  { id: '2026-10-09-shop-email', run: applyShopEmail, requires: ['2026-09-22-shop-details'] },
   // No Facebook link any more: drop the stored address too.
   { id: '2026-10-09-remove-facebook', run: removeFacebookLink },
   // Search synonyms get their own column; search texts the product editor had stripped of them are rebuilt.
   { id: '2026-10-09-search-keywords', run: applySearchKeywords },
   // Saturday closes at 13:00 from 12.10.2026 (the owner's instruction): only a stored 14:00 is moved.
-  { id: '2026-10-12-saturday-hours', run: saturdayClosesAt13 },
+  { id: '2026-10-12-saturday-hours', run: saturdayClosesAt13, requires: ['2026-09-22-shop-details'] },
   // Founded 1998 and accelerate dealer, both confirmed by the owner on 12.10.2026; a founding year already entered is kept.
-  { id: '2026-10-12-shop-since-1998', run: shopSince1998 },
+  { id: '2026-10-12-shop-since-1998', run: shopSince1998, requires: ['2026-09-22-shop-details'] },
   // The owner's Toyota photos go to their own pack sizes: they were uploaded, but no size pointed at them.
   { id: '2026-10-12-toyota-size-photos', run: linkToyotaSizePhotos },
   // The shop's Instagram profile; a link already entered in the admin is kept.
-  { id: '2026-10-13-instagram-link', run: applyInstagramLink },
+  { id: '2026-10-13-instagram-link', run: applyInstagramLink, requires: ['2026-09-22-shop-details'] },
   // Coupons and sales that kept ids of products/brands/categories deleted before the delete cleanup existed: strip them, and switch
   // off any that end up limited to nothing (they would silently become whole-shop discounts the next time they are saved).
   { id: '2026-10-19-discount-dead-targets', run: pruneDeadTargetsPatch },
@@ -187,16 +194,22 @@ const KEY = 'dataPatches';
  * The cost: patches are not atomic with their record (a patch that half-applied runs again) and a later patch may find the
  * data an earlier, failed one should have prepared, so every patch has to be safe to run twice.
  */
-export async function runPatches(list: Patch[], log: Pick<Console, 'log' | 'warn'> = console): Promise<{ applied: string[]; failed: string[] }> {
+export async function runPatches(list: Patch[], log: Pick<Console, 'log' | 'warn'> = console): Promise<{ applied: string[]; failed: string[]; skipped: string[] }> {
   const [row] = await db.select().from(settings).where(eq(settings.key, KEY));
   const recorded = new Set(Array.isArray(row?.value) ? (row.value as string[]) : []);
   const pending = list.filter((p) => !recorded.has(p.id));
-  const result = { applied: [] as string[], failed: [] as string[] };
+  const result = { applied: [] as string[], failed: [] as string[], skipped: [] as string[] };
   if (!pending.length) {
     log.log('Data patches: nothing to apply.');
     return result;
   }
   for (const patch of pending) {
+    const waiting = (patch.requires ?? []).filter((id) => !recorded.has(id));
+    if (waiting.length) {
+      log.warn(`[patches] WARNING: ${patch.id} waits for ${waiting.join(', ')}, which is not applied yet; it runs after it, at a later start`);
+      result.skipped.push(patch.id);
+      continue;
+    }
     try {
       const outcome = await patch.run();
       recorded.add(patch.id);

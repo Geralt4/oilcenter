@@ -1624,6 +1624,61 @@ async function main() {
     await db.update(settings).set({ value: before }).where(eq(settings.key, 'dataPatches'));
   }
 
+  console.log('scripts/patches.ts: a retry gives the result of one clean run');
+  {
+    const { settings } = await import('../src/lib/db/schema');
+    const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
+    const { PATCHES, runPatches } = await import('./patches');
+    const mute = { log: () => undefined, warn: () => undefined };
+    const read = async (key: string) => (await db.select().from(settings).where(eq(settings.key, key)))[0]?.value;
+    const write = async (key: string, value: unknown) => void (await db.insert(settings).values({ key, value }).onConflictDoUpdate({ target: settings.key, set: { value } }));
+    const keep = { shop: await read('shop'), patches: await read('dataPatches') };
+
+    check('every `requires` names a patch listed before it', PATCHES.every((p, i) => (p.requires ?? []).every((id) => PATCHES.findIndex((q) => q.id === id) >= 0 && PATCHES.findIndex((q) => q.id === id) < i)), PATCHES.filter((p) => p.requires).map((p) => p.id));
+    const DETAILS = '2026-09-22-shop-details';
+    const group = [DETAILS, '2026-10-09-remove-facebook', '2026-10-09-shop-email', '2026-10-12-saturday-hours', '2026-10-12-shop-since-1998', '2026-10-13-instagram-link'].map((id) => PATCHES.find((p) => p.id === id)!);
+    check('the shop-group patches all exist', group.every(Boolean));
+    // a database from before these patches: other details, Saturday until 14:00, no e-mail, no Instagram, a Facebook link, no founding year
+    const hours = structuredClone(DEFAULT_SETTINGS.shop.hours).map((d) => (d.day === 6 ? { ...d, close: '14:00' } : d));
+    const older = { ...DEFAULT_SETTINGS.shop, phone: '2310000000', mobile: '6900000000', fax: '2310000001', email: '', hours, hoursVerified: false, instagramUrl: '', foundedYear: 0, accelerateDealer: false, facebookUrl: 'https://facebook.com/oil' };
+    const fresh = async () => {
+      await write('shop', older);
+      await write('dataPatches', []);
+    };
+    const shopNow = async () => JSON.stringify(await read('shop'));
+    const failDetails = group.map((p) => (p.id === DETAILS ? { ...p, run: async () => { throw new Error('transient'); } } : p));
+
+    await fresh();
+    await runPatches(group, mute);
+    const clean = await shopNow();
+    const cleanShop = JSON.parse(clean) as typeof older;
+    check('one clean run: e-mail set, Saturday closes at 13:00, founded 1998, Instagram set, Facebook gone', cleanShop.email === 'oilcenterthess@gmail.com' && cleanShop.hours.find((d) => d.day === 6)?.close === '13:00' && cleanShop.foundedYear === 1998 && cleanShop.instagramUrl !== '' && !('facebookUrl' in cleanShop), cleanShop);
+
+    await fresh();
+    const first = await runPatches(failDetails, mute);
+    check('the shop-details patch fails once: the four patches that depend on it wait (not run, not recorded)', first.failed.join() === DETAILS && first.skipped.length === 4 && !((await read('dataPatches')) as string[]).some((id) => first.skipped.includes(id)), first);
+    const second = await runPatches(group, mute);
+    check('…at the retry everything runs in order', second.applied.length === 5 && second.failed.length === 0 && second.skipped.length === 0, second);
+    check('…and the result is exactly that of one clean run', (await shopNow()) === clean, await shopNow());
+
+    // without the requirement, the same failure would have lost the e-mail for good (the retry resets it, its patch is already recorded)
+    await fresh();
+    await runPatches(failDetails.map((p) => ({ ...p, requires: undefined })), mute);
+    await runPatches(group.map((p) => ({ ...p, requires: undefined })), mute);
+    check('(without `requires` the retry gives a different result: the e-mail patch would be lost)', (await shopNow()) !== clean && (JSON.parse(await shopNow()) as typeof older).email === '');
+
+    // a crash after the patches were applied but before they were recorded: all of them run again
+    await fresh();
+    for (const p of group) await p.run();
+    await runPatches(group, mute);
+    check('patches applied but never recorded run again with the same result', (await shopNow()) === clean, await shopNow());
+    const again = await runPatches(group, mute);
+    check('…and once recorded they do not run again', again.applied.length === 0);
+
+    await write('shop', keep.shop);
+    await write('dataPatches', keep.patches ?? []);
+  }
+
   console.log('scripts/skroutz-prices.ts --force');
   {
     const { applySkroutzPrices, loadSkroutzPrices } = await import('./skroutz-prices');
