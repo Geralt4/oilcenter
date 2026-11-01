@@ -5,6 +5,7 @@ import { brands, productImages, products, settings, variants } from '../src/lib/
 import { DEFAULT_SETTINGS, type ShopSettings } from '../src/lib/settings';
 import { saveSettingsGroup } from '../src/lib/settings.server';
 import { pruneDeadTargets } from '../src/lib/discount-cleanup';
+import { savePatchProblems } from '../src/lib/patch-problems';
 import { applyHazardLabels, applyManufacturerSpecs } from './manufacturer-data';
 
 async function pruneDeadTargetsPatch(): Promise<string> {
@@ -225,15 +226,17 @@ export async function runPatches(list: Patch[], log: Pick<Console, 'log' | 'warn
   const recorded = new Set(Array.isArray(row?.value) ? (row.value as string[]) : []);
   const pending = list.filter((p) => !recorded.has(p.id));
   const result = { applied: [] as string[], failed: [] as string[], skipped: [] as string[] };
+  const failures: Array<{ id: string; error: string }> = [];
+  const waits: Array<{ id: string; for: string[] }> = [];
   if (!pending.length) {
     log.log('Data patches: nothing to apply.');
-    return result;
   }
   for (const patch of pending) {
     const waiting = (patch.requires ?? []).filter((id) => !recorded.has(id));
     if (waiting.length) {
       log.warn(`[patches] WARNING: ${patch.id} waits for ${waiting.join(', ')}, which is not applied yet; it runs after it, at a later start`);
       result.skipped.push(patch.id);
+      waits.push({ id: patch.id, for: waiting });
       continue;
     }
     try {
@@ -245,11 +248,15 @@ export async function runPatches(list: Patch[], log: Pick<Console, 'log' | 'warn
       result.applied.push(patch.id);
     } catch (err) {
       recorded.delete(patch.id);
-      log.warn(`[patches] WARNING: ${patch.id} failed and was not recorded; it runs again at the next start: ${err instanceof Error ? err.message : String(err)}`);
+      const error = err instanceof Error ? err.message : String(err);
+      log.warn(`[patches] WARNING: ${patch.id} failed and was not recorded; it runs again at the next start: ${error}`);
       result.failed.push(patch.id);
+      failures.push({ id: patch.id, error });
     }
   }
   if (result.failed.length) log.warn(`[patches] WARNING: ${result.failed.length} of ${pending.length} data patch(es) failed: ${result.failed.join(', ')}`);
+  // what the admin dashboard shows (lib/patch-problems.ts); empty = the record is removed, so the line goes away once everything applied
+  await savePatchProblems({ failed: failures, waiting: waits });
   return result;
 }
 

@@ -1629,6 +1629,7 @@ async function main() {
     const { settings } = await import('../src/lib/db/schema');
     const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
     const { PATCHES, runPatches } = await import('./patches');
+    const { describePatchProblems, readPatchProblems } = await import('../src/lib/patch-problems');
     const mute = { log: () => undefined, warn: () => undefined };
     const read = async (key: string) => (await db.select().from(settings).where(eq(settings.key, key)))[0]?.value;
     const write = async (key: string, value: unknown) => void (await db.insert(settings).values({ key, value }).onConflictDoUpdate({ target: settings.key, set: { value } }));
@@ -1656,10 +1657,17 @@ async function main() {
 
     await fresh();
     const first = await runPatches(failDetails, mute);
+    const problems = await readPatchProblems();
+    check('the failure is kept for the dashboard: the failed patch with its error, and the four that wait for it', problems?.failed.length === 1 && problems.failed[0].id === DETAILS && problems.failed[0].error === 'transient' && problems.waiting.length === 4 && problems.waiting.every((w) => w.for.join() === DETAILS), problems);
+    const line = describePatchProblems(problems);
+    check('…and the line names the failed patch and the waiting ones, and is not «done»', !line.done && line.detail.includes(DETAILS) && line.detail.includes('2026-10-09-shop-email') && line.detail.includes('απέτυχε'), line.detail);
     check('the shop-details patch fails once: the four patches that depend on it wait (not run, not recorded)', first.failed.join() === DETAILS && first.skipped.length === 4 && !((await read('dataPatches')) as string[]).some((id) => first.skipped.includes(id)), first);
     const second = await runPatches(group, mute);
     check('…at the retry everything runs in order', second.applied.length === 5 && second.failed.length === 0 && second.skipped.length === 0, second);
     check('…and the result is exactly that of one clean run', (await shopNow()) === clean, await shopNow());
+    check('…and once everything applied the record is gone, so the dashboard line goes away', (await readPatchProblems()) === null && describePatchProblems(null).done);
+    await runPatches(group, mute);
+    check('a run with nothing left to apply leaves no record either', (await readPatchProblems()) === null);
 
     // without the order requirement the e-mail patch would meet the seeded e-mail and keep it, and the retry of the details patch would then clear it for good
     await fresh();

@@ -15,6 +15,7 @@ import { isValidIban } from '@/lib/iban';
 import { resendConfigured, resendWithoutSender } from '@/lib/startup-check';
 import { cardProvider } from '@/lib/payments';
 import { countGivenUpMails, GIVEN_UP_WINDOW_DAYS } from '@/lib/payments/mail-delivery';
+import { describePatchProblems, readPatchProblems } from '@/lib/patch-problems';
 import { getSettings } from '@/lib/settings.server';
 import { cn, formatDateTime, formatPrice } from '@/lib/utils';
 import { backupStatus } from '@/lib/backup';
@@ -74,6 +75,8 @@ export default async function AdminDashboard() {
   const offsiteFresh = offsiteIsFresh(offsiteLast);
   // payment mails (customer confirmation, shop notice or alert) the site tried for about a day and then gave up on
   const givenUpMails = await countGivenUpMails();
+  // data patches that failed at the last start (the boot goes on), and the ones that wait for them
+  const patchLine = describePatchProblems(await readPatchProblems());
   const checklist = [
     { done: unverified.n === 0, label: 'Επιβεβαίωση τιμών', detail: unverified.n ? `${unverified.n} συσκευασίες δεν έχουν επιβεβαιωμένη τιμή: στο site γράφουν «Καλέστε για τιμή».` : 'Όλες οι τιμές είναι επιβεβαιωμένες.', href: '/admin/prices?filter=unverified' },
     { done: flagged.n === 0, label: 'Έλεγχος στοιχείων προϊόντων', detail: flagged.n ? `${flagged.n} προϊόντα έχουν σημείωση προς έλεγχο (π.χ. συσκευασία που δεν φαινόταν στη φωτογραφία).` : 'Κανένα προϊόν δεν περιμένει έλεγχο.', href: '/admin/products?filter=review' },
@@ -87,6 +90,7 @@ export default async function AdminDashboard() {
     { done: backupFresh, label: 'Αντίγραφο ασφαλείας', detail: backupFresh ? (newestBackup ? `Τελευταίο αυτόματο αντίγραφο: ${newestBackup}.` : 'Δεν χρειάζεται για αυτή τη βάση.') : `Το καθημερινό αντίγραφο δεν γράφτηκε${newestBackup ? ` από τις ${newestBackup}` : ' ποτέ'}. Ενημερώστε τον προγραμματιστή.`, href: null },
     { done: offsiteFresh, label: 'Αντίγραφο εκτός δίσκου (Backblaze B2)', detail: !offsiteOn ? 'Δεν έχει ρυθμιστεί: τα αντίγραφα μένουν στον ίδιο δίσκο με το site — αν χαθεί ο δίσκος, χάνονται όλα. Ρυθμίζεται από τον προγραμματιστή (.env).' : offsiteFresh ? `Τελευταίο επιτυχές αντίγραφο εκτός server: ${formatDateTime(new Date(lastOffsiteSuccess(offsiteLast)!))}. Κρυπτογραφημένο, ανεβαίνει κάθε βράδυ, μαζί με φωτογραφίες και δελτία ασφαλείας.` : lastOffsiteSuccess(offsiteLast) === null ? `Δεν έχει ανέβει ακόμη κανένα αντίγραφο εκτός server${offsiteLast && !offsiteLast.ok ? ': η τελευταία προσπάθεια απέτυχε' : ''}. Ελέγξτε τα στοιχεία B2 στο Railway.` : `Δεν υπάρχει επιτυχές αντίγραφο εκτός server από ${formatDateTime(new Date(lastOffsiteSuccess(offsiteLast)!))} (πάνω από 26 ώρες). ${offsiteLast && !offsiteLast.ok ? 'Η τελευταία προσπάθεια απέτυχε.' : 'Δεν έχει γίνει νέα προσπάθεια.'} Ελέγξτε τα στοιχεία B2 στο Railway.`, href: null },
     { done: Boolean(mfaRow?.confirmedAt), label: 'Επαλήθευση δύο βημάτων (2FA)', detail: mfaRow?.confirmedAt ? 'Ενεργή: η σύνδεση στη διαχείριση ζητά και κωδικό από την εφαρμογή επαλήθευσης.' : 'Ανενεργή: ένα κλεμμένο συνθηματικό αρκεί για να μπει κάποιος στη διαχείριση. Ενεργοποιήστε την — διαρκεί δύο λεπτά.', href: '/admin/settings#mfa' },
+    { done: patchLine.done, label: 'Ενημερώσεις δεδομένων', detail: patchLine.detail, href: null },
     { done: mailConfigured(), label: 'Αποστολή e-mail', detail: mailConfigured() ? 'Ρυθμισμένο.' : 'Δεν έχει ρυθμιστεί: τα e-mail γράφονται σε αρχεία αντί να στέλνονται. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
     // with Resend and no MAIL_FROM the sender is Resend's test address: fine for the shop's own notices, not for customers (lib/startup-check.ts warns at boot too)
     { forOrders: true, done: !resendWithoutSender(), label: 'Διεύθυνση αποστολέα e-mail', detail: resendWithoutSender() ? 'Λείπει (MAIL_FROM): τα e-mail φεύγουν από τη δοκιμαστική διεύθυνση της Resend και φτάνουν μόνο στο γραμματοκιβώτιο του λογαριασμού Resend — οι πελάτες δεν θα λάβουν επιβεβαίωση παραγγελίας ή πληρωμής. Ρυθμίζεται από τον προγραμματιστή (.env).' : resendConfigured() ? 'Ρυθμισμένο.' : 'Δεν χρειάζεται: τα e-mail δεν στέλνονται μέσω Resend.', href: null },

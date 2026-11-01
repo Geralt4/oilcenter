@@ -503,6 +503,19 @@ async function main() {
     await page.setViewportSize({ width: 1280, height: 500 });
     await page.goto(`${base}/admin`);
     check('the dashboard checklist lists the payment-mail line (no mail has been given up)', (await page.getByText('E-mail πληρωμών που δεν στάλθηκαν').count()) > 0 && (await page.getByText('Κανένα e-mail πληρωμής δεν έμεινε απέσταλτο.').count()) > 0);
+    // a data patch that failed at start-up (and one that waits for it) shows on the checklist, and the line goes when they have applied
+    {
+      const { settings } = await import('../src/lib/db/schema');
+      check('the checklist says the data updates are all applied (nothing failed)', (await page.getByText('Όλες οι ενημερώσεις δεδομένων που περίμεναν έχουν εφαρμοστεί.').count()) > 0);
+      const value = { failed: [{ id: '2026-09-22-shop-details', error: 'database is locked' }], waiting: [{ id: '2026-10-09-shop-email', for: ['2026-09-22-shop-details'] }], at: new Date().toISOString() };
+      await db.insert(settings).values({ key: 'dataPatchProblems', value });
+      await page.goto(`${base}/admin`);
+      const problem = ((await page.getByText('Η ενημέρωση δεδομένων').first().textContent()) ?? '').replace(/\s+/g, ' ');
+      check('a failed patch is named on the dashboard, with its error and the patch that waits for it', problem.includes('2026-09-22-shop-details') && problem.includes('database is locked') && problem.includes('2026-10-09-shop-email'), problem);
+      await db.delete(settings).where(eq(settings.key, 'dataPatchProblems'));
+      await page.goto(`${base}/admin`);
+      check('…and the line is gone again once the record is', (await page.getByText('Η ενημέρωση δεδομένων').count()) === 0 && (await page.getByText('Όλες οι ενημερώσεις δεδομένων που περίμεναν έχουν εφαρμοστεί.').count()) > 0);
+    }
     const menu = page.locator('aside nav[aria-label="Διαχείριση"]');
     const lastLink = menu.getByRole('link').last();
     const firstLink = menu.getByRole('link', { name: 'Επισκόπηση', exact: true });
