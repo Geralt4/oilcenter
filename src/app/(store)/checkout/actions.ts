@@ -9,6 +9,7 @@ import { addOrderEvent, CheckoutSchema, createOrder, findCoupon, getOrderByNumbe
 import { sendPlacedOrderConfirmation } from '@/lib/order-mail';
 import { cardProvider, startCardPayment } from '@/lib/payments';
 import { hasProcessingPayment, recordPaymentAttempt } from '@/lib/payments/attempts';
+import { deliverPendingMail } from '@/lib/payments/mail-delivery';
 import type { AppliedCoupon } from '@/lib/pricing';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 import { getSettings } from '@/lib/settings.server';
@@ -65,6 +66,8 @@ export async function placeOrder(raw: unknown): Promise<PlaceOrderResult> {
         console.error('[checkout] could not release the order after a failed card start', releaseErr);
         return false;
       });
+      // the owner's notice that the order was cancelled was saved with the cancellation: send it now (the sweep retries a failure)
+      if (released) await deliverPendingMail({ orderId: order.id });
       return { ok: true, redirectUrl: `${orderUrl}&payment=${released ? 'unavailable' : 'failed'}`, external: false };
     }
   }

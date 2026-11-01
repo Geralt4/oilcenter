@@ -416,6 +416,7 @@ async function main() {
       const stockOfPick = async () => (await db.select({ s: variants.stock }).from(variants).where(eq(variants.id, pick.variantId)))[0]!.s;
       const { ctx, page } = await newPage();
       try {
+        const before = snapshot();
         await startCheckout(page);
         await submitCardCheckout(page);
         await page.waitForURL((url) => url.pathname.startsWith('/order/'), { timeout: 30_000 });
@@ -432,6 +433,13 @@ async function main() {
         const cancelled = await orderByNumber(number);
         check('the order is cancelled and unpaid, with no payment flag', cancelled.status === 'cancelled' && cancelled.paymentStatus === 'pending' && cancelled.paymentFlag === null, { status: cancelled.status, paymentStatus: cancelled.paymentStatus, flag: cancelled.paymentFlag });
         check('its stock went back at once (not after two hours)', (await stockOfPick()) === 10, await stockOfPick());
+        const s6Mails = mailsSince(before).filter((mail) => mail.subject.includes(cancelled.number));
+        const s6Cancelled = s6Mails.filter((mail) => mail.subject.startsWith('Ακυρώθηκε:'));
+        check('the owner got exactly one «Ακυρώθηκε:» mail for it, saying the payment did not start', s6Cancelled.length === 1 && s6Cancelled[0]!.subject.includes('η πληρωμή δεν ξεκίνησε'), s6Mails.map((mail) => mail.subject));
+        check('…it went to the shop and nothing at all to the buyer', s6Mails.every((mail) => !mail.to.includes('card-test@example.invalid')), s6Mails.map((mail) => mail.to));
+        check('…and the order\'s earlier «Νέα παραγγελία» mail is the only other one', s6Mails.length === 2 && s6Mails.some((mail) => mail.subject.startsWith('Νέα παραγγελία')), s6Mails.map((mail) => mail.subject));
+        const s6Queue = await db.select().from(mailOutbox).where(eq(mailOutbox.orderId, cancelled.id));
+        check('the queued notice is marked sent', s6Queue.length === 1 && s6Queue[0]!.kind === 'order_cancelled_notice' && s6Queue[0]!.sentAt !== null, s6Queue);
         const events = (await eventsOf(cancelled.id)).map((event) => event.message);
         check('the timeline has the failed start and the cancellation with its reason', events.some((m) => m.includes('Δεν ήταν δυνατή η έναρξη')) && events.some((m) => m.startsWith('Η παραγγελία ακυρώθηκε: η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει')), events);
         const cartLines = await page.evaluate(() => (JSON.parse(localStorage.getItem('oilcenter-cart') ?? '{}') as { state?: { lines?: unknown[] } }).state?.lines?.length ?? 0);

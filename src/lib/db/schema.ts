@@ -353,7 +353,7 @@ export const unmatchedPayments = sqliteTable(
   (t) => [uniqueIndex('unmatched_payments_tx_uq').on(t.provider, t.transactionId)],
 );
 
-export type MailKind = 'order_confirmation' | 'order_paid_notice' | 'payment_alert' | 'unmatched_payment';
+export type MailKind = 'order_confirmation' | 'order_paid_notice' | 'payment_alert' | 'unmatched_payment' | 'order_cancelled_notice';
 
 /**
  * Mails that follow a payment. A row is written in the SAME transaction as the payment (or the unmatched-payment row) it

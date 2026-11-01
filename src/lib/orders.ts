@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { coupons, orderEvents, orderItems, orders, variants, type Coupon, type Order, type OrderStatus } from '@/lib/db/schema';
 import { randomToken } from '@/lib/auth/password';
-import { enqueuePaymentMails } from '@/lib/payments/mail-queue';
+import { enqueueOrderCancelledNotice, enqueuePaymentMails } from '@/lib/payments/mail-queue';
 import { claimAttemptStatus, setAttemptStatus, type Executor } from '@/lib/payments/attempts';
 import { resolveCartLines, type ResolvedCartLine } from '@/lib/catalog';
 import { commerceEnabled } from '@/lib/commerce-flag';
@@ -480,7 +480,13 @@ export async function releaseAbandonedCardOrders(): Promise<number> {
  * or has a delayed payment on its way is never cancelled here. False = nothing was cancelled (the caller keeps the order payable).
  */
 export async function releaseUnstartedCardOrder(orderId: number): Promise<boolean> {
-  return cancelOrder(orderId, 'system', 'η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει', { requireUnpaid: true });
+  // one transaction: the cancellation (with its restock) and the owner's notice are saved together or not at all; the caller sends the
+  // notice afterwards (mail-delivery.ts), and the periodic sweep retries it
+  return db.transaction(async (tx) => {
+    const cancelled = await cancelOrder(orderId, 'system', 'η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει', { requireUnpaid: true }, tx);
+    if (cancelled) await enqueueOrderCancelledNotice(orderId, tx);
+    return cancelled;
+  });
 }
 
 export async function getOrderByNumber(number: string) {
