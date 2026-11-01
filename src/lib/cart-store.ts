@@ -4,6 +4,7 @@ import { useSyncExternalStore } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { Availability } from '@/lib/availability';
+import { clearDraft } from '@/lib/checkout-draft';
 import { track } from '@/lib/track';
 
 /*
@@ -54,6 +55,35 @@ const browserStorage = () => {
   if (typeof window === 'undefined') throw new Error('no browser storage during SSR');
   return window.localStorage;
 };
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+const isWholeNumber = (value: unknown, min: number): value is number => typeof value === 'number' && Number.isInteger(value) && value >= min;
+
+/**
+ * What an older (or damaged) saved cart is turned into when the stored version differs from the current one. Without a
+ * `migrate`, zustand drops the whole saved state on a version change: a customer's cart would vanish with the next bump.
+ * Keeps the lines that are still well-formed (whole variant id, quantity of at least 1, a snapshot with what the drawer
+ * paints) and the coupon code; everything else is left out. Prices in a snapshot are display only, the server re-prices.
+ */
+export function sanitizeCartState(persisted: unknown): { lines: CartLine[]; couponCode: string | null } {
+  const state = isRecord(persisted) ? persisted : {};
+  const seen = new Set<number>();
+  const lines: CartLine[] = [];
+  for (const raw of Array.isArray(state.lines) ? state.lines : []) {
+    if (!isRecord(raw) || !isWholeNumber(raw.variantId, 1) || !isWholeNumber(raw.quantity, 1) || !isRecord(raw.snapshot) || seen.has(raw.variantId)) continue;
+    const s = raw.snapshot;
+    if (!isWholeNumber(s.productId, 1) || typeof s.slug !== 'string' || typeof s.name !== 'string' || typeof s.variantLabel !== 'string' || !isWholeNumber(s.unitPriceCents, 0)) continue;
+    seen.add(raw.variantId);
+    lines.push({ variantId: raw.variantId, quantity: Math.min(raw.quantity, 999), snapshot: s as unknown as CartSnapshot });
+  }
+  return { lines, couponCode: typeof state.couponCode === 'string' && state.couponCode.trim() ? state.couponCode : null };
+}
+
+/** The same for the favourites: whole product ids only, each once. */
+export function sanitizeWishlistState(persisted: unknown): { ids: number[] } {
+  const ids = isRecord(persisted) && Array.isArray(persisted.ids) ? persisted.ids : [];
+  return { ids: [...new Set(ids.filter((id): id is number => isWholeNumber(id, 1)))] };
+}
 
 export const useCart = create<CartState>()(
   persist(
@@ -106,6 +136,7 @@ export const useCart = create<CartState>()(
     {
       name: 'oilcenter-cart',
       version: 1,
+      migrate: (persisted) => sanitizeCartState(persisted),
       storage: createJSONStorage(browserStorage),
       partialize: (state) => ({ lines: state.lines, couponCode: state.couponCode }),
     },
@@ -153,7 +184,7 @@ export const useWishlist = create<WishlistState>()(
         })),
       has: (productId) => get().ids.includes(productId),
     }),
-    { name: 'oilcenter-wishlist', version: 1, storage: createJSONStorage(browserStorage) },
+    { name: 'oilcenter-wishlist', version: 1, migrate: (persisted) => sanitizeWishlistState(persisted), storage: createJSONStorage(browserStorage) },
   ),
 );
 
@@ -164,6 +195,10 @@ export const useWishlist = create<WishlistState>()(
  * The browser tells the OTHER tabs when localStorage changes; re-reading it keeps every tab current before it writes.
  */
 if (typeof window !== 'undefined') {
+  // a cart that has just been emptied (the last item removed, the order placed) takes the checkout draft with it
+  useCart.subscribe((state, previous) => {
+    if (previous.lines.length > 0 && state.lines.length === 0) clearDraft();
+  });
   window.addEventListener('storage', (event) => {
     if (event.key === 'oilcenter-cart') void useCart.persist.rehydrate();
     else if (event.key === 'oilcenter-wishlist') void useWishlist.persist.rehydrate();

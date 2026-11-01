@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import nodemailer, { type Transporter } from 'nodemailer';
@@ -60,16 +61,42 @@ async function sendWithResend(mail: Mail): Promise<void> {
   if (!res.ok) throw new Error(`Resend answered ${res.status}: ${(await res.text()).slice(0, 300)}`);
 }
 
-let transport: Transporter | null = null;
-function smtp(): Transporter | null {
-  if (!process.env.SMTP_HOST) return null;
-  transport ??= nodemailer.createTransport({
+/**
+ * Without limits a mail server that accepts the connection and then says nothing holds every caller of sendMail (they await it:
+ * checkout, the payment return page, the retry sweep) until the operating system gives up, minutes later.
+ */
+export function smtpOptions() {
+  return {
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
     secure: process.env.SMTP_SECURE === 'true',
     auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
-  });
-  return transport;
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
+  };
+}
+
+/** «giannis@example.gr» → «g***@example.gr»: enough to tell which mail failed, not enough for the log to hold a customer's address. */
+export function redactEmail(address: string): string {
+  const at = address.lastIndexOf('@');
+  return at < 1 ? '***' : `${address[0]}***${address.slice(at)}`;
+}
+
+/** The same for a text that may quote the address (a mail server's refusal often does): every occurrence, in any letter case. */
+export function redactAddressIn(text: string, address: string): string {
+  if (!address) return text;
+  return text.replace(new RegExp(address.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), redactEmail(address));
+}
+
+// one transport per set of options: a changed SMTP setting (or a test) gets a fresh one
+let transport: { key: string; client: Transporter } | null = null;
+function smtp(): Transporter | null {
+  if (!process.env.SMTP_HOST) return null;
+  const options = smtpOptions();
+  const key = JSON.stringify(options);
+  if (transport?.key !== key) transport = { key, client: nodemailer.createTransport(options) };
+  return transport.client;
 }
 
 export async function sendMail(mail: Mail): Promise<boolean> {
@@ -90,15 +117,18 @@ export async function sendMail(mail: Mail): Promise<boolean> {
     }
     const dir = path.resolve(process.env.DATA_DIR || './data', 'outbox');
     await mkdir(dir, { recursive: true });
-    const file = `${new Date().toISOString().replace(/[:.]/g, '-')}__${mail.to.replace(/[^a-z0-9@.]+/gi, '_')}.html`;
+    // a random part: two mails to one address within the same millisecond (a customer and the shop on the same address) must not share a file
+    const file = `${new Date().toISOString().replace(/[:.]/g, '-')}__${mail.to.replace(/[^a-z0-9@.]+/gi, '_')}__${randomBytes(3).toString('hex')}.html`;
     // to/subject are free text (a contact form's subject line reaches the subject): escape them so a "-->"
     // inside cannot close the comment early and inject markup into the outbox file.
     const comment = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    await writeFile(path.join(dir, file), `<!-- to: ${comment(mail.to)} | subject: ${comment(mail.subject)} -->\n${mail.html}`);
+    await writeFile(path.join(dir, file), `<!-- to: ${comment(mail.to)} | subject: ${comment(mail.subject)} -->\n${mail.html}`, { flag: 'wx' });
     console.log(`[mail] no mail service configured → wrote ${path.join('outbox', file)} ("${mail.subject}")`);
     return true;
   } catch (err) {
-    console.error(`[mail] failed to send "${mail.subject}" to ${mail.to}:`, err);
+    // the error text is logged too, but a refusal usually quotes the recipient: it goes through the same redaction
+    const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    console.error(`[mail] failed to send "${mail.subject}" to ${redactEmail(mail.to)}:`, redactAddressIn(detail, mail.to));
     return false;
   }
 }

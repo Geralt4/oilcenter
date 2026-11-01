@@ -4,6 +4,7 @@
  * Covers the mistakes that would change what the public sees: a price list that comes back different from how it
  * left, a price read ten times too small, a product that stops answering to «λαδι» after it is saved.
  */
+import { spawnSync } from 'node:child_process';
 import { readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { cloneDatabase } from './test-db';
@@ -1329,7 +1330,7 @@ async function main() {
   {
     const { customers } = await import('../src/lib/db/schema');
     const { hashPassword, randomToken, sha256 } = await import('../src/lib/auth/password');
-    const { registerCustomer, loginCustomer, resendActivation, resetPassword, activateAccount } = await import('../src/app/(store)/account/actions');
+    const { registerCustomer, loginCustomer, resendActivation, requestPasswordReset, resetPassword, activateAccount } = await import('../src/app/(store)/account/actions');
     const { GET: activate } = await import('../src/app/api/account/activate/route');
     const { default: ActivatePage } = await import('../src/app/(store)/activate/page');
     const { ACTIVATION_LINK_INVALID } = await import('../src/lib/auth/activation');
@@ -1342,7 +1343,7 @@ async function main() {
     process.env.DATA_DIR = dataDir;
     const mailsTo = (address: string) => {
       try {
-        return readdirSync(outboxDir).filter((f) => f.endsWith(`__${address}.html`)).map((f) => readFileSync(path.join(outboxDir, f), 'utf8'));
+        return readdirSync(outboxDir).filter((f) => f.includes(`__${address}__`) && f.endsWith('.html')).map((f) => readFileSync(path.join(outboxDir, f), 'utf8'));
       } catch {
         return [] as string[];
       }
@@ -1507,15 +1508,45 @@ async function main() {
       }
       const afterReset = await customerRow('reset-verifies@example.com');
       check('a password reset activates an account that was never activated', afterReset.emailVerifiedAt !== null && afterReset.verifyTokenHash === null && afterReset.verifyTokenExpires === null, afterReset);
+      check('…and clears the names that were typed at registration (they may not be the owner\'s)', afterReset.firstName === '' && afterReset.lastName === '', [afterReset.firstName, afterReset.lastName]);
       cookieJar.delete('oc_customer');
       check('…and the new password signs in', (await login('reset-verifies@example.com', 'καινούριος-κωδικός-1', '192.0.2.42')).signedIn);
       cookieJar.delete('oc_customer');
-      const knownVerifiedAt = (await customerRow('known@example.com')).emailVerifiedAt?.getTime();
+      const resetKnownBefore = await customerRow('known@example.com');
+      const knownVerifiedAt = resetKnownBefore.emailVerifiedAt?.getTime();
       const knownReset = randomToken();
       await db.update(customers).set({ resetTokenHash: sha256(knownReset), resetTokenExpires: new Date(Date.now() + 3600_000) }).where(eq(customers.email, 'known@example.com'));
       await resetPassword(null, form({ token: knownReset, password: 'νέος-κωδικός-γνωστού' })).catch(() => undefined);
       check('…while an account that was already active keeps its activation date', (await customerRow('known@example.com')).emailVerifiedAt?.getTime() === knownVerifiedAt);
+      const resetKnownAfter = await customerRow('known@example.com');
+      check('…and its names', resetKnownBefore.firstName !== '' && resetKnownAfter.firstName === resetKnownBefore.firstName && resetKnownAfter.lastName === resetKnownBefore.lastName, [resetKnownBefore.firstName, resetKnownAfter.firstName]);
       cookieJar.delete('oc_customer');
+
+      // limits on reset requests (per address) and on the reset itself (per visitor address)
+      const TOO_MANY = 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.';
+      const askReset = async (address: string, ip: string) => {
+        currentIp = ip;
+        return requestPasswordReset(null, form({ email: address }));
+      };
+      const asked = [await askReset('limit-me@example.com', '192.0.2.70'), await askReset('limit-me@example.com', '192.0.2.71'), await askReset('limit-me@example.com', '192.0.2.72')];
+      check('reset requests: three for one address within an hour go through, from three different visitors', asked.every((r) => r?.ok === true), asked);
+      const fourthAsk = await askReset('limit-me@example.com', '192.0.2.73');
+      check('…the fourth, from a fresh visitor address, is refused (limit per account)', fourthAsk?.ok === false && fourthAsk.message === TOO_MANY, fourthAsk);
+      check('…another address from the same fresh visitor is not affected', (await askReset('other-address@example.com', '192.0.2.73'))?.ok === true);
+      const lateToken = randomToken();
+      await db.insert(customers).values({ email: 'limit-reset@example.com', passwordHash: await hashPassword('vorher-passwort-1'), firstName: 'Τεστ', lastName: 'Όριο', emailVerifiedAt: new Date(), resetTokenHash: sha256(lateToken), resetTokenExpires: new Date(Date.now() + 3600_000) });
+      currentIp = '192.0.2.80';
+      const guesses: Array<Awaited<ReturnType<typeof resetPassword>>> = [];
+      for (let i = 0; i < 10; i++) guesses.push(await resetPassword(null, form({ token: `${'x'.repeat(30)}${i}`, password: 'irgendein-passwort-1' })));
+      check('the reset itself: ten wrong links from one visitor are answered as invalid', guesses.every((r) => r?.ok === false && r.message.startsWith('Ο σύνδεσμος επαναφοράς δεν ισχύει')), guesses.map((r) => r?.message));
+      const eleventh = await resetPassword(null, form({ token: lateToken, password: 'neues-passwort-12345' }));
+      check('…the eleventh is refused even with a valid link (the limit comes before the lookup)', eleventh?.ok === false && eleventh.message === TOO_MANY, eleventh);
+      check('…and that link is not spent', (await customerRow('limit-reset@example.com')).resetTokenHash === sha256(lateToken));
+      currentIp = '192.0.2.81';
+      await resetPassword(null, form({ token: lateToken, password: 'neues-passwort-12345' })).catch(() => undefined);
+      check('…from another visitor address the same link still works', (await customerRow('limit-reset@example.com')).resetTokenHash === null);
+      cookieJar.delete('oc_customer');
+      await db.delete(customers).where(inArray(customers.email, ['limit-me@example.com', 'other-address@example.com', 'limit-reset@example.com']));
 
       // sending the activation link again
       const RESENT = 'Αν υπάρχει λογαριασμός που περιμένει ενεργοποίηση με αυτό το e-mail, σας στείλαμε νέο σύνδεσμο. Ισχύει για 24 ώρες.';
@@ -1538,6 +1569,221 @@ async function main() {
       await flushAfter();
       delete process.env.DATA_DIR;
       await db.delete(customers).where(inArray(customers.email, ['known@example.com', 'fresh@example.com', 'legacy@example.com', 'reset-verifies@example.com', 'waiting@example.com', 'timing-0@example.com', 'timing-1@example.com', 'timing-2@example.com']));
+    }
+  }
+
+  console.log('scripts/create-admin.ts');
+  {
+    const { hashPassword } = await import('../src/lib/auth/password');
+    const email = 'script-admin@example.com';
+    await db.insert(adminUsers).values({ email, name: 'Ηλίας', passwordHash: await hashPassword('old-password-1') });
+    // a real run of the script against this test's copy of the database (DATABASE_URL points at it; env files never override it)
+    const run = (...args: string[]) => spawnSync(path.resolve('node_modules/.bin/tsx'), ['scripts/create-admin.ts', ...args], { env: process.env, encoding: 'utf8' });
+    const row = async (mail: string) => (await db.select().from(adminUsers).where(eq(adminUsers.email, mail)))[0];
+    const before = await row(email);
+    const reset = run(email, 'new-password-12345');
+    const after = await row(email);
+    check('a password reset without a name succeeds', reset.status === 0, reset.stderr || reset.stdout);
+    check('…keeps the stored name', after.name === 'Ηλίας', after.name);
+    check('…changes the password and signs every session out (tokenVersion + 1)', after.passwordHash !== before.passwordHash && after.tokenVersion === before.tokenVersion + 1, [before.tokenVersion, after.tokenVersion]);
+    const renamed = run(email, 'new-password-12345', 'Νέο Όνομα');
+    check('…with a name, the name is changed', renamed.status === 0 && (await row(email)).name === 'Νέο Όνομα', renamed.stderr);
+    const created = run('script-new@example.com', 'another-password-12');
+    check('a new admin without a name is called «Διαχειριστής»', created.status === 0 && (await row('script-new@example.com'))?.name === 'Διαχειριστής', created.stderr);
+    await db.delete(adminUsers).where(inArray(adminUsers.email, [email, 'script-new@example.com']));
+  }
+
+  console.log('scripts/patches.ts');
+  {
+    const { settings } = await import('../src/lib/db/schema');
+    const { runPatches } = await import('./patches');
+    const quiet = { log: () => undefined, warn: (m: string) => void warnings.push(m) };
+    const warnings: string[] = [];
+    const ran: string[] = [];
+    const recordedNow = async () => ((await db.select().from(settings).where(eq(settings.key, 'dataPatches')))[0]?.value ?? []) as string[];
+    const before = await recordedNow();
+    const list = [
+      { id: 'test-patch-a', run: async () => (ran.push('a'), 'a done') },
+      { id: 'test-patch-broken', run: async () => { ran.push('broken'); throw new Error('boom'); } },
+      { id: 'test-patch-c', run: async () => (ran.push('c'), 'c done') },
+    ];
+    let thrown = false;
+    let first = { applied: [] as string[], failed: [] as string[] };
+    try {
+      first = await runPatches(list, quiet);
+    } catch {
+      thrown = true;
+    }
+    check('a failing patch does not make the run throw (the boot goes on)', !thrown);
+    check('…the patches around it ran and are recorded', ran.join() === 'a,broken,c' && first.applied.join() === 'test-patch-a,test-patch-c' && (await recordedNow()).includes('test-patch-a') && (await recordedNow()).includes('test-patch-c'), [ran, first]);
+    check('…the failing one is NOT recorded', !(await recordedNow()).includes('test-patch-broken') && first.failed.join() === 'test-patch-broken', await recordedNow());
+    check('…and the warning names the patch and the error', warnings.some((w) => w.includes('[patches] WARNING') && w.includes('test-patch-broken') && w.includes('boom')), warnings);
+    ran.length = 0;
+    await runPatches(list, quiet);
+    check('at the next start only the unrecorded one runs again', ran.join() === 'broken', ran);
+    await db.update(settings).set({ value: before }).where(eq(settings.key, 'dataPatches'));
+  }
+
+  console.log('scripts/patches.ts: a retry gives the result of one clean run');
+  {
+    const { settings } = await import('../src/lib/db/schema');
+    const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
+    const { PATCHES, runPatches } = await import('./patches');
+    const { describePatchProblems, readPatchProblems } = await import('../src/lib/patch-problems');
+    const mute = { log: () => undefined, warn: () => undefined };
+    const read = async (key: string) => (await db.select().from(settings).where(eq(settings.key, key)))[0]?.value;
+    const write = async (key: string, value: unknown) => void (await db.insert(settings).values({ key, value }).onConflictDoUpdate({ target: settings.key, set: { value } }));
+    const keep = { shop: await read('shop'), patches: await read('dataPatches') };
+
+    check('every `requires` names a patch listed before it', PATCHES.every((p, i) => (p.requires ?? []).every((id) => PATCHES.findIndex((q) => q.id === id) >= 0 && PATCHES.findIndex((q) => q.id === id) < i)), PATCHES.filter((p) => p.requires).map((p) => p.id));
+    const DETAILS = '2026-09-22-shop-details';
+    const group = [DETAILS, '2026-10-09-remove-facebook', '2026-10-09-shop-email', '2026-10-12-saturday-hours', '2026-10-12-shop-since-1998', '2026-10-13-instagram-link'].map((id) => PATCHES.find((p) => p.id === id)!);
+    check('the shop-group patches all exist', group.every(Boolean));
+    // a database as first seeded: the old mobile, fax and e-mail, no ΑΦΜ, Saturday until 14:00, no Instagram, a Facebook link, no founding year
+    const hours = structuredClone(DEFAULT_SETTINGS.shop.hours).map((d) => (d.day === 6 ? { ...d, close: '14:00' } : d));
+    const older = { ...DEFAULT_SETTINGS.shop, phone: '2310 850778', mobile: '6977 440388', fax: '2310 850267', email: 'iliastsakiridis@hotmail.com', vatNumber: '', taxOffice: '', gemi: '', hours, hoursVerified: false, instagramUrl: '', foundedYear: 0, accelerateDealer: false, facebookUrl: 'https://facebook.com/oil' };
+    const fresh = async () => {
+      await write('shop', older);
+      await write('dataPatches', []);
+    };
+    const shopNow = async () => JSON.stringify(await read('shop'));
+    const failDetails = group.map((p) => (p.id === DETAILS ? { ...p, run: async () => { throw new Error('transient'); } } : p));
+
+    await fresh();
+    await runPatches(group, mute);
+    const clean = await shopNow();
+    const cleanShop = JSON.parse(clean) as typeof older;
+    check('one clean run: e-mail set, Saturday closes at 13:00, founded 1998, Instagram set, Facebook gone', cleanShop.email === 'oilcenterthess@gmail.com' && cleanShop.hours.find((d) => d.day === 6)?.close === '13:00' && cleanShop.foundedYear === 1998 && cleanShop.instagramUrl !== '' && !('facebookUrl' in cleanShop), cleanShop);
+
+    await fresh();
+    const first = await runPatches(failDetails, mute);
+    const problems = await readPatchProblems();
+    check('the failure is kept for the dashboard: the failed patch with its error, and the four that wait for it', problems?.failed.length === 1 && problems.failed[0].id === DETAILS && problems.failed[0].error === 'transient' && problems.waiting.length === 4 && problems.waiting.every((w) => w.for.join() === DETAILS), problems);
+    const line = describePatchProblems(problems);
+    check('…and the line names the failed patch and the waiting ones, and is not «done»', !line.done && line.detail.includes(DETAILS) && line.detail.includes('2026-10-09-shop-email') && line.detail.includes('απέτυχε'), line.detail);
+    check('the shop-details patch fails once: the four patches that depend on it wait (not run, not recorded)', first.failed.join() === DETAILS && first.skipped.length === 4 && !((await read('dataPatches')) as string[]).some((id) => first.skipped.includes(id)), first);
+    const second = await runPatches(group, mute);
+    check('…at the retry everything runs in order', second.applied.length === 5 && second.failed.length === 0 && second.skipped.length === 0, second);
+    check('…and the result is exactly that of one clean run', (await shopNow()) === clean, await shopNow());
+    check('…and once everything applied the record is gone, so the dashboard line goes away', (await readPatchProblems()) === null && describePatchProblems(null).done);
+    await runPatches(group, mute);
+    check('a run with nothing left to apply leaves no record either', (await readPatchProblems()) === null);
+
+    // without the order requirement the e-mail patch would meet the seeded e-mail and keep it, and the retry of the details patch would then clear it for good
+    await fresh();
+    await runPatches(failDetails.map((p) => ({ ...p, requires: undefined })), mute);
+    await runPatches(group.map((p) => ({ ...p, requires: undefined })), mute);
+    check('(without `requires` the retry gives a different result: the e-mail ends up empty)', (await shopNow()) !== clean && (JSON.parse(await shopNow()) as typeof older).email === '');
+
+    // what the owner typed in the meantime is kept: only fields still holding the seeded value are overwritten
+    await fresh();
+    await runPatches(failDetails, mute);
+    await write('shop', { ...older, mobile: '6999999999', vatNumber: '123456783', taxOffice: 'Β΄ Θεσσαλονίκης', phone: '2310 111111', hours: hours.map((d) => (d.day === 6 ? { ...d, close: '15:00' } : d)), hoursVerified: true });
+    await runPatches(group, mute);
+    const kept = JSON.parse(await shopNow()) as typeof older;
+    check('the owner edits his own mobile, ΑΦΜ, ΔΟΥ, phone and Saturday hours before the retry: all five survive it', kept.mobile === '6999999999' && kept.vatNumber === '123456783' && kept.taxOffice === 'Β΄ Θεσσαλονίκης' && kept.phone === '2310 111111' && kept.hours.find((d) => d.day === 6)?.close === '15:00', kept);
+    check('…while the fields he did not touch still get the owner\'s details (fax cleared, ΓΕΜΗ set, e-mail from its own patch)', kept.fax === '' && kept.gemi === DEFAULT_SETTINGS.shop.gemi && kept.email === 'oilcenterthess@gmail.com', [kept.fax, kept.gemi, kept.email]);
+    await fresh();
+    await write('shop', { ...older, hoursVerified: false, hours: hours.map((d) => (d.day === 6 ? { ...d, close: '15:00' } : d)) });
+    await runPatches(group, mute);
+    check('edited hours that were not yet confirmed stay unconfirmed (the patch only confirms the hours it wrote)', (JSON.parse(await shopNow()) as typeof older).hoursVerified === false);
+
+    // a crash after the patches were applied but before they were recorded: all of them run again
+    await fresh();
+    for (const p of group) await p.run();
+    await runPatches(group, mute);
+    check('patches applied but never recorded run again with the same result', (await shopNow()) === clean, await shopNow());
+    const again = await runPatches(group, mute);
+    check('…and once recorded they do not run again', again.applied.length === 0);
+
+    await write('shop', keep.shop);
+    await write('dataPatches', keep.patches ?? []);
+  }
+
+  console.log('scripts/patches.ts: the specs patch before the search-keywords patch');
+  {
+    const { products } = await import('../src/lib/db/schema');
+    const { PATCHES, runPatches } = await import('./patches');
+    const { settings } = await import('../src/lib/db/schema');
+    const { loadManufacturerSpecs } = await import('./manufacturer-data');
+    const mute = { log: () => undefined, warn: () => undefined };
+    const SPECS = '2026-09-22-manufacturer-specs';
+    const KEYWORDS = '2026-10-09-search-keywords';
+    const pair = [SPECS, KEYWORDS].map((id) => PATCHES.find((p) => p.id === id)!);
+    const slug = [...loadManufacturerSpecs().keys()].find(Boolean)!;
+    const [orig] = await db.select().from(products).where(eq(products.slug, slug));
+    const recordedBefore = (await db.select().from(settings).where(eq(settings.key, 'dataPatches')))[0]?.value ?? [];
+    const row = async () => JSON.stringify((await db.select({ specs: products.specs, searchText: products.searchText, keywords: products.keywords, internalNotes: products.internalNotes }).from(products).where(eq(products.slug, slug)))[0]);
+    const fresh = async () => {
+      await db.update(products).set({ specs: [], searchText: orig.searchText, keywords: orig.keywords, internalNotes: null }).where(eq(products.slug, slug));
+      await db.update(settings).set({ value: [] }).where(eq(settings.key, 'dataPatches'));
+    };
+    await fresh();
+    await runPatches(pair, mute);
+    const clean = await row();
+    check('one clean run gives the product its specs from the data sheet', (JSON.parse(clean) as { specs: string[] }).specs.length > 0, clean);
+    await fresh();
+    const failSpecs = pair.map((p) => (p.id === SPECS ? { ...p, run: async () => { throw new Error('transient'); } } : p));
+    const first = await runPatches(failSpecs, mute);
+    check('the specs patch fails once: the search-keywords patch waits', first.failed.join() === SPECS && first.skipped.join() === KEYWORDS, first);
+    await runPatches(pair, mute);
+    check('…and after the retry the search text is the one of a clean run', (await row()) === clean, await row());
+    await db.update(products).set({ specs: orig.specs, searchText: orig.searchText, keywords: orig.keywords, internalNotes: orig.internalNotes }).where(eq(products.slug, slug));
+    await db.update(settings).set({ value: recordedBefore }).where(eq(settings.key, 'dataPatches'));
+  }
+
+  console.log('scripts/patches.ts: every patch run twice leaves the same database');
+  {
+    const schema = await import('../src/lib/db/schema');
+    const { PATCHES, runPatches } = await import('./patches');
+    const mute = { log: () => undefined, warn: () => undefined };
+    const recordedBefore = (await db.select().from(schema.settings).where(eq(schema.settings.key, 'dataPatches')))[0]?.value ?? [];
+    // everything a patch can touch, as text; the record of applied patches itself is not part of the comparison
+    const state = async () =>
+      JSON.stringify([
+        await db.select().from(schema.products).orderBy(asc(schema.products.id)),
+        await db.select().from(schema.variants).orderBy(asc(schema.variants.id)),
+        await db.select().from(schema.priceChanges).orderBy(asc(schema.priceChanges.id)),
+        await db.select().from(schema.brands).orderBy(asc(schema.brands.id)),
+        await db.select().from(schema.coupons).orderBy(asc(schema.coupons.id)),
+        await db.select().from(schema.sales).orderBy(asc(schema.sales.id)),
+        (await db.select().from(schema.settings).orderBy(asc(schema.settings.key))).filter((r) => r.key !== 'dataPatches').map((r) => [r.key, r.value]),
+      ]);
+    const forget = () => db.update(schema.settings).set({ value: [] }).where(eq(schema.settings.key, 'dataPatches'));
+    await forget();
+    const run1 = await runPatches(PATCHES, mute);
+    const after1 = await state();
+    await forget(); // as after a crash between the last patch and its record: all of them run again
+    const run2 = await runPatches(PATCHES, mute);
+    check(`all ${PATCHES.length} patches apply without failing or waiting`, run1.applied.length === PATCHES.length && run2.applied.length === PATCHES.length && run1.failed.length + run1.skipped.length + run2.failed.length + run2.skipped.length === 0, [run1, run2]);
+    check('…and the second run changes nothing: products, sizes, prices and their history, brands, coupons, sales and settings are identical', (await state()) === after1);
+    await db.update(schema.settings).set({ value: recordedBefore }).where(eq(schema.settings.key, 'dataPatches'));
+  }
+
+  console.log('scripts/skroutz-prices.ts --force');
+  {
+    const { applySkroutzPrices, loadSkroutzPrices } = await import('./skroutz-prices');
+    const { variants } = await import('../src/lib/db/schema');
+    const file = loadSkroutzPrices();
+    const rows = new Map((await db.select().from(variants)).map((v) => [v.sku, v]));
+    const exact = [...file.values()].find((m) => m.confidence === 'exact' && rows.has(m.sku));
+    const probable = [...file.values()].find((m) => m.confidence === 'probable' && rows.has(m.sku));
+    check('the local data holds an exact and a probable Skroutz match to test with', Boolean(exact && probable), [exact?.sku, probable?.sku]);
+    if (exact && probable) {
+      const originals = [exact, probable].map((m) => rows.get(m.sku)!);
+      const owner = (m: { sku: string; priceCents: number }) => m.priceCents + 137; // a price the owner typed and confirmed, unlike Skroutz's
+      for (const m of [exact, probable]) await db.update(variants).set({ priceCents: owner(m), priceVerified: true }).where(eq(variants.sku, m.sku));
+      const now = async (sku: string) => (await db.select().from(variants).where(eq(variants.sku, sku)))[0];
+      await applySkroutzPrices({ verbose: false });
+      check('without --force a confirmed price is left alone (exact and probable)', (await now(exact.sku)).priceCents === owner(exact) && (await now(probable.sku)).priceCents === owner(probable));
+      const summary = await applySkroutzPrices({ force: true, verbose: false });
+      const p = await now(probable.sku);
+      check('--force does not replace a confirmed price with a PROBABLE match', p.priceCents === owner(probable), p.priceCents);
+      check('…and the owner\'s confirmation stays', p.priceVerified === true);
+      const e = await now(exact.sku);
+      check('--force does replace it with an EXACT match, which stays confirmed', e.priceCents === exact.priceCents && e.priceVerified === true, [e.priceCents, e.priceVerified]);
+      check('…and the summary counts the kept one', /\d+ kept/.test(summary) && !summary.startsWith('0 prices changed'), summary);
+      for (const o of originals) await db.update(variants).set({ priceCents: o.priceCents, priceVerified: o.priceVerified }).where(eq(variants.sku, o.sku));
     }
   }
 

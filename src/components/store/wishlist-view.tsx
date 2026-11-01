@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Heart, LoaderCircle } from 'lucide-react';
+import { CircleAlert, Heart, LoaderCircle } from 'lucide-react';
 import { ProductGrid } from '@/components/store/product-card';
 import { buttonClass } from '@/components/ui/button';
 import type { CatalogProduct } from '@/lib/catalog';
@@ -15,6 +15,9 @@ export function WishlistView() {
   const hydrated = useHydrated();
   const ids = useWishlist((s) => s.ids);
   const [fetched, setProducts] = useState<CatalogProduct[] | null>(null);
+  // a failed load is told, with a way to try again: an empty list or a spinner that never stops would be wrong in both directions
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   // an empty wishlist needs no request (and no state): derive it
   const products = ids.length === 0 ? [] : fetched;
 
@@ -27,14 +30,34 @@ export function WishlistView() {
     Promise.all(
       batches.map((batch) =>
         fetch(`/api/products?ids=${batch.join(',')}`, { signal: controller.signal })
-          .then((r) => (r.ok ? r.json() : { products: [] }))
+          .then((r) => {
+            if (!r.ok) throw new Error(`/api/products answered ${r.status}`);
+            return r.json();
+          })
           .then((d: { products: CatalogProduct[] }) => d.products),
       ),
     )
-      .then((parts) => setProducts(parts.flat()))
-      .catch(() => undefined);
+      .then((parts) => {
+        setFailed(false);
+        setProducts(parts.flat());
+      })
+      .catch(() => {
+        // leaving the page (or a changed list) aborts the request: that is not a failure
+        if (!controller.signal.aborted) setFailed(true);
+      });
     return () => controller.abort();
-  }, [hydrated, ids]);
+  }, [hydrated, ids, attempt]);
+
+  if (hydrated && ids.length > 0 && failed) {
+    return (
+      <div role="alert" className="mx-auto max-w-md rounded-3xl border border-amber-200 bg-amber-50 px-6 py-12 text-center">
+        <CircleAlert className="mx-auto h-10 w-10 text-amber-600" />
+        <h2 className="display mt-4 text-2xl text-amber-950">Δεν φορτώθηκαν τα αγαπημένα σας</h2>
+        <p className="mt-2 text-amber-900">Ελέγξτε τη σύνδεσή σας και δοκιμάστε ξανά. Τα αγαπημένα σας είναι αποθηκευμένα.</p>
+        <button type="button" onClick={() => { setFailed(false); setAttempt((n) => n + 1); }} className={buttonClass({ variant: 'dark', className: 'mt-6' })}>Δοκιμάστε ξανά</button>
+      </div>
+    );
+  }
 
   if (!hydrated || products === null) return <div className="flex min-h-[30vh] items-center justify-center"><LoaderCircle className="h-7 w-7 animate-spin text-ink-300" /></div>;
 

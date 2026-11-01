@@ -2,7 +2,7 @@ import './env';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { count, eq } from 'drizzle-orm';
-import { db } from '../src/lib/db';
+import { DATABASE_URL, db } from '../src/lib/db';
 import { adminUsers, brands, categories, coupons, productImages, products, variants, type BaseType } from '../src/lib/db/schema';
 import { hashPassword } from '../src/lib/auth/password';
 import { pruneDeadTargets } from '../src/lib/discount-cleanup';
@@ -28,47 +28,53 @@ type CatalogFile = {
 
 async function main() {
   const force = process.argv.includes('--force');
+  // --force deletes the whole catalogue. A hosted database (libsql://…) is never replaced from a laptop by accident.
+  if (force && !DATABASE_URL.startsWith('file:')) {
+    console.error('seed --force only works on a local file database (DATABASE_URL=file:…). Refusing to replace the catalogue of a hosted database.');
+    process.exit(1);
+  }
   const catalog = JSON.parse(readFileSync(path.resolve('catalog/catalog.json'), 'utf8')) as CatalogFile;
 
   const [{ n: existing }] = await db.select({ n: count() }).from(products);
   if (existing > 0 && !force) {
     console.log(`Database already has ${existing} products — skipping catalogue seed (use --force to replace it).`);
   } else {
-    if (existing > 0) {
-      console.log('Replacing catalogue…');
-      await db.delete(variants);
-      await db.delete(productImages);
-      await db.delete(products);
-      await db.delete(categories);
-      await db.delete(brands);
-    }
-
+    if (existing > 0) console.log('Replacing catalogue…');
     const brandName = new Map(catalog.brands.map((b) => [b.slug, b.name]));
     const categoryName = new Map(catalog.categories.map((c) => [c.slug, c.name]));
-    const brandId = new Map<string, number>();
-    for (const b of catalog.brands) {
-      const [row] = await db
-        .insert(brands)
-        .values({ slug: b.slug, name: b.name, country: b.country || null, description: b.description || null, isFeatured: Boolean(b.featured), sort: b.sort })
-        .returning({ id: brands.id });
-      brandId.set(b.slug, row.id);
-    }
-
-    // parents are listed before their children in catalog.json
-    const categoryId = new Map<string, number>();
-    for (const [i, c] of catalog.categories.entries()) {
-      const [row] = await db
-        .insert(categories)
-        .values({ slug: c.slug, name: c.name, parentId: c.parent ? (categoryId.get(c.parent) ?? null) : null, icon: c.icon, description: c.description, sort: i })
-        .returning({ id: categories.id });
-      categoryId.set(c.slug, row.id);
-    }
-
     // Real prices for the SKUs the shop also lists on Skroutz; everything else keeps its placeholder and stays unverified.
     const skroutz = loadSkroutzPrices();
     let variantCount = 0;
-    for (const p of catalog.products) {
-      await db.transaction(async (tx) => {
+    // The wipe and the re-insert are ONE transaction: if anything fails half-way, the old catalogue is still there.
+    await db.transaction(async (tx) => {
+      if (existing > 0) {
+        await tx.delete(variants);
+        await tx.delete(productImages);
+        await tx.delete(products);
+        await tx.delete(categories);
+        await tx.delete(brands);
+      }
+
+      const brandId = new Map<string, number>();
+      for (const b of catalog.brands) {
+        const [row] = await tx
+          .insert(brands)
+          .values({ slug: b.slug, name: b.name, country: b.country || null, description: b.description || null, isFeatured: Boolean(b.featured), sort: b.sort })
+          .returning({ id: brands.id });
+        brandId.set(b.slug, row.id);
+      }
+
+      // parents are listed before their children in catalog.json
+      const categoryId = new Map<string, number>();
+      for (const [i, c] of catalog.categories.entries()) {
+        const [row] = await tx
+          .insert(categories)
+          .values({ slug: c.slug, name: c.name, parentId: c.parent ? (categoryId.get(c.parent) ?? null) : null, icon: c.icon, description: c.description, sort: i })
+          .returning({ id: categories.id });
+        categoryId.set(c.slug, row.id);
+      }
+
+      for (const p of catalog.products) {
         const [row] = await tx
           .insert(products)
           .values({
@@ -106,8 +112,8 @@ async function main() {
           })),
         );
         variantCount += p.variants.length;
-      });
-    }
+      }
+    });
     console.log(`Seeded ${catalog.brands.length} brands, ${catalog.categories.length} categories, ${catalog.products.length} products, ${variantCount} variants.`);
 
     // What the manufacturers' data sheets say, where the catalogue was silent (same files as the data patches).

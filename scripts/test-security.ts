@@ -4,7 +4,8 @@
  * Covers the deployment-level commerce switch (COMMERCE_ENABLED=false): no order creation, no accounts,
  * no payment sessions — regardless of the owner's settings, a logged-in admin, or a real order in the database.
  */
-import { rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { cloneDatabase } from './test-db';
 
@@ -593,6 +594,156 @@ async function main() {
     } finally {
       statLimits.dailyNewKeys = savedCap;
     }
+  }
+
+  console.log('Mail file fallback (no Resend, no SMTP)');
+  {
+    const { sendMail } = await import('../src/lib/email');
+    const saved = { data: process.env.DATA_DIR, resend: process.env.RESEND_API_KEY, smtp: process.env.SMTP_HOST };
+    const realIso = Date.prototype.toISOString;
+    process.env.DATA_DIR = path.join(dir, 'mail-fallback');
+    delete process.env.RESEND_API_KEY;
+    delete process.env.SMTP_HOST;
+    // every file name starts with the time: freeze it, so "the same millisecond" is certain and not a matter of luck
+    Date.prototype.toISOString = () => '2026-01-01T00:00:00.000Z';
+    try {
+      const mail = { to: 'same@example.gr', subject: 'ίδιο', html: '<p>ένα</p>' };
+      const results = await Promise.all([sendMail(mail), sendMail({ ...mail, html: '<p>δύο</p>' }), sendMail({ ...mail, html: '<p>τρία</p>' })]);
+      const files = await readdir(path.join(process.env.DATA_DIR, 'outbox'));
+      check('three mails to one address in the same millisecond are all reported as sent', results.every(Boolean), results);
+      check('…and each lands in its own file (none overwritten)', files.length === 3 && new Set(files).size === 3, files);
+      check('…the file name still carries the address', files.every((f) => f.includes('same@example.gr')), files);
+    } finally {
+      Date.prototype.toISOString = realIso;
+      for (const [key, value] of [['DATA_DIR', saved.data], ['RESEND_API_KEY', saved.resend], ['SMTP_HOST', saved.smtp]] as const) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+    }
+  }
+
+  console.log('SMTP transport and mail failure log');
+  {
+    const { redactEmail, sendMail, smtpOptions } = await import('../src/lib/email');
+    const saved = { host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, resend: process.env.RESEND_API_KEY };
+    process.env.SMTP_HOST = '127.0.0.1';
+    process.env.SMTP_PORT = '1'; // nothing listens there: the connection is refused at once
+    delete process.env.RESEND_API_KEY;
+    const logged: string[] = [];
+    const realError = console.error;
+    console.error = (...args: unknown[]) => void logged.push(args.map(String).join(' '));
+    let sent: boolean;
+    try {
+      sent = await sendMail({ to: 'customer.name@example.gr', subject: 'Παραγγελία', html: '<p>x</p>' });
+    } finally {
+      console.error = realError;
+      for (const [key, value] of [['SMTP_HOST', saved.host], ['SMTP_PORT', saved.port], ['RESEND_API_KEY', saved.resend]] as const) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+    }
+    const o = smtpOptions();
+    check('the SMTP connection has a connection, a greeting and a socket timeout (all set, none longer than 30 s)', [o.connectionTimeout, o.greetingTimeout, o.socketTimeout].every((t) => t > 0 && t <= 30_000), o);
+    check('a mail that cannot be sent reports failure', sent === false);
+    check('…the failure is logged', logged.some((l) => l.includes('[mail] failed to send')), logged);
+    check('…without the recipient\'s address', !logged.some((l) => l.includes('customer.name@example.gr')) && logged.some((l) => l.includes('c***@example.gr')), logged);
+    check('redactEmail keeps the first letter and the domain only', redactEmail('a@b.gr') === 'a***@b.gr' && redactEmail('no-at-sign') === '***' && redactEmail('') === '***');
+
+    // A mail server that refuses the recipient usually quotes it: that text is logged too, and must not carry the address either.
+    const { redactAddressIn } = await import('../src/lib/email');
+    check('redactAddressIn replaces every occurrence, in any letter case, and leaves other text alone', redactAddressIn('550 <Ann.Lee@Example.gr>: rejected; ann.lee@example.gr again', 'ann.lee@example.gr') === '550 <a***@example.gr>: rejected; a***@example.gr again' && redactAddressIn('no address here', 'ann.lee@example.gr') === 'no address here' && redactAddressIn('x', '') === 'x');
+    const { createServer } = await import('node:net');
+    const refuser = createServer((socket) => {
+      socket.write('220 test ESMTP\r\n');
+      let pending = '';
+      socket.on('data', (chunk) => {
+        pending += chunk;
+        for (let end = pending.indexOf('\r\n'); end >= 0; end = pending.indexOf('\r\n')) {
+          const line = pending.slice(0, end);
+          pending = pending.slice(end + 2);
+          if (/^(EHLO|HELO)/i.test(line)) socket.write('250-test\r\n250 OK\r\n');
+          else if (/^MAIL FROM/i.test(line) || /^RSET/i.test(line)) socket.write('250 OK\r\n');
+          else if (/^RCPT TO/i.test(line)) socket.write(`550 5.1.1 ${line.slice(8)}: Recipient address rejected\r\n`);
+          else if (/^QUIT/i.test(line)) socket.end('221 bye\r\n');
+        }
+      });
+    });
+    await new Promise<void>((resolve) => refuser.listen(0, '127.0.0.1', resolve));
+    const refuserPort = (refuser.address() as { port: number }).port;
+    process.env.SMTP_HOST = '127.0.0.1';
+    process.env.SMTP_PORT = String(refuserPort);
+    delete process.env.RESEND_API_KEY;
+    const refusedLog: string[] = [];
+    console.error = (...args: unknown[]) => void refusedLog.push(args.map(String).join(' '));
+    let refused: boolean;
+    try {
+      refused = await sendMail({ to: 'Customer.Name@Example.gr', subject: 'Παραγγελία', html: '<p>x</p>' });
+    } finally {
+      console.error = realError;
+      refuser.close();
+      for (const [key, value] of [['SMTP_HOST', saved.host], ['SMTP_PORT', saved.port], ['RESEND_API_KEY', saved.resend]] as const) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+    }
+    const refusedText = refusedLog.join('\n');
+    check('a server that refuses the recipient: the send fails and the refusal is logged', refused === false && /Recipient address rejected/.test(refusedText), refusedText.slice(0, 300));
+    check('…the logged refusal does not contain the address, in any letter case', !/customer\.name@example\.gr/i.test(refusedText) && refusedText.includes('C***@Example.gr'), refusedText.slice(0, 300));
+  }
+
+  console.log('Test database guard');
+  {
+    const savedUrl = process.env.DATABASE_URL; // points at this run's copy now
+    process.env.DATABASE_URL = 'libsql://x.io';
+    let refused = '';
+    try {
+      await cloneDatabase('oc-guard-');
+    } catch (err) {
+      refused = String(err);
+    } finally {
+      process.env.DATABASE_URL = savedUrl;
+    }
+    check('cloneDatabase refuses a database that is not a local file', refused.includes('must be a local file'), refused);
+    check('…and names only the scheme, not the host it refused', refused.includes('libsql:') && !refused.includes('x.io'), refused);
+  }
+
+  console.log('seed --force');
+  {
+    const { db } = await import('../src/lib/db');
+    const { products, variants } = await import('../src/lib/db/schema');
+    const { count } = await import('drizzle-orm');
+    const catalogue = JSON.parse(readFileSync('catalog/catalog.json', 'utf8')) as { products: Array<{ slug: string; variants: unknown[] }> };
+    const seed = (env: Record<string, string>, cwd = process.cwd()) =>
+      spawnSync(path.resolve('node_modules/.bin/tsx'), [path.resolve('scripts/seed.ts'), '--force'], { cwd, env: { ...process.env, TSX_TSCONFIG_PATH: path.resolve('tsconfig.json'), ...env }, encoding: 'utf8' });
+    const totals = async () => [(await db.select({ n: count() }).from(products))[0].n, (await db.select({ n: count() }).from(variants))[0].n];
+    const before = await totals();
+
+    const hosted = seed({ DATABASE_URL: 'libsql://hosted-shop.example.turso.io', DATABASE_AUTH_TOKEN: 'x' });
+    check('--force refuses a hosted database before touching it', hosted.status === 1 && hosted.stderr.includes('only works on a local file database'), [hosted.status, hosted.stderr.slice(0, 200)]);
+
+    // a catalogue that breaks half-way (the same slug twice): the wipe must roll back with it
+    const broken = path.join(dir, 'broken-catalogue');
+    mkdirSync(path.join(broken, 'catalog'), { recursive: true });
+    const bad = structuredClone(catalogue);
+    bad.products[5].slug = bad.products[0].slug;
+    writeFileSync(path.join(broken, 'catalog', 'catalog.json'), JSON.stringify(bad));
+    const failed = seed({}, broken);
+    const afterFailure = await totals();
+    check('--force on a catalogue that fails half-way exits non-zero', failed.status !== 0, failed.status);
+    check('…and the old catalogue is still all there (wipe and re-insert are one transaction)', before[0] > 0 && afterFailure.join() === before.join(), [before, afterFailure]);
+
+    const ok = seed({});
+    const afterOk = await totals();
+    const sizes = catalogue.products.reduce((n, p) => n + p.variants.length, 0);
+    check('--force with a good catalogue replaces it completely', ok.status === 0 && afterOk[0] === catalogue.products.length && afterOk[1] === sizes, [ok.status, afterOk, ok.stderr.slice(0, 200)]);
+  }
+
+  console.log('package.json');
+  {
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string>; engines?: { node?: string } };
+    // every `tsx scripts/<file>` an npm script runs must exist (the `images` script once pointed at a file that was never there)
+    const missing = Object.entries(pkg.scripts).flatMap(([name, cmd]) => [...cmd.matchAll(/\btsx\s+(scripts\/[\w.-]+\.ts)/g)].map((m) => ({ name, file: m[1] }))).filter((s) => !existsSync(s.file));
+    check('every npm script that runs a tsx file points at a file that exists', missing.length === 0, missing);
+    // scripts/env.ts calls process.loadEnvFile, which arrived in Node 20.12
+    const [major, minor] = (/(\d+)\.(\d+)/.exec(pkg.engines?.node ?? '') ?? []).slice(1).map(Number);
+    check('engines.node asks for at least 20.12 (process.loadEnvFile in scripts/env.ts)', major > 20 || (major === 20 && minor >= 12), pkg.engines);
   }
 }
 

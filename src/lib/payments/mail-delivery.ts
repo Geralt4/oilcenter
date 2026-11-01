@@ -156,6 +156,20 @@ export async function countGivenUpMails(): Promise<number> {
 }
 
 /** What a queued mail is, in the admin's words. */
+/**
+ * What the order page may say about the buyer's confirmation mail of a CARD order (the mail is queued with the payment).
+ * sent: it went out. pending: queued, still being tried (retried for about a day). failed: given up. none: no such mail was
+ * queued for this order, so the page makes no claim about e-mail at all.
+ */
+export type ConfirmationMailState = 'sent' | 'pending' | 'failed' | 'none';
+export async function confirmationMailState(orderId: number): Promise<ConfirmationMailState> {
+  const rows = await db.select({ sentAt: mailOutbox.sentAt, givenUpAt: mailOutbox.givenUpAt }).from(mailOutbox).where(and(eq(mailOutbox.orderId, orderId), eq(mailOutbox.kind, 'order_confirmation')));
+  if (rows.length === 0) return 'none';
+  if (rows.some((r) => r.sentAt)) return 'sent';
+  if (rows.some((r) => r.givenUpAt)) return 'failed';
+  return 'pending';
+}
+
 export const MAIL_KIND_LABELS: Record<MailKind, string> = {
   order_confirmation: 'επιβεβαίωση πληρωμής προς τον πελάτη',
   order_paid_notice: 'ειδοποίηση πληρωμής προς το κατάστημα',

@@ -5,36 +5,62 @@ import { brands, productImages, products, settings, variants } from '../src/lib/
 import { DEFAULT_SETTINGS, type ShopSettings } from '../src/lib/settings';
 import { saveSettingsGroup } from '../src/lib/settings.server';
 import { pruneDeadTargets } from '../src/lib/discount-cleanup';
+import { savePatchProblems } from '../src/lib/patch-problems';
 import { applyHazardLabels, applyManufacturerSpecs } from './manufacturer-data';
 
-/**
- * The owner's own details as given on 22.09.2026 — ΑΦΜ, ΓΕΜΗ, ΔΟΥ, the one landline he keeps (the old fax, mobile and
- * e-mail are gone; the new store Gmail follows), and the opening hours confirmed exactly as seeded. Whatever else the
- * settings form holds (address, links, tagline) is kept.
- */
 async function pruneDeadTargetsPatch(): Promise<string> {
   const { cleaned, switchedOff } = await pruneDeadTargets();
   return `${cleaned} coupon(s)/sale(s) had dead targets removed, ${switchedOff} switched off`;
 }
 
+/** the opening hours the shop was first seeded with (a guess): Saturday until 14:00, not yet confirmed by the owner */
+const OLD_HOURS = [
+  { day: 1, closed: false, open: '08:30', close: '17:00' },
+  { day: 2, closed: false, open: '08:30', close: '17:00' },
+  { day: 3, closed: false, open: '08:30', close: '17:00' },
+  { day: 4, closed: false, open: '08:30', close: '17:00' },
+  { day: 5, closed: false, open: '08:30', close: '17:00' },
+  { day: 6, closed: false, open: '09:00', close: '14:00' },
+  { day: 7, closed: true, open: '', close: '' },
+];
+/** what these fields held when the database was first seeded (before the owner's details of 22.09.2026) */
+const OLD_SEED = {
+  phone: '2310 850778',
+  mobile: '6977 440388',
+  fax: '2310 850267',
+  email: 'iliastsakiridis@hotmail.com',
+  vatNumber: '',
+  taxOffice: '',
+  gemi: '',
+  hours: OLD_HOURS,
+} as const;
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * The owner's own details as given on 22.09.2026 — ΑΦΜ, ΓΕΜΗ, ΔΟΥ, the one landline he keeps (the old fax, mobile and
+ * e-mail are gone; the new store Gmail follows), and the opening hours confirmed exactly as seeded. Whatever else the
+ * settings form holds (address, links, tagline) is kept.
+ *
+ * A field is overwritten only while it still holds the value this database was seeded with (OLD_SEED below): a value the
+ * owner has typed in Admin → Ρυθμίσεις since is kept, which matters when this patch failed once and is retried at a later
+ * start (see runPatches). A field that is missing gets the new value, as does a database with nothing stored.
+ */
 async function applyShopDetails(): Promise<string> {
   const [row] = await db.select().from(settings).where(eq(settings.key, 'shop'));
   const stored = (row && typeof row.value === 'object' && row.value !== null && !Array.isArray(row.value) ? row.value : {}) as Partial<ShopSettings['shop']>;
   const d = DEFAULT_SETTINGS.shop;
-  await saveSettingsGroup('shop', {
-    ...d,
-    ...stored,
-    phone: d.phone,
-    mobile: '',
-    fax: '',
-    email: '',
-    vatNumber: d.vatNumber,
-    taxOffice: d.taxOffice,
-    gemi: d.gemi,
-    hours: structuredClone(d.hours),
-    hoursVerified: true,
-  });
-  return `ΑΦΜ ${d.vatNumber} · ΓΕΜΗ ${d.gemi} · ΔΟΥ ${d.taxOffice} · phone ${d.phone} only (fax, mobile, e-mail cleared) · hours confirmed`;
+  const next: ShopSettings['shop'] = { ...d, ...stored };
+  const target: Pick<ShopSettings['shop'], keyof typeof OLD_SEED> = { phone: d.phone, mobile: '', fax: '', email: '', vatNumber: d.vatNumber, taxOffice: d.taxOffice, gemi: d.gemi, hours: structuredClone(d.hours) };
+  const kept: string[] = [];
+  for (const key of Object.keys(OLD_SEED) as Array<keyof typeof OLD_SEED>) {
+    const have = stored[key];
+    if (have === undefined || same(have, OLD_SEED[key])) (next[key] as unknown) = target[key];
+    else if (!same(have, target[key])) kept.push(key);
+  }
+  // «confirmed» describes the hours this patch wrote: only then does it switch the flag on
+  if (same(next.hours, d.hours)) next.hoursVerified = true;
+  await saveSettingsGroup('shop', next);
+  return `ΑΦΜ ${next.vatNumber} · ΓΕΜΗ ${next.gemi} · ΔΟΥ ${next.taxOffice} · phone ${next.phone} · fax, mobile, e-mail cleared where they were still the seeded ones · hours ${next.hoursVerified ? 'confirmed' : 'left as the owner set them'}${kept.length ? ` · kept what the owner entered: ${kept.join(', ')}` : ''}`;
 }
 
 /**
@@ -147,7 +173,17 @@ async function linkToyotaSizePhotos(): Promise<string> {
  * Patches must be safe on a freshly seeded database too (they simply find nothing to do there).
  */
 
-const PATCHES: Array<{ id: string; run: () => Promise<string> }> = [
+/**
+ * `requires`: ids of patches that must have been applied (recorded) first. Several patches work on the same stored value and
+ * only give the intended result in the order they are listed (the shop-details patch resets e-mail and opening hours to the
+ * seed's, the e-mail and Saturday patches then change them). Since a failing patch no longer stops the boot, a later one
+ * must not run ahead of it: a retry of the earlier patch would otherwise undo what the later one did, and the later one is
+ * recorded and never runs again. (The search-keywords patch rebuilds every search text from the specs; run before the specs
+ * patch, the specs would then be appended behind the keywords instead of sitting in their place, another text than a clean run.)
+ */
+export type Patch = { id: string; run: () => Promise<string>; requires?: string[] };
+
+export const PATCHES: Patch[] = [
   // Real prices from the shop's Skroutz listing. Never overwrites a price the owner has already confirmed.
   { id: '2026-09-20-skroutz-prices', run: () => applySkroutzPrices({ verbose: false }) },
   // Specifications from the manufacturers' data sheets, only where the product had none.
@@ -159,19 +195,19 @@ const PATCHES: Array<{ id: string; run: () => Promise<string> }> = [
   // The accelerate dealership is no longer stated until the owner confirms it (questions.md T4, Admin → Ρυθμίσεις).
   { id: '2026-10-09-accelerate-claim', run: removeAccelerateClaim },
   // The shop's Gmail: shown on the site and used as the recipient of form messages.
-  { id: '2026-10-09-shop-email', run: applyShopEmail },
+  { id: '2026-10-09-shop-email', run: applyShopEmail, requires: ['2026-09-22-shop-details'] },
   // No Facebook link any more: drop the stored address too.
   { id: '2026-10-09-remove-facebook', run: removeFacebookLink },
   // Search synonyms get their own column; search texts the product editor had stripped of them are rebuilt.
-  { id: '2026-10-09-search-keywords', run: applySearchKeywords },
+  { id: '2026-10-09-search-keywords', run: applySearchKeywords, requires: ['2026-09-22-manufacturer-specs'] },
   // Saturday closes at 13:00 from 12.10.2026 (the owner's instruction): only a stored 14:00 is moved.
-  { id: '2026-10-12-saturday-hours', run: saturdayClosesAt13 },
+  { id: '2026-10-12-saturday-hours', run: saturdayClosesAt13, requires: ['2026-09-22-shop-details'] },
   // Founded 1998 and accelerate dealer, both confirmed by the owner on 12.10.2026; a founding year already entered is kept.
-  { id: '2026-10-12-shop-since-1998', run: shopSince1998 },
+  { id: '2026-10-12-shop-since-1998', run: shopSince1998, requires: ['2026-09-22-shop-details'] },
   // The owner's Toyota photos go to their own pack sizes: they were uploaded, but no size pointed at them.
   { id: '2026-10-12-toyota-size-photos', run: linkToyotaSizePhotos },
   // The shop's Instagram profile; a link already entered in the admin is kept.
-  { id: '2026-10-13-instagram-link', run: applyInstagramLink },
+  { id: '2026-10-13-instagram-link', run: applyInstagramLink, requires: ['2026-09-22-shop-details'] },
   // Coupons and sales that kept ids of products/brands/categories deleted before the delete cleanup existed: strip them, and switch
   // off any that end up limited to nothing (they would silently become whole-shop discounts the next time they are saved).
   { id: '2026-10-19-discount-dead-targets', run: pruneDeadTargetsPatch },
@@ -179,25 +215,58 @@ const PATCHES: Array<{ id: string; run: () => Promise<string> }> = [
 
 const KEY = 'dataPatches';
 
-async function main() {
+/**
+ * Runs the patches that are not recorded yet, one by one. A patch that throws is reported as a WARNING, is NOT recorded (it runs
+ * again at the next start) and does not stop the others or the boot: a data patch must never be the reason the shop is down.
+ * The cost: patches are not atomic with their record (a patch that half-applied runs again) and a later patch may find the
+ * data an earlier, failed one should have prepared, so every patch has to be safe to run twice.
+ */
+export async function runPatches(list: Patch[], log: Pick<Console, 'log' | 'warn'> = console): Promise<{ applied: string[]; failed: string[]; skipped: string[] }> {
   const [row] = await db.select().from(settings).where(eq(settings.key, KEY));
-  const applied = new Set(Array.isArray(row?.value) ? (row.value as string[]) : []);
-  const pending = PATCHES.filter((p) => !applied.has(p.id));
+  const recorded = new Set(Array.isArray(row?.value) ? (row.value as string[]) : []);
+  const pending = list.filter((p) => !recorded.has(p.id));
+  const result = { applied: [] as string[], failed: [] as string[], skipped: [] as string[] };
+  const failures: Array<{ id: string; error: string }> = [];
+  const waits: Array<{ id: string; for: string[] }> = [];
   if (!pending.length) {
-    console.log('Data patches: nothing to apply.');
-    return;
+    log.log('Data patches: nothing to apply.');
   }
   for (const patch of pending) {
-    console.log(`Data patch ${patch.id}: ${await patch.run()}`);
-    applied.add(patch.id);
-    const value = [...applied];
-    await db.insert(settings).values({ key: KEY, value }).onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: new Date() } });
+    const waiting = (patch.requires ?? []).filter((id) => !recorded.has(id));
+    if (waiting.length) {
+      log.warn(`[patches] WARNING: ${patch.id} waits for ${waiting.join(', ')}, which is not applied yet; it runs after it, at a later start`);
+      result.skipped.push(patch.id);
+      waits.push({ id: patch.id, for: waiting });
+      continue;
+    }
+    try {
+      const outcome = await patch.run();
+      recorded.add(patch.id);
+      const value = [...recorded];
+      await db.insert(settings).values({ key: KEY, value }).onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: new Date() } });
+      log.log(`Data patch ${patch.id}: ${outcome}`);
+      result.applied.push(patch.id);
+    } catch (err) {
+      recorded.delete(patch.id);
+      const error = err instanceof Error ? err.message : String(err);
+      log.warn(`[patches] WARNING: ${patch.id} failed and was not recorded; it runs again at the next start: ${error}`);
+      result.failed.push(patch.id);
+      failures.push({ id: patch.id, error });
+    }
   }
+  if (result.failed.length) log.warn(`[patches] WARNING: ${result.failed.length} of ${pending.length} data patch(es) failed: ${result.failed.join(', ')}`);
+  // what the admin dashboard shows (lib/patch-problems.ts); empty = the record is removed, so the line goes away once everything applied
+  await savePatchProblems({ failed: failures, waiting: waits });
+  return result;
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+// run directly (db:patch, the boot chain), not when a test imports runPatches
+if (require.main === module) {
+  runPatches(PATCHES)
+    .then(() => process.exit(0))
+    .catch((err) => {
+      // only reached when the patch record itself cannot be read: nothing is known, so the boot stops as before
+      console.error(err);
+      process.exit(1);
+    });
+}

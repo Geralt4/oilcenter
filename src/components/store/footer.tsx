@@ -5,11 +5,24 @@ import { SocialLinks, socialProfiles } from '@/components/store/social-links';
 import { TrustBadges } from '@/components/store/trust-badges';
 import type { CategoryNode } from '@/lib/catalog';
 import { fullAddress, groupedHours, mapsDirectionsUrl, mapsPlaceUrl, type ShopSettings } from '@/lib/settings';
+import { shopServices, type ShopService } from '@/lib/shop-services';
 import { telHref } from '@/lib/utils';
 
-/** `canOrder` false = catalogue mode: nothing about orders, shipping, returns or accounts (see store-context.tsx) */
-export function Footer({ settings, tree, canOrder }: { settings: ShopSettings; tree: CategoryNode[]; canOrder: boolean }) {
+const SERVICE_LINE: Record<ShopService, { icon: typeof Truck; label: string }> = {
+  courier: { icon: Truck, label: 'Αποστολή σε όλη την Ελλάδα' },
+  pickup: { icon: Store, label: 'Παραλαβή από το κατάστημα' },
+  cod: { icon: Banknote, label: 'Αντικαταβολή' },
+  card: { icon: CreditCard, label: 'Κάρτα' },
+  bank_transfer: { icon: Landmark, label: 'Κατάθεση' },
+};
+
+/**
+ * `canOrder` false = catalogue mode: nothing about orders, shipping, returns or accounts (see store-context.tsx)
+ * `cardProviderConfigured`: the service line lists card only when a payment provider is set up on this deployment
+ */
+export function Footer({ settings, tree, canOrder, cardProviderConfigured }: { settings: ShopSettings; tree: CategoryNode[]; canOrder: boolean; cardProviderConfigured: boolean }) {
   const { shop } = settings;
+  const services = shopServices(settings, cardProviderConfigured);
   return (
     <footer className="steel mt-20 text-ink-300">
       <div className="container-page grid gap-10 py-14 md:grid-cols-2 lg:grid-cols-[1.3fr_1fr_1fr_1.2fr]">
@@ -104,15 +117,14 @@ export function Footer({ settings, tree, canOrder }: { settings: ShopSettings; t
         </div>
       </div>
 
-      {canOrder && (
+      {canOrder && services.length > 0 && (
       <div className="border-t border-white/10">
         <div className="container-page flex flex-col gap-4 py-6 text-xs md:flex-row md:items-center md:justify-between">
           <ul className="flex flex-wrap items-center gap-x-5 gap-y-2 text-ink-300">
-            <li className="flex items-center gap-1.5"><Truck className="h-4 w-4 text-oil-400" />Αποστολή σε όλη την Ελλάδα</li>
-            <li className="flex items-center gap-1.5"><Store className="h-4 w-4 text-oil-400" />Παραλαβή από το κατάστημα</li>
-            <li className="flex items-center gap-1.5"><Banknote className="h-4 w-4 text-oil-400" />Αντικαταβολή</li>
-            <li className="flex items-center gap-1.5"><CreditCard className="h-4 w-4 text-oil-400" />Κάρτα</li>
-            <li className="flex items-center gap-1.5"><Landmark className="h-4 w-4 text-oil-400" />Κατάθεση</li>
+            {services.map((key) => {
+              const { icon: Icon, label } = SERVICE_LINE[key];
+              return <li key={key} className="flex items-center gap-1.5"><Icon className="h-4 w-4 text-oil-400" />{label}</li>;
+            })}
           </ul>
         </div>
       </div>

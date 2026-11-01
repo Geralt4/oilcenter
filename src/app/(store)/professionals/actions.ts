@@ -3,7 +3,8 @@
 import { z } from 'zod';
 import { formTooBig } from '@/lib/form-size';
 import { looksLikePhone, saveEnquiry } from '@/lib/enquiries';
-import { BUSINESS_TYPES, isValidAfm, type BusinessType } from '@/lib/quote';
+import { BUSINESS_TYPES, type BusinessType } from '@/lib/quote';
+import { isValidAfm } from '@/lib/utils';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 import { getSettings } from '@/lib/settings.server';
 

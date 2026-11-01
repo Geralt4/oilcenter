@@ -24,7 +24,7 @@ async function main() {
   const { migrate } = await import('drizzle-orm/libsql/migrator');
   await migrate(db, { migrationsFolder: './drizzle' });
   const { coupons, orderEvents, orders, variants } = await import('../src/lib/db/schema');
-  const { cancelOrder, createOrder, markOrderPaid } = await import('../src/lib/orders');
+  const { cancelOrder, createOrder, recordPayment } = await import('../src/lib/orders');
   const { deliverPendingMail } = await import('../src/lib/payments/mail-delivery');
   const { computeTotals, courierRateCents } = await import('../src/lib/pricing');
   const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
@@ -58,14 +58,57 @@ async function main() {
   check('flagged as test order while demo mode is on', first.order.isTest === true);
   check('order number format', /^OC-\d{5,}$/.test(first.order.number), first.order.number);
 
+  console.log('Checkout field limits');
+  {
+    const { CheckoutSchema } = await import('../src/lib/orders');
+    const valid = { lines: [{ variantId: 1, quantity: 1 }], email: 'a@example.gr', phone: '6912345678', firstName: 'Ελένη', lastName: 'Δοκιμή', shippingMethod: 'pickup', paymentMethod: 'pay_in_store', docType: 'receipt', acceptTerms: true };
+    check('(a valid payload passes)', CheckoutSchema.safeParse(valid).success);
+    // every field that has a length limit, with the limit
+    const limits: Array<[string, number]> = [['couponCode', 40], ['email', 160], ['phone', 30], ['firstName', 80], ['lastName', 80], ['street', 160], ['city', 80], ['postalCode', 10], ['region', 80], ['notes', 1000], ['companyName', 160], ['vatNumber', 20], ['taxOffice', 80], ['companyActivity', 160], ['companyAddress', 200]];
+    const wrong: Array<[string, string[]]> = [];
+    for (const [field, max] of limits) {
+      const value = field === 'phone' ? '6'.repeat(max + 1) : field === 'email' ? `${'a'.repeat(max)}@example.gr` : 'σ'.repeat(max + 1);
+      const result = CheckoutSchema.safeParse({ ...valid, [field]: value });
+      const messages = result.success ? [] : result.error.issues.filter((i) => i.path[0] === field).map((i) => i.message);
+      if (!messages.includes(`Έως ${max} χαρακτήρες. Συντομεύστε το κείμενο.`)) wrong.push([field, messages]);
+    }
+    check(`all ${limits.length} limited fields answer an over-long value in Greek, naming the limit`, wrong.length === 0, wrong);
+    const english = limits.flatMap(([field, max]) => {
+      const result = CheckoutSchema.safeParse({ ...valid, [field]: field === 'phone' ? '6'.repeat(max + 1) : 'σ'.repeat(max + 1) });
+      return result.success ? [] : result.error.issues.map((i) => i.message).filter((m) => !/[Α-ωά-ώ]/.test(m));
+    });
+    check('…and none of the messages for them is in English', english.length === 0, english);
+  }
+
+  console.log('Footer service line');
+  {
+    const { shopServices } = await import('../src/lib/shop-services');
+    const all = structuredClone(DEFAULT_SETTINGS);
+    all.shipping.courierEnabled = true; all.shipping.pickupEnabled = true;
+    all.payments.cod = true; all.payments.card = true; all.payments.bankTransfer = true;
+    check('everything on, card provider configured → all five', shopServices(all, true).join() === 'courier,pickup,cod,card,bank_transfer', shopServices(all, true));
+    check('…without a configured card provider, card is not promised even when the setting is on', !shopServices(all, false).includes('card') && shopServices(all, false).length === 4);
+    const noCourier = structuredClone(all); noCourier.shipping.courierEnabled = false;
+    check('courier off → no delivery and no cash on delivery (cod only goes with courier)', shopServices(noCourier, true).join() === 'pickup,card,bank_transfer', shopServices(noCourier, true));
+    const bare = structuredClone(all); bare.shipping.pickupEnabled = false; bare.payments.cod = false; bare.payments.card = false; bare.payments.bankTransfer = false;
+    check('only what is switched on is listed (courier alone)', shopServices(bare, true).join() === 'courier', shopServices(bare, true));
+    const none = structuredClone(bare); none.shipping.courierEnabled = false;
+    check('nothing on → an empty line (the footer then shows no row)', shopServices(none, true).length === 0);
+    const noBank = structuredClone(all); noBank.payments.bankTransfer = false;
+    check('bank transfer off → no «Κατάθεση»', !shopServices(noBank, true).includes('bank_transfer'));
+  }
+
   console.log('Payment settlement');
-  check('wrong amount is rejected', (await markOrderPaid(first.order.id, { provider: 'test', ref: 'x', amountCents: 100 })) === false);
+  const mismatchOutcome = await recordPayment(first.order.id, { provider: 'test', ref: 'x', amountCents: 100 });
+  check('wrong amount is rejected', mismatchOutcome === 'amount_mismatch', mismatchOutcome);
   const afterMismatch = (await db.select().from(orders).where(eq(orders.id, first.order.id)))[0];
   check('…and the order stays unpaid', afterMismatch.paymentStatus === 'pending', afterMismatch.paymentStatus);
   const warned = (await db.select().from(orderEvents).where(eq(orderEvents.orderId, first.order.id))).some((e) => e.message.includes('ΠΡΟΣΟΧΗ'));
   check('…and the mismatch is written to the order timeline', warned);
-  check('correct amount settles the order', (await markOrderPaid(first.order.id, { provider: 'test', ref: 'tx1', amountCents: 2590 })) === true);
-  check('duplicate callback is a no-op (idempotent)', (await markOrderPaid(first.order.id, { provider: 'test', ref: 'tx1', amountCents: 2590 })) === false);
+  const settleOutcome = await recordPayment(first.order.id, { provider: 'test', ref: 'tx1', amountCents: 2590 });
+  check('correct amount settles the order', settleOutcome === 'paid', settleOutcome);
+  const repeatOutcome = await recordPayment(first.order.id, { provider: 'test', ref: 'tx1', amountCents: 2590 });
+  check('duplicate callback is a no-op (idempotent)', repeatOutcome === 'already_paid', repeatOutcome);
   const paid = (await db.select().from(orders).where(eq(orders.id, first.order.id)))[0];
   check('paid order moves pending → confirmed', paid.paymentStatus === 'paid' && paid.status === 'confirmed', [paid.paymentStatus, paid.status]);
 
@@ -392,15 +435,48 @@ async function main() {
     check('…the owner alert is written to the outbox', newFiles.length === 1, newFiles);
     check('…and no file was addressed to the buyer', !newFiles.some((f) => f.includes(base.email)), newFiles);
 
-    console.log('  markOrderPaid wrapper');
+    console.log('  recordPayment outcomes');
     const o5a = await newCardOrder();
-    check('markOrderPaid is true on the first correct payment', (await markOrderPaid(o5a.id, { provider: 'viva', ref: 'w-1', amountCents: o5a.totalCents })) === true);
-    check('…false on a repeat', (await markOrderPaid(o5a.id, { provider: 'viva', ref: 'w-2', amountCents: o5a.totalCents })) === false);
+    const first5 = await recordPayment(o5a.id, { provider: 'viva', ref: 'w-1', amountCents: o5a.totalCents });
+    check('the first correct payment → paid', first5 === 'paid', first5);
+    const again5 = await recordPayment(o5a.id, { provider: 'viva', ref: 'w-1', amountCents: o5a.totalCents });
+    check('…the same payment again → already_paid', again5 === 'already_paid', again5);
+    const other5 = await recordPayment(o5a.id, { provider: 'viva', ref: 'w-2', amountCents: o5a.totalCents });
+    check('…another reference without a checkout reference on a paid order → already_paid (duplicate_payment needs an attemptRef, see below)', other5 === 'already_paid', other5);
     const o5b = await newCardOrder();
-    check('…false on an amount mismatch', (await markOrderPaid(o5b.id, { provider: 'viva', ref: 'w-3', amountCents: o5b.totalCents + 5 })) === false);
+    const mis5 = await recordPayment(o5b.id, { provider: 'viva', ref: 'w-3', amountCents: o5b.totalCents + 5 });
+    check('…an amount mismatch → amount_mismatch', mis5 === 'amount_mismatch', mis5);
     const o5c = await newCardOrder();
     await cancelOrder(o5c.id, 'test');
-    check('…false on a late (cancelled) payment', (await markOrderPaid(o5c.id, { provider: 'viva', ref: 'w-4', amountCents: o5c.totalCents })) === false);
+    const late5 = await recordPayment(o5c.id, { provider: 'viva', ref: 'w-4', amountCents: o5c.totalCents });
+    check('…a late (cancelled) payment → late_cancelled', late5 === 'late_cancelled', late5);
+
+    console.log('  The buyer\'s confirmation mail, as the order page reads it');
+    {
+      const { confirmationMailState } = await import('../src/lib/payments/mail-delivery');
+      const { mailOutbox } = await import('../src/lib/db/schema');
+      check('an order with no confirmation mail queued → none (the page makes no claim)', (await confirmationMailState(o5b.id)) === 'none');
+      check('a paid card order whose mail is queued → pending', (await confirmationMailState(o5a.id)) === 'pending');
+      await deliverPendingMail({ orderId: o5a.id });
+      check('…after delivery → sent', (await confirmationMailState(o5a.id)) === 'sent');
+      await db.update(mailOutbox).set({ sentAt: null, givenUpAt: new Date() }).where(eq(mailOutbox.orderId, o5a.id));
+      check('…a mail given up → failed', (await confirmationMailState(o5a.id)) === 'failed');
+      await db.update(mailOutbox).set({ givenUpAt: null }).where(eq(mailOutbox.orderId, o5a.id));
+    }
+
+    console.log('  Confirmation of a placed order');
+    {
+      const { sendPlacedOrderConfirmation } = await import('../src/lib/order-mail');
+      const { getOrderByNumber } = await import('../src/lib/orders');
+      const placed = await newCardOrder();
+      const full = await getOrderByNumber(placed.number);
+      const eventsOfOrder = async () => (await db.select().from(orderEvents).where(eq(orderEvents.orderId, placed.id))).map((e) => e.message);
+      const filesBefore = outboxFiles().length;
+      const none = await sendPlacedOrderConfirmation(placed, null, DEFAULT_SETTINGS);
+      check('an order that cannot be read back: not sent (false), no mail written, nothing on the timeline', none === false && outboxFiles().length === filesBefore && !(await eventsOfOrder()).some((m) => m.includes('e-mail επιβεβαίωσης')), [none, await eventsOfOrder()]);
+      const went = await sendPlacedOrderConfirmation(placed, full, DEFAULT_SETTINGS);
+      check('an order that can: sent (true), one mail written, «Στάλθηκε» on the timeline', went === true && outboxFiles().length === filesBefore + 1 && (await eventsOfOrder()).some((m) => m.startsWith('Στάλθηκε e-mail επιβεβαίωσης')), [went, await eventsOfOrder()]);
+    }
 
     console.log('  Payment attempts');
     const o6 = await newCardOrder();

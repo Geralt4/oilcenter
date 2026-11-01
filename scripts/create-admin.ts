@@ -8,6 +8,7 @@ import { hashPassword } from '../src/lib/auth/password';
  * Create an admin, or reset an existing admin's password.
  *   npm run admin:create -- owner@example.com 'a-long-password' "Ηλίας"
  *   echo "$ADMIN_PASSWORD" | npm run admin:create -- owner@example.com - "Ηλίας"   (password on stdin)
+ * The name is optional: a new admin without one is called «Διαχειριστής»; a reset without one keeps the name already stored.
  * A reset bumps tokenVersion, so every session cookie signed before it stops working immediately.
  */
 async function readStdin(): Promise<string> {
@@ -17,7 +18,8 @@ async function readStdin(): Promise<string> {
 }
 
 async function main() {
-  const [emailArg, passwordArg, name = 'Διαχειριστής'] = process.argv.slice(2);
+  const [emailArg, passwordArg, nameArg] = process.argv.slice(2);
+  const name = nameArg?.trim() || undefined;
   const email = (emailArg || '').trim().toLowerCase();
   // "-" reads the password from stdin, so it can stay out of shell history and process listings.
   const password = passwordArg === '-' ? await readStdin() : passwordArg;
@@ -35,11 +37,11 @@ async function main() {
     // sql`... + 1`, not a read-then-write: a reset revokes every session even if one was minted while it ran.
     await db
       .update(adminUsers)
-      .set({ passwordHash, name, tokenVersion: sql`${adminUsers.tokenVersion} + 1` })
+      .set({ passwordHash, ...(name ? { name } : {}), tokenVersion: sql`${adminUsers.tokenVersion} + 1` })
       .where(eq(adminUsers.id, existing.id));
     console.log(`Password updated for ${email} — all previous sessions were signed out.`);
   } else {
-    await db.insert(adminUsers).values({ email, passwordHash, name });
+    await db.insert(adminUsers).values({ email, passwordHash, name: name ?? 'Διαχειριστής' });
     console.log(`Admin created: ${email}`);
   }
 }

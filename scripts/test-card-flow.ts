@@ -74,7 +74,7 @@ async function main() {
 
   const { eq, and, ne, asc } = await import('drizzle-orm');
   const { db, client } = await import('../src/lib/db');
-  const { orders, paymentAttempts, orderEvents, unmatchedPayments, products, variants, settings, rateLimits } = await import('../src/lib/db/schema');
+  const { orders, paymentAttempts, orderEvents, unmatchedPayments, products, variants, settings, rateLimits, mailOutbox } = await import('../src/lib/db/schema');
   const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
 
   // Fresh per-IP limits, and a shop that takes orders.
@@ -229,6 +229,10 @@ async function main() {
         await page.waitForURL(succeeded, { timeout: 30_000 });
         const thanked = await page.getByRole('heading', { name: /Ευχαριστούμε/ }).waitFor({ timeout: 20_000 }).then(() => true, () => false);
         check('after «Πληρωμή» the browser lands on the success page', thanked && page.url().includes(placed.number), page.url());
+        const cartLines = () => page.evaluate(() => (JSON.parse(localStorage.getItem('oilcenter-cart') ?? '{}') as { state?: { lines?: unknown[] } }).state?.lines?.length ?? 0);
+        await delay(500);
+        check('…and only now is the cart emptied (the order page does it)', (await cartLines()) === 0, await cartLines());
+        check('…and the order page forgets the checkout draft', (await page.evaluate(() => sessionStorage.getItem('oilcenter-checkout'))) === null);
 
         const paid = await orderByNumber(placed.number);
         check('the order is paid and confirmed', paid.paymentStatus === 'paid' && paid.status === 'confirmed', { paymentStatus: paid.paymentStatus, status: paid.status });
@@ -245,6 +249,36 @@ async function main() {
         check('that mail says the card payment is awaited', ownerNew.length === 1 && ownerNew[0]!.subject.endsWith('ΑΝΑΜΕΝΕΤΑΙ ΠΛΗΡΩΜΗ ΜΕ ΚΑΡΤΑ'), ownerNew.map((mail) => mail.subject));
         const ownerPaid = mails.filter((mail) => mail.subject.startsWith('Πληρώθηκε με κάρτα:'));
         check('exactly one owner mail "Πληρώθηκε με κάρτα:"', ownerPaid.length === 1, mails.map((mail) => mail.subject));
+
+        // The thank-you box and the order page's address: what they say about the confirmation e-mail must be true, and the
+        // address (it holds the secret access token) must not leak as a Referer.
+        const pageUrl = `${base}/order/${placed.number}?t=${placed.accessToken}`;
+        const box = async (extra = '') => {
+          await page.goto(`${pageUrl}&payment=success${extra}`);
+          await page.getByRole('heading', { name: /Ευχαριστούμε/ }).waitFor({ timeout: 20_000 });
+          return ((await page.locator('#order-thanks').textContent()) ?? '').replace(/\s+/g, ' ');
+        };
+        const policy = (await page.request.get(pageUrl)).headers()['referrer-policy'];
+        check('the order page is sent with Referrer-Policy: no-referrer', policy === 'no-referrer', policy);
+        check('…and carries the matching meta tag', (await page.locator('meta[name="referrer"]').getAttribute('content')) === 'no-referrer');
+        check('the confirmation mail went out: the page says it was sent', (await box()).includes('στείλαμε επιβεβαίωση'));
+        check('…in the green box', /bg-emerald-50/.test((await page.locator('#order-thanks').getAttribute('class')) ?? ''));
+        await db.update(mailOutbox).set({ sentAt: null }).where(eq(mailOutbox.orderId, placed.id));
+        const queued = await box();
+        check('the mail is queued, not sent: the page says it will follow, not that it was sent', queued.includes('Θα σας στείλουμε επιβεβαίωση σύντομα') && !queued.includes('στείλαμε επιβεβαίωση'), queued);
+        await db.update(mailOutbox).set({ givenUpAt: new Date() }).where(eq(mailOutbox.orderId, placed.id));
+        const gaveUp = await box();
+        check('the mail was given up: the page says it could not be sent and shows the order number', gaveUp.includes('δεν μπορέσαμε να στείλουμε e-mail επιβεβαίωσης') && gaveUp.includes(placed.number) && !gaveUp.includes('στείλαμε επιβεβαίωση'), gaveUp);
+        const thanksClass = () => page.locator('#order-thanks').getAttribute('class').then((c) => c ?? '');
+        check('…and the notice is amber, not the green of «all went well»', /bg-amber-50/.test(await thanksClass()) && !/bg-emerald-50/.test(await thanksClass()), await thanksClass());
+        // an order that was not paid by card sends its mail while it is placed; the failure reaches the page as mail=0
+        await db.update(orders).set({ paymentMethod: 'cod' }).where(eq(orders.id, placed.id));
+        const codSent = await box().then(async () => { await page.goto(`${pageUrl}&placed=1`); return ((await page.locator('#order-thanks').textContent()) ?? '').replace(/\s+/g, ' '); });
+        check('a non-card order: placed=1 says the confirmation was sent', codSent.includes('στείλαμε επιβεβαίωση'), codSent);
+        await page.goto(`${pageUrl}&placed=1&mail=0`);
+        const codFailed = ((await page.locator('#order-thanks').textContent()) ?? '').replace(/\s+/g, ' ');
+        check('…and placed=1&mail=0 says it could not be sent', codFailed.includes('δεν μπορέσαμε να στείλουμε e-mail επιβεβαίωσης') && !codFailed.includes('στείλαμε επιβεβαίωση'), codFailed);
+        await db.update(orders).set({ paymentMethod: 'card' }).where(eq(orders.id, placed.id));
       } finally {
         await ctx.close();
       }
@@ -562,6 +596,11 @@ async function main() {
         await button.click();
         await page.waitForURL(/\/account/, { timeout: 20_000 });
         check('pressing the button signs the customer in on the account page', page.url().includes('/account?activated=1') && (await page.getByText('Ο λογαριασμός σας ενεργοποιήθηκε').count()) === 1 && (await verifiedAt()) !== null, page.url());
+        // signing out takes the checkout draft of this tab with it
+        await page.evaluate(() => sessionStorage.setItem('oilcenter-checkout', JSON.stringify({ form: { firstName: 'Ελένη' } })));
+        await page.getByRole('button', { name: 'Αποσύνδεση' }).click();
+        await page.waitForURL((url) => url.pathname === '/', { timeout: 20_000 });
+        check('signing out deletes the checkout draft of the tab', (await page.evaluate(() => sessionStorage.getItem('oilcenter-checkout'))) === null);
         await page.goto(link || `${base}/activate`);
         check('…and a second visit of the same link says it no longer works, with a way to a new one', (await page.getByText('Ο σύνδεσμος ενεργοποίησης δεν ισχύει').count()) === 1 && (await page.getByRole('link', { name: 'Στείλτε μου νέο σύνδεσμο' }).count()) === 1 && (await button.count()) === 0, page.url());
       } finally {
@@ -576,6 +615,77 @@ async function main() {
         check('…and its owner gets the «someone tried to register» notice', !!(await waitForMail(before, 'Προσπάθεια εγγραφής')), mailsSince(before).map((m) => m.subject));
       } finally {
         await second.ctx.close();
+      }
+    };
+
+    // ── S14 ────────────────────────────────────────────────────────────────────
+    const s14 = async () => {
+      console.log('S14 checkout: errors for every field, and the cart survives a card page that is never paid');
+      const { ctx, page } = await newPage();
+      try {
+        await startCheckout(page);
+        const cartLines = () => page.evaluate(() => (JSON.parse(localStorage.getItem('oilcenter-cart') ?? '{}') as { state?: { lines?: unknown[] } }).state?.lines?.length ?? 0);
+        await page.locator('#firstName').fill('Ελένη');
+        await page.locator('#lastName').fill('Δοκιμή');
+        await page.locator('#email').fill('field-errors@example.invalid');
+        await page.locator('#phone').fill('6912345678');
+        await page.locator('input[name="shippingMethod"][value="courier"]').check();
+        await page.locator('#street').fill('Οδός 1');
+        await page.locator('#city').fill('Θεσσαλονίκη');
+        await page.locator('#postalCode').fill('54624');
+        await page.locator('#region').fill('Ν'.repeat(100));
+        await page.getByRole('button', { name: 'Τιμολόγιο', exact: true }).click();
+        await page.locator('#companyName').fill('Δοκιμή ΕΠΕ');
+        await page.locator('#vatNumber').fill('123456783');
+        await page.locator('#taxOffice').fill('Α΄ Θεσσαλονίκης');
+        await page.locator('#companyActivity').fill('Εμπορία');
+        await page.locator('#companyAddress').fill('Έ'.repeat(250));
+        // typing stops at the textarea's maxlength, so the value is set the way a script or an odd browser would: past it
+        await page.locator('#notes').evaluate((el: HTMLTextAreaElement, text) => {
+          Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, text);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        }, 'σ'.repeat(1100));
+        await page.locator('input[name="paymentMethod"][value="card"]').check();
+        await page.locator('#acceptTerms').check();
+        await page.getByRole('button', { name: /^Συνέχεια στην πληρωμή/ }).click();
+        for (const id of ['region', 'companyAddress', 'notes']) {
+          const shown = await page.locator(`#${id}-err`).waitFor({ state: 'visible', timeout: 15_000 }).then(() => true, () => false);
+          check(`a refused value in «${id}» shows its error under the field`, shown && (await page.locator(`#${id}`).getAttribute('aria-invalid')) === 'true');
+        }
+        check('…and nothing was ordered, the cart is intact', (await cartLines()) === 1 && page.url().includes('/checkout'), [await cartLines(), page.url()]);
+
+        // a valid card order: the buyer is on the card page, never pays, and goes back to the shop
+        await page.locator('#region').fill('Θεσσαλονίκη');
+        await page.locator('#companyAddress').fill('Έδρα 1');
+        await page.locator('#notes').fill('');
+        await page.getByRole('button', { name: /^Συνέχεια στην πληρωμή/ }).click();
+        await page.waitForURL((url) => url.toString().startsWith(`${fake.baseUrl}/web/checkout?`), { timeout: 30_000 });
+        // Back from the card page: the form is as it was left (not the terms checkbox, and no card data is anywhere)
+        await page.goBack();
+        await page.locator('#firstName').waitFor({ timeout: 20_000 });
+        const restored = await page.evaluate(() => ({
+          firstName: (document.getElementById('firstName') as HTMLInputElement).value,
+          email: (document.getElementById('email') as HTMLInputElement).value,
+          street: (document.getElementById('street') as HTMLInputElement | null)?.value,
+          region: (document.getElementById('region') as HTMLInputElement | null)?.value,
+          companyName: (document.getElementById('companyName') as HTMLInputElement | null)?.value,
+          courier: (document.querySelector('input[name="shippingMethod"][value="courier"]') as HTMLInputElement).checked,
+          card: (document.querySelector('input[name="paymentMethod"][value="card"]') as HTMLInputElement | null)?.checked,
+          terms: (document.getElementById('acceptTerms') as HTMLInputElement).checked,
+          saved: sessionStorage.getItem('oilcenter-checkout') ?? '',
+        }));
+        check('after Back from the card page the typed fields come back', restored.firstName === 'Ελένη' && restored.email === 'field-errors@example.invalid' && restored.street === 'Οδός 1' && restored.region === 'Θεσσαλονίκη', restored);
+        check('…with courier and card still chosen, and the invoice details', restored.courier && restored.card === true && restored.companyName === 'Δοκιμή ΕΠΕ', restored);
+        check('…but the consent box is not ticked for the customer', restored.terms === false);
+        check('…and nothing about a card is stored', !/\bcard|4111|\bcvv|\bpan\b/i.test(restored.saved.replace(/"paymentMethod":"card"/, '')), restored.saved);
+        await page.goto(`${base}/cart`);
+        await page.waitForLoadState('domcontentloaded');
+        check('on the card page, not paid, back in the shop: the cart still holds the product', (await cartLines()) === 1, await cartLines());
+        await page.goto(`${base}/cookies`);
+        const cookiesText = ((await page.locator('main').textContent()) ?? '').replace(/\s+/g, ' ');
+        check('the cookies page says the checkout form is kept in the tab\'s session storage and when it is deleted', cookiesText.includes('oilcenter-checkout') && cookiesText.includes('session storage') && cookiesText.includes('όταν αποσυνδεθείτε') && cookiesText.includes('όταν αδειάσει το καλάθι'), cookiesText.slice(0, 200));
+      } finally {
+        await ctx.close();
       }
     };
 
@@ -600,6 +710,7 @@ async function main() {
     await run(s10, 'S10');
     await run(s12, 'S12');
     await run(s13, 'S13');
+    await run(s14, 'S14');
   } finally {
     await browser?.close().catch(() => undefined);
     if (server && server.exitCode === null) {

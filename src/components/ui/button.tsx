@@ -29,13 +29,3 @@ export function buttonClass(opts: { variant?: Variant; size?: Size; full?: boole
   const { variant = 'primary', size = 'md', full, className } = opts;
   return cn(base, variants[variant], sizes[size], full && 'w-full', className);
 }
-
-type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: Variant;
-  size?: Size;
-  full?: boolean;
-};
-
-export function Button({ variant, size, full, className, type = 'button', ...props }: ButtonProps) {
-  return <button type={type} className={buttonClass({ variant, size, full, className })} {...props} />;
-}

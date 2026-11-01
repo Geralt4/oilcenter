@@ -175,6 +175,9 @@ export async function requestPasswordReset(_prev: FormState, formData: FormData)
   if (!limited.ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.' };
   const parsed = email.safeParse(formData.get('email'));
   if (!parsed.success) return { ok: false, message: 'Μη έγκυρο e-mail.' };
+  // Per address as well, counted before anything is looked up (so it says nothing about who has an account): one mailbox cannot be
+  // flooded with reset mails from many addresses. The link already sent stays valid for its hour.
+  if (!(await rateLimit(`reset:email:${parsed.data}`, 3, 60 * 60 * 1000)).ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.' };
 
   const [customer] = await db.select({ id: customers.id }).from(customers).where(eq(customers.email, parsed.data));
   if (customer) {
@@ -192,6 +195,9 @@ export async function resetPassword(_prev: FormState, formData: FormData): Promi
   if (!(await accountsAvailable())) return { ok: false, message: 'Οι λογαριασμοί πελατών θα ανοίξουν μαζί με τις online παραγγελίες.' };
   const parsed = z.object({ token: z.string().min(20).max(200), password }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { ok: false, message: 'Ελέγξτε τον κωδικό.', fieldErrors: fieldErrors(parsed.error) };
+  // Counted before the link is looked up, so guessing links costs attempts whether or not one exists (the links are 256-bit random,
+  // this is defence in depth, and it bounds the password hashing a made-up link could otherwise trigger).
+  if (!(await rateLimit(`reset-submit:${await clientIp()}`, 10, 10 * 60 * 1000)).ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.' };
 
   // The link is spent by the same UPDATE that uses it: its hash and expiry are part of the WHERE, so two requests carrying the
   // same link at once cannot both set a password and sign in (the loser matches no row).
@@ -205,7 +211,20 @@ export async function resetPassword(_prev: FormState, formData: FormData): Promi
   const [customer] = await db
     .update(customers)
     // the reset link reached the mailbox, which proves the address too: an account that was never activated is activated here
-    .set({ passwordHash, resetTokenHash: null, resetTokenExpires: null, emailVerifiedAt: sql`coalesce(${customers.emailVerifiedAt}, ${Date.now()})`, verifyTokenHash: null, verifyTokenExpires: null, tokenVersion: sql`${customers.tokenVersion} + 1` })
+    .set({
+      passwordHash,
+      resetTokenHash: null,
+      resetTokenExpires: null,
+      emailVerifiedAt: sql`coalesce(${customers.emailVerifiedAt}, ${Date.now()})`,
+      // Whoever registered this address may not be its owner, and the names came from that form: an account that was never
+      // activated starts with none (the account page asks for them; every page shows a fallback until then). In one UPDATE,
+      // where the right-hand sides still see the row as it was, so the test «never activated» is decided on the old value.
+      firstName: sql`case when ${customers.emailVerifiedAt} is null then '' else ${customers.firstName} end`,
+      lastName: sql`case when ${customers.emailVerifiedAt} is null then '' else ${customers.lastName} end`,
+      verifyTokenHash: null,
+      verifyTokenExpires: null,
+      tokenVersion: sql`${customers.tokenVersion} + 1`,
+    })
     .where(and(eq(customers.resetTokenHash, tokenHash), gt(customers.resetTokenExpires, new Date())))
     .returning({ id: customers.id, tokenVersion: customers.tokenVersion });
   if (!customer) return { ok: false, message: 'Ο σύνδεσμος επαναφοράς δεν ισχύει ή έχει λήξει. Ζητήστε νέο.' };

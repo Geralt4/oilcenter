@@ -323,6 +323,25 @@ async function main() {
     await page.locator('main article').first().waitFor({ timeout: 20_000 });
     await delay(1500);
     check('all 61 favourites are listed, not only the first 60', (await page.locator('main article').count()) === 61, await page.locator('main article').count());
+    // the product request fails (a server error, then the network itself): an error with a retry, not an empty list or a spinner for ever
+    await page.evaluate((ids) => localStorage.setItem('oilcenter-wishlist', JSON.stringify({ state: { ids }, version: 1 })), favouriteIds.slice(0, 3));
+    let answer: 'error' | 'offline' | 'real' = 'error';
+    const productRequests = /\/api\/products\?/;
+    await page.route(productRequests, (route) => (answer === 'error' ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"down"}' }) : answer === 'offline' ? route.abort('failed') : route.continue()));
+    await page.goto(`${base}/wishlist`);
+    const retry = page.getByRole('button', { name: 'Δοκιμάστε ξανά' });
+    await retry.waitFor({ timeout: 20_000 });
+    check('a server error on the favourites shows an error and a retry button', ((await page.locator('main [role="alert"]').textContent()) ?? '').includes('Δεν φορτώθηκαν τα αγαπημένα σας'));
+    check('…not the «no favourites yet» message', !(await page.locator('main').innerText()).includes('Δεν έχετε αγαπημένα ακόμη'));
+    answer = 'offline';
+    await retry.click();
+    await retry.waitFor({ timeout: 20_000 });
+    check('a network failure on retry shows the error again, not a spinner for ever', (await page.locator('main article').count()) === 0 && (await page.locator('main [role="alert"]').count()) === 1);
+    answer = 'real';
+    await retry.click();
+    await page.locator('main article').first().waitFor({ timeout: 20_000 });
+    check('once the request works, the retry shows the favourites', (await page.locator('main article').count()) === 3 && (await page.locator('main [role="alert"]').count()) === 0, await page.locator('main article').count());
+    await page.unroute(productRequests);
     await page.evaluate(() => localStorage.removeItem('oilcenter-wishlist'));
 
     console.log('Statistics page and sign-ups export');
@@ -484,6 +503,19 @@ async function main() {
     await page.setViewportSize({ width: 1280, height: 500 });
     await page.goto(`${base}/admin`);
     check('the dashboard checklist lists the payment-mail line (no mail has been given up)', (await page.getByText('E-mail πληρωμών που δεν στάλθηκαν').count()) > 0 && (await page.getByText('Κανένα e-mail πληρωμής δεν έμεινε απέσταλτο.').count()) > 0);
+    // a data patch that failed at start-up (and one that waits for it) shows on the checklist, and the line goes when they have applied
+    {
+      const { settings } = await import('../src/lib/db/schema');
+      check('the checklist says the data updates are all applied (nothing failed)', (await page.getByText('Όλες οι ενημερώσεις δεδομένων που περίμεναν έχουν εφαρμοστεί.').count()) > 0);
+      const value = { failed: [{ id: '2026-09-22-shop-details', error: 'database is locked' }], waiting: [{ id: '2026-10-09-shop-email', for: ['2026-09-22-shop-details'] }], at: new Date().toISOString() };
+      await db.insert(settings).values({ key: 'dataPatchProblems', value });
+      await page.goto(`${base}/admin`);
+      const problem = ((await page.getByText('Η ενημέρωση δεδομένων').first().textContent()) ?? '').replace(/\s+/g, ' ');
+      check('a failed patch is named on the dashboard, with its error and the patch that waits for it', problem.includes('2026-09-22-shop-details') && problem.includes('database is locked') && problem.includes('2026-10-09-shop-email'), problem);
+      await db.delete(settings).where(eq(settings.key, 'dataPatchProblems'));
+      await page.goto(`${base}/admin`);
+      check('…and the line is gone again once the record is', (await page.getByText('Η ενημέρωση δεδομένων').count()) === 0 && (await page.getByText('Όλες οι ενημερώσεις δεδομένων που περίμεναν έχουν εφαρμοστεί.').count()) > 0);
+    }
     const menu = page.locator('aside nav[aria-label="Διαχείριση"]');
     const lastLink = menu.getByRole('link').last();
     const firstLink = menu.getByRole('link', { name: 'Επισκόπηση', exact: true });

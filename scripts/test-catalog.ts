@@ -98,12 +98,14 @@ async function main() {
   check('a code that does not exist finds nothing', (await find('ZQ-9999')).length === 0);
 
   console.log('Forms and badges');
-  const { isValidAfm } = await import('../src/lib/quote');
+  const { isValidAfm } = await import('../src/lib/utils');
   const { looksLikePhone } = await import('../src/lib/enquiries');
   const { trustItems } = await import('../src/components/store/trust-badges');
   const { DEFAULT_SETTINGS } = await import('../src/lib/settings');
   check('a VAT number with the right check digit passes, with or without EL', isValidAfm('123456783') && isValidAfm('EL 123456783'));
   check('one wrong digit, a short number and all zeros are refused', !isValidAfm('123456784') && !isValidAfm('12345678') && !isValidAfm('000000000') && !isValidAfm(''));
+  check('spaces, dots and dashes between the digits are fine', isValidAfm('123 456 783') && isValidAfm('123.456.783') && isValidAfm('123-456-783') && isValidAfm(' el123456783 '));
+  check('a letter inside, ten digits and a second prefix are refused (the checkout used to strip every non-digit)', !isValidAfm('12a3456783') && !isValidAfm('1234567830') && !isValidAfm('ELEL123456783') && !isValidAfm('EL'));
   check('phones: 10 digits, +30 and spaces are fine; too short or with letters is not', looksLikePhone('2310 850778') && looksLikePhone('+30 697 744 0388') && !looksLikePhone('123') && !looksLikePhone('call me 2310850778'));
   check('no rating and no founding year entered → no badge at all', trustItems({ ...DEFAULT_SETTINGS.shop, foundedYear: 0 }, DEFAULT_SETTINGS.reviews).length === 0);
   const badges = trustItems({ ...DEFAULT_SETTINGS.shop, foundedYear: 1992 }, { googleUrl: 'https://maps.app.goo.gl/x', googleRating: 4.8, googleCount: 132, skroutzRating: 0, skroutzCount: 57 });
@@ -320,16 +322,48 @@ async function main() {
     await db.delete(products).where(eq(products.id, up.id));
   }
 
+  console.log('Checkout draft (what was typed, kept in sessionStorage)');
+  {
+    const { DRAFT_KEY, clearDraft, readDraft, sanitizeDraft, writeDraft } = await import('../src/lib/checkout-draft');
+    const mem = new Map<string, string>();
+    const store = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) };
+    writeDraft({ form: { firstName: 'Ελένη', email: 'e@example.gr', notes: 'μετά τις 5' }, shippingMethod: 'pickup', paymentMethod: 'card', docType: 'invoice' }, store);
+    const back = readDraft(store);
+    check('what was typed and chosen comes back as it was', back?.form.firstName === 'Ελένη' && back.form.email === 'e@example.gr' && back.form.notes === 'μετά τις 5' && back.shippingMethod === 'pickup' && back.paymentMethod === 'card' && back.docType === 'invoice', back);
+    writeDraft({ form: { firstName: 'Α' }, acceptTerms: true, cardNumber: '4111111111111111', extra: 1 } as never, store);
+    const stored = mem.get(DRAFT_KEY) ?? '';
+    check('only the form\'s own fields are written: no consent flag, nothing that looks like a card, no stray property', !/acceptTerms|cardNumber|4111|extra/.test(stored), stored);
+    check('a draft that is damaged or foreign reads as nothing (not an error)', readDraft({ getItem: () => '{not json' }) === null && readDraft({ getItem: () => '[1,2]' }) === null && readDraft({ getItem: () => null }) === null && readDraft(null) === null);
+    const odd = sanitizeDraft({ form: { firstName: 5, city: 'Θεσσαλονίκη', notes: 'x'.repeat(5000), unknown: 'y' }, shippingMethod: 'drone', paymentMethod: 'bitcoin', docType: 'invoice' });
+    check('wrong types and unknown choices are dropped, an over-long text is cut to the longest field', odd?.form.firstName === undefined && odd?.form.city === 'Θεσσαλονίκη' && odd?.form.notes?.length === 1000 && !('unknown' in (odd?.form ?? {})) && odd?.shippingMethod === undefined && odd?.paymentMethod === undefined && odd?.docType === 'invoice', odd);
+    clearDraft(store);
+    check('clearing removes it', readDraft(store) === null && !mem.has(DRAFT_KEY));
+    const blocked = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('quota'); }, removeItem: () => { throw new Error('blocked'); } };
+    let threw = false;
+    try {
+      writeDraft({ form: { firstName: 'Α' } }, blocked);
+      readDraft(blocked);
+      clearDraft(blocked);
+      writeDraft({ form: {} }, null);
+      clearDraft(null);
+    } catch {
+      threw = true;
+    }
+    check('storage that throws (blocked, full) or is missing never throws out of the helpers', !threw);
+  }
+
   console.log('Cart and favourites across browser tabs');
   {
     // Two tabs of one browser: the same localStorage, a separate copy of the store in each, and the browser's `storage` event
     // delivered to the OTHER tab after a write (it is never sent to the tab that wrote).
     const shared = new Map<string, string>();
+    const session = new Map<string, string>(); // this tab's sessionStorage
     const listeners: Array<{ tab: number; fn: (event: { key: string | null }) => void }> = [];
     let loading = 0;
     const g = globalThis as unknown as { window?: unknown };
     g.window = {
       localStorage: { getItem: (k: string) => shared.get(k) ?? null, setItem: (k: string, v: string) => void shared.set(k, v), removeItem: (k: string) => void shared.delete(k) },
+      sessionStorage: { getItem: (k: string) => session.get(k) ?? null, setItem: (k: string, v: string) => void session.set(k, v), removeItem: (k: string) => void session.delete(k) },
       addEventListener: (type: string, fn: (event: { key: string | null }) => void) => { if (type === 'storage') listeners.push({ tab: loading, fn }); },
       removeEventListener: () => undefined,
     };
@@ -368,6 +402,41 @@ async function main() {
     check('an unrelated storage event changes nothing in the other tab', tab2.useCart.getState().lines.length === 2, tab2.useCart.getState().lines.length);
     deliver(2, 'oilcenter-cart');
     check('the cart emptied in one tab is empty in the other after the event', tab2.useCart.getState().lines.length === 0, tab2.useCart.getState().lines.length);
+
+    // a cart saved under an older version: the persist middleware calls migrate; the well-formed lines survive, the rest does not
+    shared.set('oilcenter-cart', JSON.stringify({ version: 0, state: { couponCode: 'WELCOME5', lines: [
+      { variantId: 31, quantity: 2, snapshot: snapshot('keep') },
+      { variantId: 32, quantity: 0, snapshot: snapshot('zero-quantity') },
+      { variantId: '33', quantity: 1, snapshot: snapshot('text-id') },
+      { variantId: 34, quantity: 1 },
+      { variantId: 31, quantity: 5, snapshot: snapshot('same-size-twice') },
+      'junk',
+    ] } }));
+    shared.set('oilcenter-wishlist', JSON.stringify({ version: 0, state: { ids: [5, '6', 7, 7, -1, 2.5, null] } }));
+    const tab3 = loadTab(3);
+    const migrated = tab3.useCart.getState();
+    check('an older saved cart keeps its well-formed lines (once each) and drops the rest', migrated.lines.length === 1 && migrated.lines[0].variantId === 31 && migrated.lines[0].quantity === 2, migrated.lines.map((l) => [l.variantId, l.quantity]));
+    check('…and keeps its coupon code', migrated.couponCode === 'WELCOME5', migrated.couponCode);
+    check('an older saved favourites list keeps whole product ids, each once', tab3.useWishlist.getState().ids.join() === '5,7', tab3.useWishlist.getState().ids);
+    check('sanitizing nonsense gives an empty cart, not an error', tab3.sanitizeCartState(null).lines.length === 0 && tab3.sanitizeCartState('x').couponCode === null && tab3.sanitizeWishlistState(42).ids.length === 0);
+
+    // the checkout draft goes with the cart when the cart is emptied, not while something is still in it
+    const { writeDraft, readDraft } = await import('../src/lib/checkout-draft');
+    const draftThere = () => readDraft() !== null;
+    tab1.useCart.getState().add(55, snapshot('z1'), 1);
+    tab1.useCart.getState().add(56, snapshot('z2'), 1);
+    writeDraft({ form: { firstName: 'Ελένη' } });
+    tab1.useCart.getState().remove(55);
+    check('removing one of two items keeps the checkout draft', draftThere());
+    tab1.useCart.getState().remove(56);
+    check('removing the last item deletes it', !draftThere());
+    tab1.useCart.getState().add(57, snapshot('z3'), 1);
+    writeDraft({ form: { firstName: 'Ελένη' } });
+    tab1.useCart.getState().clear();
+    check('emptying the cart (clear) deletes it', !draftThere());
+    writeDraft({ form: { firstName: 'Ελένη' } });
+    tab1.useCart.getState().clear();
+    check('clearing an already empty cart leaves a draft alone (nothing was emptied)', draftThere());
     delete g.window;
   }
 
