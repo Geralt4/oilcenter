@@ -64,6 +64,11 @@ const nextConfig: NextConfig = {
         source: '/activate',
         headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
       },
+      // Same for the order page: its address holds the order's secret access token (?t=…).
+      {
+        source: '/order/:number',
+        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+      },
     ];
   },
   // Keep whatever search equity the 2015 static site still has.

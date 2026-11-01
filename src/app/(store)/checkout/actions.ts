@@ -62,11 +62,14 @@ export async function placeOrder(raw: unknown): Promise<PlaceOrderResult> {
     }
   }
 
+  // The order page thanks the buyer for the order in any case, but only says «we sent a confirmation» when one went out: a failure
+  // is passed on as mail=0 (the mail itself is not retried on this path, the order page then says to keep the number).
+  let sent = full === null;
   if (full) {
-    const sent = await sendMail(orderConfirmationMail(full, settings));
+    sent = await sendMail(orderConfirmationMail(full, settings));
     await addOrderEvent(order.id, 'email', sent ? `Στάλθηκε e-mail επιβεβαίωσης στο ${order.email}.` : `ΑΠΟΤΥΧΙΑ αποστολής e-mail επιβεβαίωσης στο ${order.email}.`);
   }
-  return { ok: true, redirectUrl: `${orderUrl}&placed=1`, external: false };
+  return { ok: true, redirectUrl: `${orderUrl}&placed=1${sent ? '' : '&mail=0'}`, external: false };
 }
 
 /** Lets the buyer try the card again from the order page after a failed / abandoned payment. */

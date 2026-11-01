@@ -429,6 +429,19 @@ async function main() {
     const late5 = await recordPayment(o5c.id, { provider: 'viva', ref: 'w-4', amountCents: o5c.totalCents });
     check('…a late (cancelled) payment → late_cancelled', late5 === 'late_cancelled', late5);
 
+    console.log('  The buyer\'s confirmation mail, as the order page reads it');
+    {
+      const { confirmationMailState } = await import('../src/lib/payments/mail-delivery');
+      const { mailOutbox } = await import('../src/lib/db/schema');
+      check('an order with no confirmation mail queued → none (the page makes no claim)', (await confirmationMailState(o5b.id)) === 'none');
+      check('a paid card order whose mail is queued → pending', (await confirmationMailState(o5a.id)) === 'pending');
+      await deliverPendingMail({ orderId: o5a.id });
+      check('…after delivery → sent', (await confirmationMailState(o5a.id)) === 'sent');
+      await db.update(mailOutbox).set({ sentAt: null, givenUpAt: new Date() }).where(eq(mailOutbox.orderId, o5a.id));
+      check('…a mail given up → failed', (await confirmationMailState(o5a.id)) === 'failed');
+      await db.update(mailOutbox).set({ givenUpAt: null }).where(eq(mailOutbox.orderId, o5a.id));
+    }
+
     console.log('  Payment attempts');
     const o6 = await newCardOrder();
     await recordPaymentAttempt(o6.id, { provider: 'viva', ref: 'att-old-6' });

@@ -9,6 +9,7 @@ import { buttonClass } from '@/components/ui/button';
 import { getCustomer } from '@/lib/auth/session';
 import type { OrderStatus } from '@/lib/db/schema';
 import { getOrderByNumber, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/orders';
+import { confirmationMailState, type ConfirmationMailState } from '@/lib/payments/mail-delivery';
 import { formatIban } from '@/lib/iban';
 import { cardProvider } from '@/lib/payments';
 import { PAYMENT_LABELS, SHIPPING_LABELS } from '@/lib/pricing';
@@ -16,7 +17,8 @@ import { fullAddress, mapsDirectionsUrl } from '@/lib/settings';
 import { getSettings } from '@/lib/settings.server';
 import { cn, formatDateTime, formatPrice, telHref } from '@/lib/utils';
 
-export const metadata: Metadata = { title: 'Η παραγγελία σας', robots: { index: false, follow: false } };
+// the address carries the secret access token: nothing this page links to or loads may receive it as a Referer (next.config.ts sends the same header)
+export const metadata: Metadata = { title: 'Η παραγγελία σας', robots: { index: false, follow: false }, referrer: 'no-referrer' };
 
 type Props = { params: Promise<{ number: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -41,6 +43,9 @@ export default async function OrderPage({ params, searchParams }: Props) {
   const current = rank[order.status];
 
   const justPlaced = sp.placed === '1' || sp.payment === 'success';
+  // What the thank-you box may say about the confirmation e-mail. A card order's mail is queued with the payment (so ask the queue);
+  // any other order's was sent while placing it, and a failure comes back as mail=0.
+  const mailState: ConfirmationMailState = !justPlaced ? 'none' : order.paymentMethod === 'card' ? await confirmationMailState(order.id) : sp.mail === '0' ? 'failed' : 'sent';
   const paymentProblem = sp.payment === 'failed' || sp.payment === 'cancelled';
   // the gateway took the payment but has not settled it yet (e.g. SEPA Debit): no retry button, or the buyer pays twice
   const paymentProcessing = sp.payment === 'pending';
@@ -56,7 +61,12 @@ export default async function OrderPage({ params, searchParams }: Props) {
         <div className="mb-8 rounded-3xl bg-emerald-50 p-6 text-center sm:p-8">
           <CircleCheck className="mx-auto h-12 w-12 text-emerald-600" />
           <h1 className="display mt-3 text-3xl text-emerald-950 sm:text-4xl">Ευχαριστούμε, {order.firstName}!</h1>
-          <p className="mx-auto mt-2 max-w-xl text-emerald-900">Λάβαμε την παραγγελία σας και στείλαμε επιβεβαίωση στο <strong>{order.email}</strong>.</p>
+          <p className="mx-auto mt-2 max-w-xl text-emerald-900">
+            {mailState === 'sent' && <>Λάβαμε την παραγγελία σας και στείλαμε επιβεβαίωση στο <strong>{order.email}</strong>.</>}
+            {mailState === 'pending' && <>Λάβαμε την παραγγελία σας. Θα σας στείλουμε επιβεβαίωση σύντομα στο <strong>{order.email}</strong>. Κρατήστε τον αριθμό της παραγγελίας: <strong className="tabular">{order.number}</strong>.</>}
+            {mailState === 'failed' && <>Λάβαμε την παραγγελία σας, αλλά δεν μπορέσαμε να στείλουμε e-mail επιβεβαίωσης στο <strong>{order.email}</strong>. Κρατήστε τον αριθμό της παραγγελίας (<strong className="tabular">{order.number}</strong>) ή αποθηκεύστε αυτή τη σελίδα. Για οτιδήποτε καλέστε μας στο <a href={telHref(shop.phone)} className="tabular font-semibold underline">{shop.phone}</a>.</>}
+            {mailState === 'none' && <>Λάβαμε την παραγγελία σας. Κρατήστε τον αριθμό της παραγγελίας: <strong className="tabular">{order.number}</strong>.</>}
+          </p>
         </div>
       )}
 
