@@ -256,24 +256,27 @@ async function main() {
         const box = async (extra = '') => {
           await page.goto(`${pageUrl}&payment=success${extra}`);
           await page.getByRole('heading', { name: /Ευχαριστούμε/ }).waitFor({ timeout: 20_000 });
-          return ((await page.locator('main .bg-emerald-50').first().textContent()) ?? '').replace(/\s+/g, ' ');
+          return ((await page.locator('#order-thanks').textContent()) ?? '').replace(/\s+/g, ' ');
         };
         const policy = (await page.request.get(pageUrl)).headers()['referrer-policy'];
         check('the order page is sent with Referrer-Policy: no-referrer', policy === 'no-referrer', policy);
         check('…and carries the matching meta tag', (await page.locator('meta[name="referrer"]').getAttribute('content')) === 'no-referrer');
         check('the confirmation mail went out: the page says it was sent', (await box()).includes('στείλαμε επιβεβαίωση'));
+        check('…in the green box', /bg-emerald-50/.test((await page.locator('#order-thanks').getAttribute('class')) ?? ''));
         await db.update(mailOutbox).set({ sentAt: null }).where(eq(mailOutbox.orderId, placed.id));
         const queued = await box();
         check('the mail is queued, not sent: the page says it will follow, not that it was sent', queued.includes('Θα σας στείλουμε επιβεβαίωση σύντομα') && !queued.includes('στείλαμε επιβεβαίωση'), queued);
         await db.update(mailOutbox).set({ givenUpAt: new Date() }).where(eq(mailOutbox.orderId, placed.id));
         const gaveUp = await box();
         check('the mail was given up: the page says it could not be sent and shows the order number', gaveUp.includes('δεν μπορέσαμε να στείλουμε e-mail επιβεβαίωσης') && gaveUp.includes(placed.number) && !gaveUp.includes('στείλαμε επιβεβαίωση'), gaveUp);
+        const thanksClass = () => page.locator('#order-thanks').getAttribute('class').then((c) => c ?? '');
+        check('…and the notice is amber, not the green of «all went well»', /bg-amber-50/.test(await thanksClass()) && !/bg-emerald-50/.test(await thanksClass()), await thanksClass());
         // an order that was not paid by card sends its mail while it is placed; the failure reaches the page as mail=0
         await db.update(orders).set({ paymentMethod: 'cod' }).where(eq(orders.id, placed.id));
-        const codSent = await box().then(async () => { await page.goto(`${pageUrl}&placed=1`); return ((await page.locator('main .bg-emerald-50').first().textContent()) ?? '').replace(/\s+/g, ' '); });
+        const codSent = await box().then(async () => { await page.goto(`${pageUrl}&placed=1`); return ((await page.locator('#order-thanks').textContent()) ?? '').replace(/\s+/g, ' '); });
         check('a non-card order: placed=1 says the confirmation was sent', codSent.includes('στείλαμε επιβεβαίωση'), codSent);
         await page.goto(`${pageUrl}&placed=1&mail=0`);
-        const codFailed = ((await page.locator('main .bg-emerald-50').first().textContent()) ?? '').replace(/\s+/g, ' ');
+        const codFailed = ((await page.locator('#order-thanks').textContent()) ?? '').replace(/\s+/g, ' ');
         check('…and placed=1&mail=0 says it could not be sent', codFailed.includes('δεν μπορέσαμε να στείλουμε e-mail επιβεβαίωσης') && !codFailed.includes('στείλαμε επιβεβαίωση'), codFailed);
         await db.update(orders).set({ paymentMethod: 'card' }).where(eq(orders.id, placed.id));
       } finally {

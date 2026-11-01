@@ -64,10 +64,11 @@ export default async function OrderPage({ params, searchParams }: Props) {
       <ClearCheckoutDraft />
       {clearCart && <ClearCart />}
       {justPlaced && !unpaidCard && (
-        <div className="mb-8 rounded-3xl bg-emerald-50 p-6 text-center sm:p-8">
-          <CircleCheck className="mx-auto h-12 w-12 text-emerald-600" />
-          <h1 className="display mt-3 text-3xl text-emerald-950 sm:text-4xl">Ευχαριστούμε, {order.firstName}!</h1>
-          <p className="mx-auto mt-2 max-w-xl text-emerald-900">
+        // green for «all went well»; amber when the confirmation mail could not be sent (the order itself is fine, the buyer needs to keep its number)
+        <div id="order-thanks" role="status" className={cn('mb-8 rounded-3xl p-6 text-center sm:p-8', mailState === 'failed' ? 'border border-amber-200 bg-amber-50' : 'bg-emerald-50')}>
+          {mailState === 'failed' ? <CircleAlert className="mx-auto h-12 w-12 text-amber-600" /> : <CircleCheck className="mx-auto h-12 w-12 text-emerald-600" />}
+          <h1 className={cn('display mt-3 text-3xl sm:text-4xl', mailState === 'failed' ? 'text-amber-950' : 'text-emerald-950')}>Ευχαριστούμε, {order.firstName}!</h1>
+          <p className={cn('mx-auto mt-2 max-w-xl', mailState === 'failed' ? 'text-amber-900' : 'text-emerald-900')}>
             {mailState === 'sent' && <>Λάβαμε την παραγγελία σας και στείλαμε επιβεβαίωση στο <strong>{order.email}</strong>.</>}
             {mailState === 'pending' && <>Λάβαμε την παραγγελία σας. Θα σας στείλουμε επιβεβαίωση σύντομα στο <strong>{order.email}</strong>. Κρατήστε τον αριθμό της παραγγελίας: <strong className="tabular">{order.number}</strong>.</>}
             {mailState === 'failed' && <>Λάβαμε την παραγγελία σας, αλλά δεν μπορέσαμε να στείλουμε e-mail επιβεβαίωσης στο <strong>{order.email}</strong>. Κρατήστε τον αριθμό της παραγγελίας (<strong className="tabular">{order.number}</strong>) ή αποθηκεύστε αυτή τη σελίδα. Για οτιδήποτε καλέστε μας στο <a href={telHref(shop.phone)} className="tabular font-semibold underline">{shop.phone}</a>.</>}
