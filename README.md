@@ -96,6 +96,39 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
     account, domain moved or re-registered to him, DNS rebuilt off the old server, both hostnames on Railway,
     `SITE_URL` set, old hosting deleted last) is the runbook in [`DOMAIN.md`](DOMAIN.md). Nothing public can happen before it.
 
+## Launch day: opening online ordering
+
+Do these in this order. Several steps are refused, or fail, if an earlier one is missing. The reasons and the details are
+in "Before going live" above and in [`VIVA.md`](VIVA.md) section 10.
+
+1. **Enable 2FA** on the owner's admin account: *Ρυθμίσεις → «Επαλήθευση δύο βημάτων (2FA)» → «Ενεργοποίηση»* (it asks
+   for the current password), scan the QR code, type the code. Without 2FA the identity confirmation in step 2 cannot be
+   given, and without that, changing the IBAN (step 3) and opening ordering (step 7) are refused.
+2. **Confirm identity:** *Ρυθμίσεις → «Επιβεβαίωση ταυτότητας»* (password + the 2FA code). It lasts 5 minutes, for that
+   session only.
+3. **Set the IBAN** in *Τρόποι πληρωμής* and save while the confirmation is valid. It is needed if bank transfer is
+   offered; otherwise switch bank transfer off. An unpaid bank-transfer order is cancelled automatically after 5 days.
+4. **Set `MAIL_FROM`** on Railway to a sender on a domain verified in Resend. Without it, mail to customers leaves from
+   Resend's test address, which reaches only the Resend account's own mailbox. The dashboard line «Διεύθυνση αποστολέα
+   e-mail» turns green. Every variable set on Railway must also be in `.railway/railway.ts`, or the next
+   `railway config apply` deletes it.
+5. **Cancel the old test order `OC-10001`** (bank transfer, pending since 20 Sep) in *Παραγγελίες*. If you do not, the
+   first hourly sweep after `COMMERCE_ENABLED=false` is removed (step 6) cancels it and e-mails the address on it.
+6. **Card payments (Viva), if they are offered at launch.** Follow VIVA.md section 10 in its order: (1) re-run all tests
+   (`test:viva`, `test:orders`, `test:admin`, `test:card`); (2) the demo run (VIVA.md section 6); (3) the real merchant
+   account and its payment source; (4) set the live keys and `VIVA_ENV=live` on Railway and remove
+   `COMMERCE_ENABLED=false`; (5) **then** register the webhook and press «Verify» (it is answered with 503 while commerce
+   is off, so registering it earlier fails). If card payments are not offered at launch, still remove
+   `COMMERCE_ENABLED=false`: while it is set the site takes no orders, whatever the settings say.
+7. **Open ordering:** confirm identity again if more than 5 minutes have passed since step 2, then *Ρυθμίσεις →
+   «Λειτουργία καταστήματος» → «Το κατάστημα δέχεται online παραγγελίες»*, and save.
+8. **Place one real small order and refund it** (VIVA.md section 10, step 7). Refund it in Viva's dashboard (the app has
+   no refund button) and mark the order «Επιστροφή χρημάτων». Check that the customer's confirmation e-mail and the
+   shop's notice arrive.
+
+Off again at any moment: set `COMMERCE_ENABLED=false` (orders, accounts and payments refuse server-side). Orders already
+paid stay paid.
+
 ## Security hardening (October 2026)
 
 What the deployment-level protections do and where they live — read together with "Before going live".
