@@ -10,6 +10,8 @@ import path from 'node:path';
 import { cloneDatabase } from './test-db';
 
 process.env.SITE_URL = 'https://www.oilcenter.gr';
+// There is no built-in session secret (lib/auth/secret.ts): this script signs an admin session, so it brings its own.
+process.env.AUTH_SECRET = 'feed-test-only-secret-not-used-anywhere-0123456789';
 let dir = '';
 
 let failures = 0;

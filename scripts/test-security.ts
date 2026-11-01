@@ -110,6 +110,40 @@ async function main() {
   const freshKey = probe('check', 'restart-probe-untouched');
   check('a different key still has its own budget after the restart', freshKey.ok, freshKey);
 
+  console.log('Session secret');
+  {
+    const { resolveAuthSecret } = await import('../src/lib/auth/secret');
+    // the secret the code used to fall back to: published in the repository history, so it must never sign anything again
+    const OLD_PUBLISHED_SECRET = new TextEncoder().encode('dev-only-insecure-secret-do-not-use-in-production');
+    const text = (key: Uint8Array | null) => (key ? new TextDecoder().decode(key) : null);
+    const good = 'k'.repeat(40);
+    check('a secret of 32 characters or more is used as it is', text(resolveAuthSecret({ AUTH_SECRET: good, NODE_ENV: 'production' })) === good);
+    check('…in development as well', text(resolveAuthSecret({ AUTH_SECRET: good })) === good);
+    check('a missing secret gives no key, also outside production (no built-in fallback)', resolveAuthSecret({}) === null && resolveAuthSecret({ NODE_ENV: 'development' }) === null);
+    check('a short secret gives no key', resolveAuthSecret({ AUTH_SECRET: 'k'.repeat(31) }) === null);
+    check('the development secret needs ALLOW_DEV_AUTH_SECRET=1 and a non-production NODE_ENV', text(resolveAuthSecret({ ALLOW_DEV_AUTH_SECRET: '1' })) === text(OLD_PUBLISHED_SECRET));
+    check('…any other value of the opt-in does not count', resolveAuthSecret({ ALLOW_DEV_AUTH_SECRET: 'true' }) === null && resolveAuthSecret({ ALLOW_DEV_AUTH_SECRET: '0' }) === null);
+    check('…and in production the opt-in is ignored', resolveAuthSecret({ NODE_ENV: 'production', ALLOW_DEV_AUTH_SECRET: '1' }) === null);
+    check('a real secret wins over the opt-in', text(resolveAuthSecret({ AUTH_SECRET: good, ALLOW_DEV_AUTH_SECRET: '1' })) === good);
+
+    // the session code and the proxy both use that helper: sign without a secret and it must refuse, not fall back
+    const savedEnv = { secret: process.env.AUTH_SECRET, opt: process.env.ALLOW_DEV_AUTH_SECRET };
+    delete process.env.AUTH_SECRET;
+    delete process.env.ALLOW_DEV_AUTH_SECRET;
+    const { SignJWT } = await import('jose');
+    const forged = await new SignJWT({ role: 'admin', ver: 0 }).setProtectedHeader({ alg: 'HS256' }).setSubject('1').setExpirationTime('1h').sign(OLD_PUBLISHED_SECRET);
+    const { proxy } = await import('../src/proxy');
+    const { NextRequest } = await import('next/server');
+    const gated = await proxy(new NextRequest('http://localhost:3000/admin/orders', { headers: { cookie: `oc_admin=${forged}` } }));
+    check('with no AUTH_SECRET a cookie signed with the old published development secret does not open /admin', gated.status >= 300 && gated.status < 400 && (gated.headers.get('location') ?? '').includes('/admin/login'), [gated.status, gated.headers.get('location')]);
+    process.env.AUTH_SECRET = good;
+    const signedWithGood = await new SignJWT({ role: 'admin', ver: 0 }).setProtectedHeader({ alg: 'HS256' }).setSubject('1').setExpirationTime('1h').sign(new TextEncoder().encode(good));
+    const passed = await proxy(new NextRequest('http://localhost:3000/admin/orders', { headers: { cookie: `oc_admin=${signedWithGood}` } }));
+    check('…while a cookie signed with the real secret still passes the gate', passed.status === 200 || passed.headers.get('x-middleware-next') === '1', [passed.status, passed.headers.get('location')]);
+    if (savedEnv.secret === undefined) delete process.env.AUTH_SECRET; else process.env.AUTH_SECRET = savedEnv.secret;
+    if (savedEnv.opt === undefined) delete process.env.ALLOW_DEV_AUTH_SECRET; else process.env.ALLOW_DEV_AUTH_SECRET = savedEnv.opt;
+  }
+
   console.log('Startup configuration checks');
   const { checkProductionConfig } = await import('../src/lib/startup-check');
   const saved = { secret: process.env.AUTH_SECRET, site: process.env.SITE_URL, commerce: process.env.COMMERCE_ENABLED };

@@ -9,6 +9,9 @@ import { readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { cloneDatabase } from './test-db';
 
+// There is no built-in session secret (lib/auth/secret.ts): this script signs admin sessions, so it brings its own.
+process.env.AUTH_SECRET = 'admin-test-only-secret-not-used-anywhere-0123456789';
+
 let dir = '';
 let failures = 0;
 function check(name: string, ok: boolean, detail?: unknown) {

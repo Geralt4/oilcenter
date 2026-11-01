@@ -6,6 +6,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import { eq, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { adminUsers, customers } from '@/lib/db/schema';
+import { AUTH_SECRET_PROBLEM, resolveAuthSecret } from '@/lib/auth/secret';
 
 /*
  * Stateless, signed (HS256) session cookies. Two independent cookies so that a shop customer
@@ -25,12 +26,9 @@ const SUDO_COOKIE = 'oc_admin_sudo';
 const SUDO_MAX_AGE = 5 * 60;
 
 function secretKey(): Uint8Array {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret || secret.length < 32) {
-    if (process.env.NODE_ENV === 'production') throw new Error('AUTH_SECRET is missing or too short (min 32 chars).');
-    return new TextEncoder().encode('dev-only-insecure-secret-do-not-use-in-production');
-  }
-  return new TextEncoder().encode(secret);
+  const key = resolveAuthSecret(process.env);
+  if (!key) throw new Error(AUTH_SECRET_PROBLEM);
+  return key;
 }
 
 async function sign(payload: SessionPayload, maxAge: number): Promise<string> {
