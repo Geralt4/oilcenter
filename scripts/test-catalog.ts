@@ -370,6 +370,23 @@ async function main() {
     check('an unrelated storage event changes nothing in the other tab', tab2.useCart.getState().lines.length === 2, tab2.useCart.getState().lines.length);
     deliver(2, 'oilcenter-cart');
     check('the cart emptied in one tab is empty in the other after the event', tab2.useCart.getState().lines.length === 0, tab2.useCart.getState().lines.length);
+
+    // a cart saved under an older version: the persist middleware calls migrate; the well-formed lines survive, the rest does not
+    shared.set('oilcenter-cart', JSON.stringify({ version: 0, state: { couponCode: 'WELCOME5', lines: [
+      { variantId: 31, quantity: 2, snapshot: snapshot('keep') },
+      { variantId: 32, quantity: 0, snapshot: snapshot('zero-quantity') },
+      { variantId: '33', quantity: 1, snapshot: snapshot('text-id') },
+      { variantId: 34, quantity: 1 },
+      { variantId: 31, quantity: 5, snapshot: snapshot('same-size-twice') },
+      'junk',
+    ] } }));
+    shared.set('oilcenter-wishlist', JSON.stringify({ version: 0, state: { ids: [5, '6', 7, 7, -1, 2.5, null] } }));
+    const tab3 = loadTab(3);
+    const migrated = tab3.useCart.getState();
+    check('an older saved cart keeps its well-formed lines (once each) and drops the rest', migrated.lines.length === 1 && migrated.lines[0].variantId === 31 && migrated.lines[0].quantity === 2, migrated.lines.map((l) => [l.variantId, l.quantity]));
+    check('…and keeps its coupon code', migrated.couponCode === 'WELCOME5', migrated.couponCode);
+    check('an older saved favourites list keeps whole product ids, each once', tab3.useWishlist.getState().ids.join() === '5,7', tab3.useWishlist.getState().ids);
+    check('sanitizing nonsense gives an empty cart, not an error', tab3.sanitizeCartState(null).lines.length === 0 && tab3.sanitizeCartState('x').couponCode === null && tab3.sanitizeWishlistState(42).ids.length === 0);
     delete g.window;
   }
 
