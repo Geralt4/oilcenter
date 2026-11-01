@@ -56,7 +56,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
       <main id="main" className="pb-20 md:pb-0">
         {children}
       </main>
-      <Footer settings={settings} tree={tree} canOrder={config.canOrder} />
+      <Footer settings={settings} tree={tree} canOrder={config.canOrder} cardProviderConfigured={config.cardProviderConfigured} />
       <BottomBar phoneHref={telHref(settings.shop.phone)} directionsHref={mapsDirectionsUrl(settings.shop)} />
       {config.canOrder && <CartDrawer />}
       <CookieNotice />

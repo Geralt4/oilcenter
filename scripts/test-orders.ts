@@ -58,6 +58,24 @@ async function main() {
   check('flagged as test order while demo mode is on', first.order.isTest === true);
   check('order number format', /^OC-\d{5,}$/.test(first.order.number), first.order.number);
 
+  console.log('Footer service line');
+  {
+    const { shopServices } = await import('../src/lib/shop-services');
+    const all = structuredClone(DEFAULT_SETTINGS);
+    all.shipping.courierEnabled = true; all.shipping.pickupEnabled = true;
+    all.payments.cod = true; all.payments.card = true; all.payments.bankTransfer = true;
+    check('everything on, card provider configured → all five', shopServices(all, true).join() === 'courier,pickup,cod,card,bank_transfer', shopServices(all, true));
+    check('…without a configured card provider, card is not promised even when the setting is on', !shopServices(all, false).includes('card') && shopServices(all, false).length === 4);
+    const noCourier = structuredClone(all); noCourier.shipping.courierEnabled = false;
+    check('courier off → no delivery and no cash on delivery (cod only goes with courier)', shopServices(noCourier, true).join() === 'pickup,card,bank_transfer', shopServices(noCourier, true));
+    const bare = structuredClone(all); bare.shipping.pickupEnabled = false; bare.payments.cod = false; bare.payments.card = false; bare.payments.bankTransfer = false;
+    check('only what is switched on is listed (courier alone)', shopServices(bare, true).join() === 'courier', shopServices(bare, true));
+    const none = structuredClone(bare); none.shipping.courierEnabled = false;
+    check('nothing on → an empty line (the footer then shows no row)', shopServices(none, true).length === 0);
+    const noBank = structuredClone(all); noBank.payments.bankTransfer = false;
+    check('bank transfer off → no «Κατάθεση»', !shopServices(noBank, true).includes('bank_transfer'));
+  }
+
   console.log('Payment settlement');
   const mismatchOutcome = await recordPayment(first.order.id, { provider: 'test', ref: 'x', amountCents: 100 });
   check('wrong amount is rejected', mismatchOutcome === 'amount_mismatch', mismatchOutcome);
