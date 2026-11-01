@@ -27,14 +27,14 @@ Admin login = `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env.local`. Change the pas
 | `npm run db:generate` | create a new migration after editing `src/lib/db/schema.ts` |
 | `npm run admin:create -- <email> <password> [name]` | add an admin or reset a password |
 | `npm run catalog:build` | rebuild `catalog/catalog.json` + `public/catalog/*.webp` from the client's photos |
-| `npm run test:orders` | order logic, incl. availability and payment outcomes, the confirmation-mail state the order page reads, the checkout's length limits and the footer's service line (runs on a throwaway snapshot of the DB) — 317 checks |
+| `npm run test:orders` | order logic, incl. availability and payment outcomes, the confirmation-mail state the order page reads, the checkout's length limits and the footer's service line (runs on a throwaway snapshot of the DB) — 324 checks |
 | `npm run test:viva` | Viva adapter with a mocked `fetch`: create, return, webhook, IP allow-list, unmatched payments — 190 checks |
 | `npm run test:admin` | admin actions: prices and CSV round trip, sales, coupons, orders and payment review, categories, product sizes, IBANs, customer and admin sign-in and password-reset limits, given-up payment mails, registration and account activation, products with history kept, `create-admin`, `skroutz-prices --force`, and the data patches (a failing one, their order, a retry giving the result of a clean run, the dashboard record) — 357 checks |
 | `npm run test:catalog` | catalogue data, search, sizes and hazard tables, the saved cart and favourites (tabs, migration) and the checkout draft — 136 checks |
 | `npm run test:security` | commerce switch, MFA, limits, upload tokens/deadline/rollback, backup encryption, statistics limits, mail transport (file fallback, SMTP timeouts, address redaction), `seed --force` and `package.json` — 168 checks |
 | `npm run test:feed` | Skroutz feed regression test: what is listed, valid XML, barcodes, cache and rate limit (same throwaway snapshot) — 104 checks |
 | `npm run test:flows` | real browser flow on a throwaway DB: login + TOTP, confirmed database download, CSV import, photo/SDS save, statistics page, resending a payment mail, the favourites error and retry, the dashboard's data-update line (builds first) — 72 checks |
-| `npm run test:card` | whole card journey in a browser against a fake Viva server, the checkout's field errors and its draft after Back, the order page's confirmation-mail notice, plus registration, activation and sign-out of a customer account (builds first) — 95 checks |
+| `npm run test:card` | whole card journey in a browser against a fake Viva server, the checkout's field errors and its draft after Back, the order page's confirmation-mail notice, plus registration, activation and sign-out of a customer account (builds first) — 99 checks |
 | `npm run lint` / `typecheck` | ESLint / TypeScript |
 
 ## ⚠️ Before going live
