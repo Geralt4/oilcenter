@@ -46,8 +46,9 @@ The shop ships in **demo mode** (hidden from Google, orders flagged as tests) wi
 admin dashboard (`/admin`) shows a live checklist of what is still missing. The plan for going public in two steps —
 first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md). In short:
 
-1. **Some prices are still placeholders.** 157 of 215 are real (see "Prices from the shop's Skroutz listing"); the rest
-   were generated from a rough market heuristic and carry `price_verified = false`. **An unconfirmed price is never
+1. **Some prices are still unconfirmed.** On the live catalogue 295 of 303 sizes have a confirmed price (checked
+   2026-11-01; see "Prices from the shop's Skroutz listing" for how most of them got there); the other 8 carry
+   `price_verified = false`. **An unconfirmed price is never
    shown**: the storefront says «Καλέστε για τιμή», offers a call button instead of add-to-cart, and the amount is
    zeroed on the server so it cannot leak. Confirm prices in *Τιμές* — on screen, or export the CSV, fill it in Excel
    and import it back.
@@ -61,8 +62,9 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
    labels is garbled. Only approvals that were clearly legible were recorded; the rest were left empty rather than
    guessed, because a wrong OEM approval means the wrong oil in a customer's engine. Complete them from the
    manufacturers' data sheets.
-4. **Opening hours are a guess** (Mon–Fri 08:30–17:00, Sat 09:00–13:00). Correct them and tick "επιβεβαιωμένο" — only
-   then are they published to Google via structured data.
+4. **Opening hours are confirmed** (Mon–Fri 08:30–17:00, Sat 09:00–13:00, Sun closed; marked «επιβεβαιωμένο» on the
+   live site). They appear on the site and, once demo mode is off, in the structured data Google reads. If they
+   change, correct them in *Ρυθμίσεις* and keep «επιβεβαιωμένο» ticked.
 2b. The full list of those 43, grouped by what to check, is in [`REVIEW.md`](REVIEW.md).
 5. **ΑΦΜ, Αρ. ΓΕΜΗ and ΔΟΥ** were supplied by the owner on 22.09.2026 (defaults in `src/lib/settings.ts`, data patch
    `2026-09-22-shop-details` for existing databases) and appear in the footer and the terms page, as ΠΔ 131/2003 art. 4
@@ -85,9 +87,10 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
     flags orders as tests. It can be switched off while ordering stays closed — that is the public *catalogue* of the
     test run. Product structured data carries offers only when demo mode is off **and** ordering is open.
 
-12. **Hazard labelling of chemicals.** 52 products (antifreeze & fluids, additives, sprays, 2-stroke oils) have no
-    hazard data yet — see "Borrowed from the competition" → hazard labelling. The dashboard lists it; the legal question
-    behind it is F1 in [`questions.md`](questions.md).
+12. **Hazard labelling of chemicals.** The live catalogue has 76 chemicals (antifreeze & fluids, additives, sprays,
+    2-stroke oils, checked 2026-11-01): 14 carry prefilled label data and none is ticked as checked against the pack,
+    so none is public yet; 62 have no hazard data at all — see "Borrowed from the competition" → hazard labelling. The
+    dashboard lists them; the legal question behind it is F1 in [`questions.md`](questions.md).
 13. **The domain.** `oilcenter.gr` is registered at Papaki inside the old web agency's account, together with a free
     hosting package that also serves the domain's DNS and still shows the 2015 site. The handover (owner's own Papaki
     account, domain moved or re-registered to him, DNS rebuilt off the old server, both hostnames on Railway,
@@ -221,7 +224,8 @@ empty or switched off and **renders nothing until he fills it in**. `npm run tes
   **generated** from the regulation's consolidated Greek text (EU Publications Office, version of 01.07.2026; 245
   statements, identical in the 01.12.2023 text): typing a bare code (`H302`, `P301+P330+P331`) prints the official
   wording. 35 statements are templates the label completes (`H373` organs, `EUH208` substance, `P501` where to dispose)
-  — those are never auto-filled; the form asks for the pack's own wording. No product has hazard data yet.
+  — those are never auto-filled; the form asks for the pack's own wording. 14 products have prefilled hazard data (see
+  `catalog/hazard-labels.json` below), none confirmed, so none is shown to customers yet.
 - **Real social proof** — *Ρυθμίσεις → «Κριτικές & ιστορία»*: Google link / rating / count, Skroutz rating / count,
   founding year, typed in exactly as the platforms show them. `<TrustBadges>` renders what is filled (home hero, footer,
   contact, about), each rating linking to the platform. Deliberately **no `aggregateRating`** in the JSON-LD.
@@ -248,7 +252,7 @@ from. `npm run test:catalog` checks the files against the catalogue and the regu
   Each product's internal note records the source. Still empty (no reachable manufacturer document): Castrol POWER1
   15W-50 / 20W-50 / ULTIMATE 10W-50 (not in Castrol's portal for Greece), Mobil Super 3000 ×3 and Mobil 1 FS ×2
   (mobil.com blocks automated reading), Toyota ×3, Petronas Tutela ×4, Selenia 20K.
-- `catalog/hazard-labels.json` — label elements (SDS section 2.2) for 14 of the 53 chemicals, **all `confirmed:
+- `catalog/hazard-labels.json` — label elements (SDS section 2.2) for 14 of the 76 chemicals on the live catalogue (2026-11-01), **all `confirmed:
   false`**: Liqui Moly ×11 (Greek SDS via the public `pim.liqui-moly.com/sheets/<article>` endpoint, which lists the
   current sheet per language; the Greek-market article, language line EL-EN-IT, was chosen), Mannol ×3 (Greek SDS
   linked from mannol.de). Bare codes rely on the official wording; template statements carry the sheet's sentence
@@ -279,8 +283,12 @@ the patch id is new, so add a new `2026-…` patch entry rather than editing the
 - **"Notify me when online orders open"** — shown on the closed `/checkout` when *Ρυθμίσεις → «Ειδοποιήστε με…»* is on.
   Addresses land in `launch_signups`; the statistics page lists them, deletes one on request and exports a CSV.
 - **Backups** — `src/instrumentation.ts` writes a gzipped `VACUUM INTO` snapshot to `DATA_DIR/backups` once a day (14
-  kept); *Ρυθμίσεις → Αντίγραφα ασφαλείας* downloads a fresh one. They sit on the same disk as the database: an
-  off-site copy is still missing, and product photos uploaded through the admin are not part of the snapshot.
+  kept, encrypted with the backup key); *Ρυθμίσεις → Αντίγραφα ασφαλείας* downloads a fresh one. The stored copies
+  sit on the same disk as the database, but an encrypted off-site copy exists too: every night and at every deploy
+  the snapshot goes to Backblaze B2 (see "Off-site backups" and "Restoring from B2" below), and photos and safety data
+  sheets uploaded through the admin go to B2 as a daily archive (they are not inside the database snapshot). Snapshot
+  files have been downloaded and opened (integrity check, row counts); a full restore into a running shop has not
+  been tried yet.
 
 ## Card payments
 
@@ -365,8 +373,9 @@ Prices move every few days, so this is the most-used admin screen: *Admin → Τ
 ### Prices from the shop's Skroutz listing
 
 On 2026-09-20 the 290 listings of the shop's [Skroutz page](https://www.skroutz.gr/shop/30368/Tsakiridis-Oil-Center/products.html)
-were matched by hand to the catalogue: 157 of the 215 SKUs got their real price (140 exact → marked confirmed, 17
-probable → price applied but still flagged). The result lives in `catalog/skroutz-prices.json`; the report for the
+were matched by hand to the catalogue: 157 of the 215 SKUs then in the catalogue got their real price (140 exact →
+marked confirmed, 17 probable → price applied but still flagged). That is the state of 2026-09-20; the catalogue has
+grown to 303 sizes since, and on 2026-11-01 295 of them had a confirmed price (8 did not). The result lives in `catalog/skroutz-prices.json`; the report for the
 shop owner — written in Greek: what to double-check, what is still a placeholder, and the 133 Skroutz products the site
 does not list yet — is [`SKROUTZ-PRICES.md`](SKROUTZ-PRICES.md).
 
@@ -484,13 +493,16 @@ check, the restart policy) are described in `.railway/railway.ts`.
 - URL: <https://web-production-c64ee.up.railway.app> — admin at `/admin`. The admin e-mail and password of the hosted
   shop are in the git-ignored `.env.railway.local`; on Railway they are the `ADMIN_EMAIL` / `ADMIN_PASSWORD` variables.
   The password variable is only read when the admin user is first created: change it afterwards from *Admin → Ρυθμίσεις*.
-- Ship a new version: `railway up --service web --ci` from this directory (uploads the working tree, honours `.gitignore`).
+- Ship a new version: first `railway status` must show project `oilcenter`, environment `production` and service `web`
+  (link the directory with `railway link -p d90ae816-6d1b-400e-bb80-ff40a82f74b6 -e production -s web` if it does not);
+  then `railway up --project d90ae816-6d1b-400e-bb80-ff40a82f74b6 --environment production --service web --ci` (uploads
+  the working tree, honours `.gitignore`). In a directory that is not linked, a bare `railway up` creates a NEW project.
 - Logs: `railway logs --service web --deployment --lines 100`. Variables: `railway variable list --service web`
   (prints secret values — do not paste the output anywhere).
-- `SITE_URL` is not set: the app falls back to Railway's `RAILWAY_PUBLIC_DOMAIN`. The move to `www.oilcenter.gr` — both
-  hostnames on the service, DNS off the old Papaki hosting, `SITE_URL=https://www.oilcenter.gr`, redeploy — is the
-  step-by-step runbook in [`DOMAIN.md`](DOMAIN.md). Once `SITE_URL` is set, `src/proxy.ts` redirects every other host
-  (the bare domain, this preview address) to it.
+- `SITE_URL` is set to this Railway address, so the app builds its links from it and `src/proxy.ts` redirects any other
+  host to it. The move to `www.oilcenter.gr` — both hostnames on the service, DNS off the old Papaki hosting,
+  `SITE_URL=https://www.oilcenter.gr`, redeploy — is the step-by-step runbook in [`DOMAIN.md`](DOMAIN.md). Once
+  `SITE_URL` names `www.oilcenter.gr`, the bare domain and this preview address are redirected to it.
 - The volume survives redeploys: a restart logs "Database already has … products — skipping catalogue seed".
   Catalogue edits made in the hosted admin therefore stay; `catalog/catalog.json` is only used for an empty database.
 - Anything set on Railway outside the repo (a variable, a custom domain) must also be listed in `.railway/railway.ts`
