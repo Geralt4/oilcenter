@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import nodemailer, { type Transporter } from 'nodemailer';
@@ -90,11 +91,12 @@ export async function sendMail(mail: Mail): Promise<boolean> {
     }
     const dir = path.resolve(process.env.DATA_DIR || './data', 'outbox');
     await mkdir(dir, { recursive: true });
-    const file = `${new Date().toISOString().replace(/[:.]/g, '-')}__${mail.to.replace(/[^a-z0-9@.]+/gi, '_')}.html`;
+    // a random part: two mails to one address within the same millisecond (a customer and the shop on the same address) must not share a file
+    const file = `${new Date().toISOString().replace(/[:.]/g, '-')}__${mail.to.replace(/[^a-z0-9@.]+/gi, '_')}__${randomBytes(3).toString('hex')}.html`;
     // to/subject are free text (a contact form's subject line reaches the subject): escape them so a "-->"
     // inside cannot close the comment early and inject markup into the outbox file.
     const comment = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    await writeFile(path.join(dir, file), `<!-- to: ${comment(mail.to)} | subject: ${comment(mail.subject)} -->\n${mail.html}`);
+    await writeFile(path.join(dir, file), `<!-- to: ${comment(mail.to)} | subject: ${comment(mail.subject)} -->\n${mail.html}`, { flag: 'wx' });
     console.log(`[mail] no mail service configured → wrote ${path.join('outbox', file)} ("${mail.subject}")`);
     return true;
   } catch (err) {

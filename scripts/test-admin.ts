@@ -1342,7 +1342,7 @@ async function main() {
     process.env.DATA_DIR = dataDir;
     const mailsTo = (address: string) => {
       try {
-        return readdirSync(outboxDir).filter((f) => f.endsWith(`__${address}.html`)).map((f) => readFileSync(path.join(outboxDir, f), 'utf8'));
+        return readdirSync(outboxDir).filter((f) => f.includes(`__${address}__`) && f.endsWith('.html')).map((f) => readFileSync(path.join(outboxDir, f), 'utf8'));
       } catch {
         return [] as string[];
       }

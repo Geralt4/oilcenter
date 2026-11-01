@@ -6,6 +6,7 @@
  */
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { cloneDatabase } from './test-db';
 
 let dir = '';
@@ -592,6 +593,31 @@ async function main() {
       check(`referrer hosts have the same cap, the rest under «${OTHER_SOURCE}»`, (await rowsOf('source')) === sourcesNow + 2 && (await countOf('source', OTHER_SOURCE)) === 4, [await rowsOf('source'), sourcesNow, await countOf('source', OTHER_SOURCE)]);
     } finally {
       statLimits.dailyNewKeys = savedCap;
+    }
+  }
+
+  console.log('Mail file fallback (no Resend, no SMTP)');
+  {
+    const { sendMail } = await import('../src/lib/email');
+    const saved = { data: process.env.DATA_DIR, resend: process.env.RESEND_API_KEY, smtp: process.env.SMTP_HOST };
+    const realIso = Date.prototype.toISOString;
+    process.env.DATA_DIR = path.join(dir, 'mail-fallback');
+    delete process.env.RESEND_API_KEY;
+    delete process.env.SMTP_HOST;
+    // every file name starts with the time: freeze it, so "the same millisecond" is certain and not a matter of luck
+    Date.prototype.toISOString = () => '2026-01-01T00:00:00.000Z';
+    try {
+      const mail = { to: 'same@example.gr', subject: 'ίδιο', html: '<p>ένα</p>' };
+      const results = await Promise.all([sendMail(mail), sendMail({ ...mail, html: '<p>δύο</p>' }), sendMail({ ...mail, html: '<p>τρία</p>' })]);
+      const files = await readdir(path.join(process.env.DATA_DIR, 'outbox'));
+      check('three mails to one address in the same millisecond are all reported as sent', results.every(Boolean), results);
+      check('…and each lands in its own file (none overwritten)', files.length === 3 && new Set(files).size === 3, files);
+      check('…the file name still carries the address', files.every((f) => f.includes('same@example.gr')), files);
+    } finally {
+      Date.prototype.toISOString = realIso;
+      for (const [key, value] of [['DATA_DIR', saved.data], ['RESEND_API_KEY', saved.resend], ['SMTP_HOST', saved.smtp]] as const) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
     }
   }
 
