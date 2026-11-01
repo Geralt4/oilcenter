@@ -10,6 +10,7 @@ import { AvailabilityTag } from '@/components/store/availability';
 import { syncCartWithServer } from '@/components/store/cart-drawer';
 import { useStoreConfig } from '@/components/store/store-context';
 import { buttonClass } from '@/components/ui/button';
+import { readDraft, writeDraft } from '@/lib/checkout-draft';
 import { cartCouponLines, cartSubtotalCents, cartWeightGrams, useCart, useHydrated } from '@/lib/cart-store';
 import type { DocType, PaymentMethod, ShippingMethod } from '@/lib/db/schema';
 import { availablePaymentMethods, computeTotals, PAYMENT_LABELS, type AppliedCoupon } from '@/lib/pricing';
@@ -71,14 +72,23 @@ export function CheckoutForm({ prefill, pickupAddress }: { prefill: CheckoutPref
   const { lines, setCoupon } = useCart();
   const [pending, startTransition] = useTransition();
 
-  const [form, setForm] = useState({
+  // What was typed before a visit to the card page that was not paid: read once, at the first render in the browser (the server
+  // renders only the spinner, so nothing can differ). The choices are kept only if they are still on offer.
+  const [saved] = useState(() => readDraft());
+  const [form, setForm] = useState(() => ({
     email: prefill.email ?? '', phone: prefill.phone ?? '', firstName: prefill.firstName ?? '', lastName: prefill.lastName ?? '',
     street: prefill.street ?? '', city: prefill.city ?? '', postalCode: prefill.postalCode ?? '', region: prefill.region ?? '',
     notes: '', companyName: '', vatNumber: '', taxOffice: '', companyActivity: '', companyAddress: '',
+    ...saved?.form,
+  }));
+  const [shippingMethod, setShippingMethod] = useState<ShippingMethod>(() => {
+    const kept = saved?.shippingMethod;
+    if (kept === 'courier' && config.shipping.courierEnabled) return 'courier';
+    if (kept === 'pickup' && config.shipping.pickupEnabled) return 'pickup';
+    return config.shipping.courierEnabled ? 'courier' : 'pickup';
   });
-  const [shippingMethod, setShippingMethod] = useState<ShippingMethod>(config.shipping.courierEnabled ? 'courier' : 'pickup');
-  const [chosenPayment, setPaymentMethod] = useState<PaymentMethod | null>(null);
-  const [docType, setDocType] = useState<DocType>('receipt');
+  const [chosenPayment, setPaymentMethod] = useState<PaymentMethod | null>(saved?.paymentMethod ?? null);
+  const [docType, setDocType] = useState<DocType>(saved?.docType ?? 'receipt');
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -109,6 +119,11 @@ export function CheckoutForm({ prefill, pickupAddress }: { prefill: CheckoutPref
     if (remembered) void applyCoupon(remembered);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated]);
+
+  // remembered as it changes (see lib/checkout-draft.ts); the terms checkbox is not
+  useEffect(() => {
+    writeDraft({ form, shippingMethod, paymentMethod: chosenPayment ?? undefined, docType });
+  }, [form, shippingMethod, chosenPayment, docType]);
 
   const payload = () => lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity }));
 

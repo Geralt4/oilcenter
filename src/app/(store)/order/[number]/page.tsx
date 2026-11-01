@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Check, CircleAlert, CircleCheck, Navigation, Phone } from 'lucide-react';
 import { AvailabilityTag } from '@/components/store/availability';
-import { ClearCart } from '@/components/store/clear-cart';
+import { ClearCart, ClearCheckoutDraft } from '@/components/store/clear-cart';
 import { RetryPayment } from '@/components/store/retry-payment';
 import { buttonClass } from '@/components/ui/button';
 import { getCustomer } from '@/lib/auth/session';
@@ -61,6 +61,7 @@ export default async function OrderPage({ params, searchParams }: Props) {
 
   return (
     <div className="container-page max-w-4xl py-8 sm:py-12">
+      <ClearCheckoutDraft />
       {clearCart && <ClearCart />}
       {justPlaced && !unpaidCard && (
         <div className="mb-8 rounded-3xl bg-emerald-50 p-6 text-center sm:p-8">

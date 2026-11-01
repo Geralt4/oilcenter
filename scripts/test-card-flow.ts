@@ -232,6 +232,7 @@ async function main() {
         const cartLines = () => page.evaluate(() => (JSON.parse(localStorage.getItem('oilcenter-cart') ?? '{}') as { state?: { lines?: unknown[] } }).state?.lines?.length ?? 0);
         await delay(500);
         check('…and only now is the cart emptied (the order page does it)', (await cartLines()) === 0, await cartLines());
+        check('…and the order page forgets the checkout draft', (await page.evaluate(() => sessionStorage.getItem('oilcenter-checkout'))) === null);
 
         const paid = await orderByNumber(placed.number);
         check('the order is paid and confirmed', paid.paymentStatus === 'paid' && paid.status === 'confirmed', { paymentStatus: paid.paymentStatus, status: paid.status });
@@ -651,6 +652,24 @@ async function main() {
         await page.locator('#notes').fill('');
         await page.getByRole('button', { name: /^Συνέχεια στην πληρωμή/ }).click();
         await page.waitForURL((url) => url.toString().startsWith(`${fake.baseUrl}/web/checkout?`), { timeout: 30_000 });
+        // Back from the card page: the form is as it was left (not the terms checkbox, and no card data is anywhere)
+        await page.goBack();
+        await page.locator('#firstName').waitFor({ timeout: 20_000 });
+        const restored = await page.evaluate(() => ({
+          firstName: (document.getElementById('firstName') as HTMLInputElement).value,
+          email: (document.getElementById('email') as HTMLInputElement).value,
+          street: (document.getElementById('street') as HTMLInputElement | null)?.value,
+          region: (document.getElementById('region') as HTMLInputElement | null)?.value,
+          companyName: (document.getElementById('companyName') as HTMLInputElement | null)?.value,
+          courier: (document.querySelector('input[name="shippingMethod"][value="courier"]') as HTMLInputElement).checked,
+          card: (document.querySelector('input[name="paymentMethod"][value="card"]') as HTMLInputElement | null)?.checked,
+          terms: (document.getElementById('acceptTerms') as HTMLInputElement).checked,
+          saved: sessionStorage.getItem('oilcenter-checkout') ?? '',
+        }));
+        check('after Back from the card page the typed fields come back', restored.firstName === 'Ελένη' && restored.email === 'field-errors@example.invalid' && restored.street === 'Οδός 1' && restored.region === 'Θεσσαλονίκη', restored);
+        check('…with courier and card still chosen, and the invoice details', restored.courier && restored.card === true && restored.companyName === 'Δοκιμή ΕΠΕ', restored);
+        check('…but the consent box is not ticked for the customer', restored.terms === false);
+        check('…and nothing about a card is stored', !/\bcard|4111|\bcvv|\bpan\b/i.test(restored.saved.replace(/"paymentMethod":"card"/, '')), restored.saved);
         await page.goto(`${base}/cart`);
         await page.waitForLoadState('domcontentloaded');
         check('on the card page, not paid, back in the shop: the cart still holds the product', (await cartLines()) === 1, await cartLines());

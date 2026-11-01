@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useCart } from '@/lib/cart-store';
+import { clearDraft } from '@/lib/checkout-draft';
 
 /**
  * Rendered by the order page when it shows the order as placed (cash/bank/store orders) or paid (card). The checkout form no longer
@@ -11,6 +12,14 @@ import { useCart } from '@/lib/cart-store';
 export function ClearCart() {
   useEffect(() => {
     useCart.getState().clear();
+  }, []);
+  return null;
+}
+
+/** The order page forgets what was typed in the checkout form: that order exists now (or its page is open), the draft is stale. */
+export function ClearCheckoutDraft() {
+  useEffect(() => {
+    clearDraft();
   }, []);
   return null;
 }

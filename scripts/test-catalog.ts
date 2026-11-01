@@ -322,6 +322,36 @@ async function main() {
     await db.delete(products).where(eq(products.id, up.id));
   }
 
+  console.log('Checkout draft (what was typed, kept in sessionStorage)');
+  {
+    const { DRAFT_KEY, clearDraft, readDraft, sanitizeDraft, writeDraft } = await import('../src/lib/checkout-draft');
+    const mem = new Map<string, string>();
+    const store = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) };
+    writeDraft({ form: { firstName: 'Ελένη', email: 'e@example.gr', notes: 'μετά τις 5' }, shippingMethod: 'pickup', paymentMethod: 'card', docType: 'invoice' }, store);
+    const back = readDraft(store);
+    check('what was typed and chosen comes back as it was', back?.form.firstName === 'Ελένη' && back.form.email === 'e@example.gr' && back.form.notes === 'μετά τις 5' && back.shippingMethod === 'pickup' && back.paymentMethod === 'card' && back.docType === 'invoice', back);
+    writeDraft({ form: { firstName: 'Α' }, acceptTerms: true, cardNumber: '4111111111111111', extra: 1 } as never, store);
+    const stored = mem.get(DRAFT_KEY) ?? '';
+    check('only the form\'s own fields are written: no consent flag, nothing that looks like a card, no stray property', !/acceptTerms|cardNumber|4111|extra/.test(stored), stored);
+    check('a draft that is damaged or foreign reads as nothing (not an error)', readDraft({ getItem: () => '{not json' }) === null && readDraft({ getItem: () => '[1,2]' }) === null && readDraft({ getItem: () => null }) === null && readDraft(null) === null);
+    const odd = sanitizeDraft({ form: { firstName: 5, city: 'Θεσσαλονίκη', notes: 'x'.repeat(5000), unknown: 'y' }, shippingMethod: 'drone', paymentMethod: 'bitcoin', docType: 'invoice' });
+    check('wrong types and unknown choices are dropped, an over-long text is cut to the longest field', odd?.form.firstName === undefined && odd?.form.city === 'Θεσσαλονίκη' && odd?.form.notes?.length === 1000 && !('unknown' in (odd?.form ?? {})) && odd?.shippingMethod === undefined && odd?.paymentMethod === undefined && odd?.docType === 'invoice', odd);
+    clearDraft(store);
+    check('clearing removes it', readDraft(store) === null && !mem.has(DRAFT_KEY));
+    const blocked = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('quota'); }, removeItem: () => { throw new Error('blocked'); } };
+    let threw = false;
+    try {
+      writeDraft({ form: { firstName: 'Α' } }, blocked);
+      readDraft(blocked);
+      clearDraft(blocked);
+      writeDraft({ form: {} }, null);
+      clearDraft(null);
+    } catch {
+      threw = true;
+    }
+    check('storage that throws (blocked, full) or is missing never throws out of the helpers', !threw);
+  }
+
   console.log('Cart and favourites across browser tabs');
   {
     // Two tabs of one browser: the same localStorage, a separate copy of the store in each, and the browser's `storage` event
