@@ -436,6 +436,11 @@ async function main() {
         check('the timeline has the failed start and the cancellation with its reason', events.some((m) => m.includes('Δεν ήταν δυνατή η έναρξη')) && events.some((m) => m.startsWith('Η παραγγελία ακυρώθηκε: η πληρωμή με κάρτα δεν μπόρεσε να ξεκινήσει')), events);
         const cartLines = await page.evaluate(() => (JSON.parse(localStorage.getItem('oilcenter-cart') ?? '{}') as { state?: { lines?: unknown[] } }).state?.lines?.length ?? 0);
         check('the cart still has its lines, so the buyer can check out again', cartLines === 1, cartLines);
+        check('the checkout form typed by the buyer is still kept in the tab', ((await page.evaluate(() => sessionStorage.getItem('oilcenter-checkout'))) ?? '').includes('card-test@example.invalid'));
+        await back.click();
+        await page.waitForURL((url) => url.pathname === '/checkout', { timeout: 20_000 });
+        await page.locator('#email').waitFor({ timeout: 20_000 });
+        check('…and the checkout opens with that form filled in again', (await page.locator('#email').inputValue()) === 'card-test@example.invalid' && (await page.locator('#firstName').inputValue()) === 'Ελένη');
       } finally {
         fake.failCreateOrder = false;
         await db.update(variants).set({ trackStock: false, stock: 0 }).where(eq(variants.id, pick.variantId));
@@ -700,7 +705,7 @@ async function main() {
         check('on the card page, not paid, back in the shop: the cart still holds the product', (await cartLines()) === 1, await cartLines());
         await page.goto(`${base}/cookies`);
         const cookiesText = ((await page.locator('main').textContent()) ?? '').replace(/\s+/g, ' ');
-        check('the cookies page says the checkout form is kept in the tab\'s session storage and when it is deleted', cookiesText.includes('oilcenter-checkout') && cookiesText.includes('session storage') && cookiesText.includes('όταν αποσυνδεθείτε') && cookiesText.includes('όταν αδειάσει το καλάθι'), cookiesText.slice(0, 200));
+        check('the cookies page says the checkout form is kept in the tab\'s session storage and when it is deleted', cookiesText.includes('oilcenter-checkout') && cookiesText.includes('session storage') && cookiesText.includes('όταν αποσυνδεθείτε') && cookiesText.includes('όταν αδειάσει το καλάθι') && cookiesText.includes('δεν μπόρεσε να ξεκινήσει'), cookiesText.slice(0, 200));
       } finally {
         await ctx.close();
       }

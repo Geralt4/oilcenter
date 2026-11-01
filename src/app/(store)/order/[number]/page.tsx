@@ -64,7 +64,8 @@ export default async function OrderPage({ params, searchParams }: Props) {
 
   return (
     <div className="container-page max-w-4xl py-8 sm:py-12">
-      <ClearCheckoutDraft />
+      {/* what the buyer typed stays when the card payment could not start: «Ολοκλήρωση παραγγελίας» opens a filled form */}
+      {!cardUnavailable && <ClearCheckoutDraft />}
       {clearCart && <ClearCart />}
       {justPlaced && !unpaidCard && (
         // green for «all went well»; amber when the confirmation mail could not be sent (the order itself is fine, the buyer needs to keep its number)
