@@ -547,12 +547,23 @@ async function main() {
         check('…which opens the resend page with the address filled in', (await page.inputValue('#af-email')) === address);
 
         const html = activation ? readFileSync(path.join(outbox, activation.file), 'utf8') : '';
-        const link = html.match(/href="([^"]*\/api\/account\/activate\?token=[^"]+)"/)?.[1]?.replace(/&amp;/g, '&') ?? '';
-        await page.goto(link || `${base}/api/account/activate`);
+        const link = html.match(/href="([^"]*\/activate\?token=[^"]+)"/)?.[1]?.replace(/&amp;/g, '&') ?? '';
+        const { customers } = await import('../src/lib/db/schema');
+        const verifiedAt = async () => (await db.select({ at: customers.emailVerifiedAt }).from(customers).where(eq(customers.email, address)))[0]?.at ?? null;
+        const button = page.getByRole('button', { name: 'Ενεργοποίηση λογαριασμού' });
+        // a mail scanner opening the link first, then the customer opening it: neither visit activates anything
+        const firstVisit = await page.goto(link || `${base}/activate`);
+        await page.goto(link || `${base}/activate`);
+        await button.waitFor({ timeout: 20_000 });
+        check('opening the link (twice) shows the activation button and activates nothing yet', link.startsWith(`${base}/activate?token=`) && (await verifiedAt()) === null, link);
+        check('…the page sends no Referer and is kept out of search engines', firstVisit?.headers()['referrer-policy'] === 'no-referrer' && (await page.locator('meta[name="robots"]').getAttribute('content'))?.includes('noindex') === true && (await page.locator('meta[name="referrer"]').getAttribute('content')) === 'no-referrer', firstVisit?.headers()['referrer-policy']);
+        const legacy = await page.request.get(`${base}/api/account/activate?token=${encodeURIComponent(new URL(link || base).searchParams.get('token') ?? '')}`, { maxRedirects: 0 });
+        check('…and the address of the first mails only forwards to the page, spending nothing', legacy.status() === 303 && (legacy.headers().location ?? '').endsWith(`/activate?token=${encodeURIComponent(new URL(link || base).searchParams.get('token') ?? '')}`) && (await verifiedAt()) === null, legacy.status());
+        await button.click();
         await page.waitForURL(/\/account/, { timeout: 20_000 });
-        check('the activation link signs the customer in on the account page', page.url().includes('/account?activated=1') && (await page.getByText('Ο λογαριασμός σας ενεργοποιήθηκε').count()) === 1, page.url());
-        await page.goto(link || `${base}/api/account/activate`);
-        check('…and a second visit of the same link leads to the resend page', page.url().includes('/resend-activation?link=invalid'), page.url());
+        check('pressing the button signs the customer in on the account page', page.url().includes('/account?activated=1') && (await page.getByText('Ο λογαριασμός σας ενεργοποιήθηκε').count()) === 1 && (await verifiedAt()) !== null, page.url());
+        await page.goto(link || `${base}/activate`);
+        check('…and a second visit of the same link says it no longer works, with a way to a new one', (await page.getByText('Ο σύνδεσμος ενεργοποίησης δεν ισχύει').count()) === 1 && (await page.getByRole('link', { name: 'Στείλτε μου νέο σύνδεσμο' }).count()) === 1 && (await button.count()) === 0, page.url());
       } finally {
         await ctx.close();
       }

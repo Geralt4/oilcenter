@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { after } from 'next/server';
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { newActivationToken } from '@/lib/auth/activation';
+import { ACTIVATION_LINK_INVALID, activateByToken, newActivationToken } from '@/lib/auth/activation';
 import { hashPassword, randomToken, sha256, verifyPassword } from '@/lib/auth/password';
 import { createSession, destroySession, getCustomer, requireCustomer, revokeAllSessions } from '@/lib/auth/session';
 import { db } from '@/lib/db';
@@ -144,6 +144,19 @@ export async function resendActivation(_prev: FormState, formData: FormData): Pr
     after(() => sendMail(mail));
   }
   return { ok: true, message: 'Αν υπάρχει λογαριασμός που περιμένει ενεργοποίηση με αυτό το e-mail, σας στείλαμε νέο σύνδεσμο. Ισχύει για 24 ώρες.' };
+}
+
+/**
+ * The button on the activation page. The token comes from the page's hidden field; only a token that is still usable (see
+ * lib/auth/activation.ts) activates and signs in, anything else changes nothing and points to a new link.
+ */
+export async function activateAccount(_prev: FormState, formData: FormData): Promise<FormState> {
+  if (!(await accountsAvailable())) return { ok: false, message: 'Οι λογαριασμοί πελατών θα ανοίξουν μαζί με τις online παραγγελίες.' };
+  if (!(await rateLimit(`activate:${await clientIp()}`, 10, 10 * 60 * 1000)).ok) return { ok: false, message: 'Πολλές προσπάθειες. Δοκιμάστε ξανά αργότερα.' };
+  const account = await activateByToken(String(formData.get('token') ?? ''));
+  if (!account) return { ok: false, message: ACTIVATION_LINK_INVALID, link: { href: '/resend-activation', label: 'Στείλτε μου νέο σύνδεσμο' } };
+  await createSession('customer', account.id, account.tokenVersion);
+  redirect('/account?activated=1');
 }
 
 export async function logoutCustomer(): Promise<void> {

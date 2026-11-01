@@ -29,12 +29,12 @@ Admin login = `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env.local`. Change the pas
 | `npm run catalog:build` | rebuild `catalog/catalog.json` + `public/catalog/*.webp` from the client's photos |
 | `npm run test:orders` | order-logic regression test, incl. availability and payment outcomes (runs on a throwaway snapshot of the DB) — 290 checks |
 | `npm run test:viva` | Viva adapter with a mocked `fetch`: create, return, webhook, IP allow-list, unmatched payments — 190 checks |
-| `npm run test:admin` | admin actions: prices and CSV round trip, sales, coupons, orders and payment review, categories, product sizes, IBANs, customer and admin sign-in limits, given-up payment mails, registration and account activation, products with history kept — 305 checks |
+| `npm run test:admin` | admin actions: prices and CSV round trip, sales, coupons, orders and payment review, categories, product sizes, IBANs, customer and admin sign-in limits, given-up payment mails, registration and account activation, products with history kept — 311 checks |
 | `npm run test:catalog` | catalogue data, search, sizes and hazard tables — 120 checks |
 | `npm run test:security` | commerce switch, MFA, limits, upload tokens/deadline/rollback, backup encryption and statistics limits — 149 checks |
 | `npm run test:feed` | Skroutz feed regression test: what is listed, valid XML, barcodes, cache and rate limit (same throwaway snapshot) — 104 checks |
 | `npm run test:flows` | real browser flow on a throwaway DB: login + TOTP, confirmed database download, CSV import, photo/SDS save, statistics page, resending a payment mail (builds first) — 62 checks |
-| `npm run test:card` | whole card journey in a browser against a fake Viva server, plus registration and activation of a customer account (builds first) — 58 checks |
+| `npm run test:card` | whole card journey in a browser against a fake Viva server, plus registration and activation of a customer account (builds first) — 61 checks |
 | `npm run lint` / `typecheck` | ESLint / TypeScript |
 
 ## ⚠️ Before going live
@@ -115,8 +115,10 @@ What the deployment-level protections do and where they live — read together w
   restart or redeploy does not reset them.
 - **Customer registration and activation:** registering answers the same for a new and an already registered e-mail
   («Σας στείλαμε e-mail…», the password is hashed on both paths) and opens no session. A new address gets an account that
-  cannot sign in yet and a single-use activation link (stored hashed, valid 24 h, `GET /api/account/activate`, which also
-  signs the customer in); a registered address gets a short notice with sign-in and reset links, at most 3 an hour, and
+  cannot sign in yet and a single-use activation link (stored hashed, valid 24 h) to `/activate`. Opening that page only
+  checks the link (mail scanners open links before the customer does); the button «Ενεργοποίηση λογαριασμού» spends it,
+  activates the account and signs the customer in. The page sends `Referrer-Policy: no-referrer` and is not indexed;
+  `/api/account/activate`, the address of the first mails, only forwards there. A registered address gets a short notice with sign-in and reset links, at most 3 an hour, and
   the account is not touched. Signing in to an account that was never activated is refused with a link to
   `/resend-activation` (5 requests per 30 minutes per address of the visitor, 3 per hour per e-mail, same answer whatever
   the e-mail). A password reset also activates the account. Customers from before migration 0022 were activated by its

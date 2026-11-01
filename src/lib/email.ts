@@ -214,10 +214,10 @@ export function contactMail(input: { name: string; email: string; phone?: string
   return { to: process.env.ORDERS_NOTIFY_EMAIL || settings.shop.email, subject: `${input.heading ?? 'Μήνυμα από το site'}: ${input.subject || input.name}`, html: layout(settings.shop, input.heading ?? 'Νέο μήνυμα επικοινωνίας', body), replyTo: input.email || undefined };
 }
 
-/** The single-use link that activates a new account (it also signs the customer in). */
+/** The single-use link to the activation page; the button there activates the account and signs the customer in. */
 export function accountActivationMail(to: string, token: string, settings: ShopSettings): Mail {
-  const url = `${siteUrl()}/api/account/activate?token=${encodeURIComponent(token)}`;
-  const body = `<p style="margin:0;font-size:15px;line-height:1.6;">Για να ολοκληρωθεί η εγγραφή σας στο Oil Center, πατήστε το κουμπί. Ο σύνδεσμος ισχύει για 24 ώρες και χρησιμοποιείται μία φορά. Αν δεν κάνατε εσείς την εγγραφή, αγνοήστε αυτό το μήνυμα: χωρίς ενεργοποίηση ο λογαριασμός δεν μπορεί να χρησιμοποιηθεί.</p>${button(url, 'Ενεργοποίηση λογαριασμού')}`;
+  const url = `${siteUrl()}/activate?token=${encodeURIComponent(token)}`;
+  const body = `<p style="margin:0;font-size:15px;line-height:1.6;">Για να ολοκληρωθεί η εγγραφή σας στο Oil Center, πατήστε το κουμπί παρακάτω και, στη σελίδα που θα ανοίξει, «Ενεργοποίηση λογαριασμού». Ο σύνδεσμος ισχύει για 24 ώρες και χρησιμοποιείται μία φορά. Αν δεν κάνατε εσείς την εγγραφή, αγνοήστε αυτό το μήνυμα: χωρίς ενεργοποίηση ο λογαριασμός δεν μπορεί να χρησιμοποιηθεί.</p>${button(url, 'Συνέχεια στην ενεργοποίηση')}`;
   return { to, subject: 'Ενεργοποίηση λογαριασμού — Oil Center', html: layout(settings.shop, 'Ολοκλήρωση εγγραφής', body) };
 }
 

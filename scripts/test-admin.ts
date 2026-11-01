@@ -1329,8 +1329,11 @@ async function main() {
   {
     const { customers } = await import('../src/lib/db/schema');
     const { hashPassword, randomToken, sha256 } = await import('../src/lib/auth/password');
-    const { registerCustomer, loginCustomer, resendActivation, resetPassword } = await import('../src/app/(store)/account/actions');
+    const { registerCustomer, loginCustomer, resendActivation, resetPassword, activateAccount } = await import('../src/app/(store)/account/actions');
     const { GET: activate } = await import('../src/app/api/account/activate/route');
+    const { default: ActivatePage } = await import('../src/app/(store)/activate/page');
+    const { ACTIVATION_LINK_INVALID } = await import('../src/lib/auth/activation');
+    const { siteUrl } = await import('../src/lib/site-url');
     const { getSettings, saveSettingsGroup } = await import('../src/lib/settings.server');
     const { readdirSync } = await import('node:fs');
     const { sql: rawSql } = await import('drizzle-orm');
@@ -1381,7 +1384,33 @@ async function main() {
       return r;
     };
     const follow = (token: string) => activate(new Request(`http://localhost/api/account/activate?token=${encodeURIComponent(token)}`));
-    const tokenIn = (mail: string) => decodeURIComponent(mail.match(/\/api\/account\/activate\?token=([^"&<\s]+)/)?.[1] ?? '');
+    const tokenIn = (mail: string) => decodeURIComponent(mail.match(/\/activate\?token=([^"&<\s]+)/)?.[1] ?? '');
+    // the page as rendered on the server: its element tree, as JSON (props such as the hidden token and the button label show up)
+    const view = async (token: string) => {
+      currentIp = '192.0.2.50';
+      // React's development builds link elements back to their owner, so only `type`, `props` and plain values are kept
+      const seen = new WeakSet<object>();
+      return JSON.stringify(await ActivatePage({ searchParams: Promise.resolve({ token }) }), (key, value) => {
+        if (key.startsWith('_') || typeof value === 'function') return undefined;
+        if (value && typeof value === 'object') {
+          if (seen.has(value)) return undefined;
+          seen.add(value);
+        }
+        return value;
+      });
+    };
+    // the button: the server action with the hidden field the page renders
+    const press = async (token: string) => {
+      currentIp = '192.0.2.51';
+      try {
+        const r = await activateAccount(null, form({ token }));
+        return { signedIn: false, message: r?.message ?? '', link: r?.link, location: '' };
+      } catch (err) {
+        const digest = String((err as { digest?: string }).digest ?? '');
+        if (digest.startsWith('NEXT_REDIRECT')) return { signedIn: true, message: '', link: undefined, location: digest.split(';')[2] ?? '' };
+        throw err;
+      }
+    };
     const storefrontBefore = (await getSettings()).storefront;
     await saveSettingsGroup('storefront', { ...storefrontBefore, ordersEnabled: true });
     try {
@@ -1428,18 +1457,30 @@ async function main() {
       const wrongPw = await login('fresh@example.com', 'λάθος-κωδικός', '192.0.2.21');
       check('…while a wrong password on it gets the usual answer and no link', !wrongPw.signedIn && wrongPw.message === WRONG && !wrongPw.link, wrongPw);
 
+      check('the mail links to the activation page', activationMails[0].includes('/activate?token=') && !activationMails[0].includes('/api/account/activate'));
+      const beforeViews = await customerRow('fresh@example.com');
+      const forwarded = await follow(token);
+      check('the old link address only forwards to the page, with the same token', forwarded.status === 303 && forwarded.headers.get('location') === `${siteUrl()}/activate?token=${encodeURIComponent(token)}` && forwarded.headers.get('referrer-policy') === 'no-referrer', [forwarded.status, forwarded.headers.get('location')]);
+      const firstView = await view(token);
+      const secondView = await view(token);
+      const afterViews = await customerRow('fresh@example.com');
+      check('opening the page shows the button with the token in a hidden field', firstView.includes('"submitLabel":"Ενεργοποίηση λογαριασμού"') && firstView.includes(`"hidden":{"token":"${token}"}`) && secondView === firstView);
+      check('…and opening it (twice, after the old address) spends nothing: still unverified, same token, no session', afterViews.emailVerifiedAt === null && afterViews.verifyTokenHash === beforeViews.verifyTokenHash && afterViews.verifyTokenExpires?.getTime() === beforeViews.verifyTokenExpires?.getTime() && !cookieJar.has('oc_customer'), afterViews);
+
       await db.update(customers).set({ verifyTokenExpires: new Date(Date.now() - 1000) }).where(eq(customers.id, fresh.id));
-      const late = await follow(token);
-      check('an expired link activates nothing and leads to the page for a new one', !!late.headers.get('location')?.endsWith('/resend-activation?link=invalid') && (await customerRow('fresh@example.com')).emailVerifiedAt === null && !cookieJar.has('oc_customer'), late.headers.get('location'));
+      check('an expired link: the page shows the message and the way to a new link, no button', (await view(token)).includes(ACTIVATION_LINK_INVALID) && !(await view(token)).includes('"hidden":{"token"') && (await view(token)).includes('/resend-activation'));
+      const late = await press(token);
+      check('…and pressing the button anyway activates nothing, with the message and a link to a new one', late.signedIn === false && late.message === ACTIVATION_LINK_INVALID && late.link?.href === '/resend-activation' && (await customerRow('fresh@example.com')).emailVerifiedAt === null && !cookieJar.has('oc_customer'), late);
       await db.update(customers).set({ verifyTokenExpires: new Date(Date.now() + 60_000) }).where(eq(customers.id, fresh.id));
-      const madeUp = await follow(randomToken());
-      check('a made-up link activates nothing', !!madeUp.headers.get('location')?.endsWith('/resend-activation?link=invalid') && (await customerRow('fresh@example.com')).emailVerifiedAt === null);
-      const opened = await follow(token);
+      const madeUp = await press(randomToken());
+      check('a made-up token activates nothing', madeUp.signedIn === false && madeUp.message === ACTIVATION_LINK_INVALID && (await customerRow('fresh@example.com')).emailVerifiedAt === null);
+      const opened = await press(token);
       const activated = await customerRow('fresh@example.com');
-      check('following the link activates the account and signs the customer in', !!opened.headers.get('location')?.endsWith('/account?activated=1') && activated.emailVerifiedAt !== null && activated.verifyTokenHash === null && cookieJar.has('oc_customer'), [opened.headers.get('location'), activated.emailVerifiedAt]);
+      check('pressing the button activates the account and signs the customer in on the account page', opened.signedIn && opened.location === '/account?activated=1' && activated.emailVerifiedAt !== null && activated.verifyTokenHash === null && cookieJar.has('oc_customer'), [opened, activated.emailVerifiedAt]);
       cookieJar.delete('oc_customer');
-      const twice = await follow(token);
-      check('…and the link works only once', !!twice.headers.get('location')?.endsWith('/resend-activation?link=invalid') && !cookieJar.has('oc_customer'), twice.headers.get('location'));
+      const twice = await press(token);
+      check('…and the token works only once', twice.signedIn === false && twice.message === ACTIVATION_LINK_INVALID && !cookieJar.has('oc_customer'), twice);
+      check('…after which the page no longer offers the button', (await view(token)).includes(ACTIVATION_LINK_INVALID));
       check('…after which the customer signs in normally', (await login('fresh@example.com', 'νέος-κωδικός-1', '192.0.2.22')).signedIn);
       cookieJar.delete('oc_customer');
 
