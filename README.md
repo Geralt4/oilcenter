@@ -113,6 +113,14 @@ What the deployment-level protections do and where they live — read together w
   can trip it (two for a customer, about three for an admin without 2FA).
   Counters live in SQLite (`rate_limits`, keys hashed with SHA-256, never raw addresses; indexed, bounded cleanup), so a
   restart or redeploy does not reset them.
+- **Customer registration and activation:** registering answers the same for a new and an already registered e-mail
+  («Σας στείλαμε e-mail…», the password is hashed on both paths) and opens no session. A new address gets an account that
+  cannot sign in yet and a single-use activation link (stored hashed, valid 24 h, `GET /api/account/activate`, which also
+  signs the customer in); a registered address gets a short notice with sign-in and reset links, at most 3 an hour, and
+  the account is not touched. Signing in to an account that was never activated is refused with a link to
+  `/resend-activation` (5 requests per 30 minutes per address of the visitor, 3 per hour per e-mail, same answer whatever
+  the e-mail). A password reset also activates the account. Customers from before migration 0022 were activated by its
+  backfill. Guest checkout and the order lookup do not need an account.
 - **Admin two-step verification (TOTP):** Admin → Ρυθμίσεις → «Επαλήθευση δύο βημάτων» enrolls an authenticator app
   (QR code). Once confirmed, every admin login also requires the 6-digit code; each code is **single-use** (its time step
   is burned in the database, so replay inside the 30 s window fails), and separate limits guard guessing the code (5 wrong codes per address and 10 per account, per 15 minutes; the account cap is only reachable with the right password). Turning
