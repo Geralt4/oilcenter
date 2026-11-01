@@ -1711,6 +1711,34 @@ async function main() {
     await db.update(settings).set({ value: recordedBefore }).where(eq(settings.key, 'dataPatches'));
   }
 
+  console.log('scripts/patches.ts: every patch run twice leaves the same database');
+  {
+    const schema = await import('../src/lib/db/schema');
+    const { PATCHES, runPatches } = await import('./patches');
+    const mute = { log: () => undefined, warn: () => undefined };
+    const recordedBefore = (await db.select().from(schema.settings).where(eq(schema.settings.key, 'dataPatches')))[0]?.value ?? [];
+    // everything a patch can touch, as text; the record of applied patches itself is not part of the comparison
+    const state = async () =>
+      JSON.stringify([
+        await db.select().from(schema.products).orderBy(asc(schema.products.id)),
+        await db.select().from(schema.variants).orderBy(asc(schema.variants.id)),
+        await db.select().from(schema.priceChanges).orderBy(asc(schema.priceChanges.id)),
+        await db.select().from(schema.brands).orderBy(asc(schema.brands.id)),
+        await db.select().from(schema.coupons).orderBy(asc(schema.coupons.id)),
+        await db.select().from(schema.sales).orderBy(asc(schema.sales.id)),
+        (await db.select().from(schema.settings).orderBy(asc(schema.settings.key))).filter((r) => r.key !== 'dataPatches').map((r) => [r.key, r.value]),
+      ]);
+    const forget = () => db.update(schema.settings).set({ value: [] }).where(eq(schema.settings.key, 'dataPatches'));
+    await forget();
+    const run1 = await runPatches(PATCHES, mute);
+    const after1 = await state();
+    await forget(); // as after a crash between the last patch and its record: all of them run again
+    const run2 = await runPatches(PATCHES, mute);
+    check(`all ${PATCHES.length} patches apply without failing or waiting`, run1.applied.length === PATCHES.length && run2.applied.length === PATCHES.length && run1.failed.length + run1.skipped.length + run2.failed.length + run2.skipped.length === 0, [run1, run2]);
+    check('…and the second run changes nothing: products, sizes, prices and their history, brands, coupons, sales and settings are identical', (await state()) === after1);
+    await db.update(schema.settings).set({ value: recordedBefore }).where(eq(schema.settings.key, 'dataPatches'));
+  }
+
   console.log('scripts/skroutz-prices.ts --force');
   {
     const { applySkroutzPrices, loadSkroutzPrices } = await import('./skroutz-prices');
