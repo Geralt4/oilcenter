@@ -33,9 +33,11 @@ Admin login = `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env.local`. Change the pas
 | `npm run test:catalog` | catalogue data, search, sizes and hazard tables, the saved cart and favourites (tabs, migration) and the checkout draft — 136 checks |
 | `npm run test:security` | commerce switch, MFA, limits, upload tokens/deadline/rollback, backup encryption, statistics limits, mail transport (file fallback, SMTP timeouts, address redaction), `seed --force` and `package.json` — 168 checks |
 | `npm run test:feed` | Skroutz feed regression test: what is listed, valid XML, barcodes, cache and rate limit (same throwaway snapshot) — 104 checks |
-| `npm run test:flows` | real browser flow on a throwaway DB: login + TOTP, confirmed database download, CSV import, photo/SDS save, statistics page, resending a payment mail, the favourites error and retry, the dashboard's data-update line (builds first) — 72 checks |
-| `npm run test:card` | whole card journey in a browser against a fake Viva server, the checkout's field errors and its draft after Back, the order page's confirmation-mail notice, plus registration, activation and sign-out of a customer account (builds first) — 99 checks |
+| `npm run test:flows` | real browser flow on a throwaway DB: login + TOTP, confirmed database download, CSV import, photo/SDS save, statistics page, resending a payment mail, the favourites error and retry, the dashboard's data-update line (builds first) — 69 checks |
+| `npm run test:card` | whole card journey in a browser against a fake Viva server, the checkout's field errors and its draft after Back, the order page's confirmation-mail notice, plus registration, activation and sign-out of a customer account (builds first) — 96 checks |
 | `npm run lint` / `typecheck` | ESLint / TypeScript |
+
+The counts above are the checks each script prints itself. `test:flows` and `test:card` build first, and the three build lines that start with a tick (compile, static pages, config) are not checks.
 
 ## ⚠️ Before going live
 
