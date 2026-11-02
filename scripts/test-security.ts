@@ -171,6 +171,28 @@ async function main() {
     check('the order page and the card retry compare the access token in constant time', orderPage.includes('safeEqual(token, order.accessToken)') && retry.includes('safeEqual(order.accessToken, token)') && !/accessToken\s*(===|!==)/.test(orderPage + retry));
   }
 
+  console.log('Admin pages and downloads check the session themselves');
+  {
+    const pathMod = (await import('node:path')).default;
+    const walk = async (d: string): Promise<string[]> => {
+      const entries = await readdir(d, { withFileTypes: true });
+      const out: string[] = [];
+      for (const e of entries) {
+        const p = pathMod.join(d, e.name);
+        if (e.isDirectory()) out.push(...(await walk(p)));
+        else out.push(p);
+      }
+      return out;
+    };
+    const files = (await walk(pathMod.join('src', 'app', 'admin', '(panel)'))).filter((f) => ['page.tsx', 'route.ts'].includes(pathMod.basename(f)));
+    const missing = files.filter((f) => {
+      const text = readFileSync(f, 'utf8');
+      // a page redirects to the login form; a download route answers 401 and never renders HTML
+      return pathMod.basename(f) === 'page.tsx' ? !/\brequireAdmin\s*\(/.test(text) : !/\b(getAdmin|requireAdmin)\s*\(/.test(text);
+    });
+    check('every admin page and route handler checks the admin session itself, not only the layout', files.length >= 17 && missing.length === 0, { files: files.length, missing });
+  }
+
   console.log('Startup configuration checks');
   const { checkProductionConfig } = await import('../src/lib/startup-check');
   const saved = { secret: process.env.AUTH_SECRET, site: process.env.SITE_URL, commerce: process.env.COMMERCE_ENABLED };
