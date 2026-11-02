@@ -1219,7 +1219,7 @@ async function main() {
     check('…a form that changes both names both in one refusal', both.ok === false && both.message.includes('τραπεζικούς λογαριασμούς και το άνοιγμα'), both);
 
     const paymentSwitch = await run({ ...account(GR), card: 'on' });
-    check('without the confirmation, switching a payment method on is refused', paymentSwitch.ok === false && paymentSwitch.message.includes('τρόπους πληρωμής') && (await snap()).card === false, paymentSwitch);
+    check('without the confirmation, switching a payment method on is refused', paymentSwitch.ok === false && paymentSwitch.message.includes('τρόπους πληρωμής') && paymentSwitch.message.includes('ενεργοποιήστε την πρώτα') && (await snap()).card === false, paymentSwitch);
     const vatChange = await run({ ...account(GR), vatRate: otherVat });
     check('…and so is a VAT change', vatChange.ok === false && vatChange.message.includes('ΦΠΑ') && (await snap()).vat === start.vat, vatChange);
     const feeChange = await run({ ...account(GR), baseCents: otherFee });

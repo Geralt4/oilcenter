@@ -1286,7 +1286,7 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
   if (bool(fd, 'demoMode') !== current.storefront.demoMode) guarded.push('τη δοκιμαστική λειτουργία');
   if (guarded.length && !(await hasSudoSession())) {
     const list = guarded.length === 1 ? guarded[0] : `${guarded.slice(0, -1).join(', ')} και ${guarded[guarded.length - 1]}`;
-    return { ok: false, message: `Δεν αποθηκεύτηκε τίποτα. Για να αλλάξετε ${list} χρειάζεται πρώτα επιβεβαίωση ταυτότητας (κωδικός και κωδικός εφαρμογής) στην ενότητα «Επιβεβαίωση ταυτότητας» στην κορυφή της σελίδας.` };
+    return { ok: false, message: `Δεν αποθηκεύτηκε τίποτα. Για να αλλάξετε ${list} χρειάζεται πρώτα επιβεβαίωση ταυτότητας (κωδικός και κωδικός εφαρμογής) στην ενότητα «Επιβεβαίωση ταυτότητας» στην κορυφή της σελίδας. Αν δεν έχετε ενεργή επαλήθευση δύο βημάτων, ενεργοποιήστε την πρώτα από την ίδια σελίδα.` };
   }
 
   await saveSettingsGroup('shop', shop);
