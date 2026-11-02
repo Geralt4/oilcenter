@@ -6,7 +6,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { cloneDatabase } from './test-db';
 
 let dir = '';
@@ -816,6 +816,22 @@ async function main() {
   await rm(stuckPath, { recursive: true, force: true });
   await finishUpload(stuckToken);
   check('the record is removed once the bytes are gone', (await db.select().from(pendingUploads).where(eq(pendingUploads.token, stuckToken))).length === 0);
+
+  console.log('Media files cannot leave the uploads folder');
+  {
+    const uploads = path.join(process.env.DATA_DIR!, 'uploads');
+    await mkdir(uploads, { recursive: true });
+    await writeFile(path.join(uploads, 'real.webp'), Buffer.from('synthetic-webp'));
+    const outside = path.join(dir, 'outside.webp');
+    await writeFile(outside, Buffer.from('not for the public'));
+    await symlink(outside, path.join(uploads, 'link.webp'));
+    const { GET } = await import('../src/app/media/[...path]/route');
+    const get = (name: string) => GET(new Request(`http://localhost/media/${name}`), { params: Promise.resolve({ path: [name] }) });
+    const real = await get('real.webp');
+    const link = await get('link.webp');
+    check('a regular uploaded file is served', real.status === 200 && real.headers.get('content-type') === 'image/webp', real.status);
+    check('a symlink in the uploads folder is refused, even when it points at a file', link.status === 404, link.status);
+  }
 
   console.log('Upload submit coordination');
   const { beginUpload, endUpload, pendingUploads: pendingUploadCount } = await import('../src/components/admin/upload-pending');
