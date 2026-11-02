@@ -10,6 +10,7 @@ import { buttonClass } from '@/components/ui/button';
 import { getCustomer } from '@/lib/auth/session';
 import type { OrderStatus } from '@/lib/db/schema';
 import { getOrderByNumber, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/orders';
+import { safeEqual } from '@/lib/secure-compare';
 import { confirmationMailState, type ConfirmationMailState } from '@/lib/payments/mail-delivery';
 import { formatIban } from '@/lib/iban';
 import { cardProvider } from '@/lib/payments';
@@ -30,7 +31,7 @@ export default async function OrderPage({ params, searchParams }: Props) {
   const [order, settings, customer] = await Promise.all([getOrderByNumber(number.toUpperCase()), getSettings(), getCustomer()]);
 
   // Knowing an order number is not enough: either hold its secret link or be its logged-in owner.
-  const allowed = order && ((token.length > 10 && token === order.accessToken) || (customer && order.customerId === customer.id));
+  const allowed = order && ((token.length > 10 && safeEqual(token, order.accessToken)) || (customer && order.customerId === customer.id));
   if (!order || !allowed) notFound();
 
   const { shop, payments } = settings;

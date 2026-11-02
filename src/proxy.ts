@@ -1,7 +1,8 @@
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { jwtVerify } from 'jose';
 import { NextResponse, type NextRequest } from 'next/server';
 import { resolveAuthSecret } from '@/lib/auth/secret';
+import { safeEqual } from '@/lib/secure-compare';
 
 /*
  * Four gates run before any page is rendered:
@@ -31,10 +32,6 @@ import { resolveAuthSecret } from '@/lib/auth/secret';
  * neither needs a CSP.
  */
 
-const digest = (value: string) => createHash('sha256').update(value).digest();
-const same = (a: string, b: string) => timingSafeEqual(digest(a), digest(b));
-
-// Must match COOKIE.admin.name in src/lib/auth/session.ts.
 const ADMIN_COOKIE = 'oc_admin';
 
 // The same helper as the session code (lib/auth/secret.ts): no secret, no admin session, in every environment.
@@ -130,8 +127,8 @@ export async function proxy(request: NextRequest) {
       const decoded = Buffer.from(header.slice(6), 'base64').toString('utf8');
       const colon = decoded.indexOf(':');
       // evaluate both comparisons so the timing does not reveal which half was wrong
-      const userOk = colon > -1 && same(decoded.slice(0, colon), user);
-      const passwordOk = colon > -1 && same(decoded.slice(colon + 1), password);
+      const userOk = colon > -1 && safeEqual(decoded.slice(0, colon), user);
+      const passwordOk = colon > -1 && safeEqual(decoded.slice(colon + 1), password);
       authed = userOk && passwordOk;
     }
     if (!authed) {

@@ -159,6 +159,18 @@ async function main() {
     if (savedEnv.opt === undefined) delete process.env.ALLOW_DEV_AUTH_SECRET; else process.env.ALLOW_DEV_AUTH_SECRET = savedEnv.opt;
   }
 
+  console.log('Constant-time secret comparison');
+  {
+    const { safeEqual } = await import('../src/lib/secure-compare');
+    check('equal secrets compare equal', safeEqual('order-token', 'order-token'));
+    check('a one-character difference is not equal', !safeEqual('order-token', 'order-tokeN'));
+    check('a length difference is not equal and does not throw', !safeEqual('short', 'a-much-longer-value'));
+    check('an empty value never matches a real secret', !safeEqual('', 'order-token'));
+    const orderPage = readFileSync('src/app/(store)/order/[number]/page.tsx', 'utf8');
+    const retry = readFileSync('src/app/(store)/checkout/actions.ts', 'utf8');
+    check('the order page and the card retry compare the access token in constant time', orderPage.includes('safeEqual(token, order.accessToken)') && retry.includes('safeEqual(order.accessToken, token)') && !/accessToken\s*(===|!==)/.test(orderPage + retry));
+  }
+
   console.log('Startup configuration checks');
   const { checkProductionConfig } = await import('../src/lib/startup-check');
   const saved = { secret: process.env.AUTH_SECRET, site: process.env.SITE_URL, commerce: process.env.COMMERCE_ENABLED };
