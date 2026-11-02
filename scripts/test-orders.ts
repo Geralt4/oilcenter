@@ -18,6 +18,18 @@ function check(name: string, ok: boolean, detail?: unknown) {
 
 async function main() {
   dir = await cloneDatabase('oc-test-');
+  // The Stripe return route chooses the client address through next/headers, which has no request scope here:
+  // a mutable header map lets each case pick its own address.
+  const requestHeaders = new Map<string, string>();
+  const fromIp = (ip: string | null) => {
+    if (ip) requestHeaders.set('x-forwarded-for', ip);
+    else requestHeaders.delete('x-forwarded-for');
+  };
+  const headersPath = require.resolve('next/headers');
+  require.cache[headersPath] = {
+    id: headersPath, filename: headersPath, loaded: true,
+    exports: { headers: async () => ({ get: (name: string) => requestHeaders.get(name.toLowerCase()) ?? null }) },
+  } as unknown as NodeJS.Module;
   const { eq, ne } = await import('drizzle-orm');
   const { db } = await import('../src/lib/db');
   // the local database can be behind the code: bring the throwaway copy up to date before anything reads `sales`
@@ -1153,7 +1165,7 @@ async function main() {
       try {
         const back = await stripeReturn(new Request('http://localhost/api/payments/stripe/return?session_id=cs_usd_R'));
         const rR = await row(sR.id);
-        check('return route: a USD payment does not get the «thank you» page', !!back.headers.get('location')?.includes(`/order/${sR.number}`) && !back.headers.get('location')?.includes('payment=success'), back.headers.get('location'));
+        check('return route: a USD payment goes to the review page, without the secret order link', back.headers.get('location')?.endsWith('/order-status?payment=review') === true && !back.headers.get('location')?.includes(`/order/${sR.number}`), back.headers.get('location'));
         check('…the order is NOT paid, flagged, and the history names USD', rR.paymentStatus !== 'paid' && rR.paymentFlag === 'review' && (await usdEvent(sR.id)), [rR.paymentStatus, rR.paymentFlag]);
       } finally {
         sessions.retrieve = realRetrieve;
@@ -1164,6 +1176,69 @@ async function main() {
       await deliver('checkout.session.completed', { ...session('cs_eur_lc', sE, true), currency: 'eur' });
       const rE = await row(sE.id);
       check('webhook: lowercase «eur» is accepted as EUR, the order is paid and not flagged', rE.paymentStatus === 'paid' && rE.paymentFlag !== 'review' && (await alertsOf(sE.id)).length === 0, [rE.paymentStatus, rE.paymentFlag]);
+    }
+
+    console.log('  Stripe: the return link is only handed out for a paid, normal order');
+    {
+      const { GET: stripeReturn } = await import('../src/app/api/payments/stripe/return/route');
+      const { cancelOrder } = await import('../src/lib/orders');
+      const sessions = stripe().checkout.sessions as unknown as { retrieve: (id: string) => Promise<unknown> };
+      const realRetrieve = sessions.retrieve;
+      const answers: Record<string, Record<string, unknown>> = {};
+      sessions.retrieve = async (id: string) => answers[id];
+      const url = (id: string) => `http://localhost/api/payments/stripe/return?session_id=${id}`;
+      const secretLink = (res: Response) => {
+        const location = res.headers.get('location') ?? '';
+        return location.includes('/order/') && location.includes('t=');
+      };
+      try {
+        const normal = await newCard();
+        await recordPaymentAttempt(normal.id, { provider: 'stripe', ref: 'cs_ret_normal' });
+        answers.cs_ret_normal = { ...session('cs_ret_normal', normal, true), client_reference_id: normal.number };
+        const ok = await stripeReturn(new Request(url('cs_ret_normal')));
+        check('a paid session on a normal order gets the secret link and the «thank you» mark', secretLink(ok) && (ok.headers.get('location') ?? '').includes('payment=success'), ok.headers.get('location'));
+
+        const cancelled = await newCard();
+        await recordPaymentAttempt(cancelled.id, { provider: 'stripe', ref: 'cs_ret_cancelled' });
+        answers.cs_ret_cancelled = { ...session('cs_ret_cancelled', cancelled, true), client_reference_id: cancelled.number };
+        await cancelOrder(cancelled.id, 'test');
+        const c = await stripeReturn(new Request(url('cs_ret_cancelled')));
+        check('a paid session on a cancelled order goes to the review page, without the secret link', c.headers.get('location')?.endsWith('/order-status?payment=review') === true && !secretLink(c), c.headers.get('location'));
+
+        const mismatch = await newCard();
+        await recordPaymentAttempt(mismatch.id, { provider: 'stripe', ref: 'cs_ret_mismatch' });
+        answers.cs_ret_mismatch = { ...session('cs_ret_mismatch', mismatch, true), client_reference_id: mismatch.number, amount_total: mismatch.totalCents + 1 };
+        const m = await stripeReturn(new Request(url('cs_ret_mismatch')));
+        check('a paid session whose amount does not match goes to the review page, without the secret link', m.headers.get('location')?.endsWith('/order-status?payment=review') === true && !secretLink(m), m.headers.get('location'));
+
+        const unpaid = await newCard();
+        await recordPaymentAttempt(unpaid.id, { provider: 'stripe', ref: 'cs_ret_unpaid' });
+        answers.cs_ret_unpaid = { ...session('cs_ret_unpaid', unpaid, false), status: 'open', client_reference_id: unpaid.number };
+        const u = await stripeReturn(new Request(url('cs_ret_unpaid')));
+        check('an unpaid session goes to the failed page, without the secret link', u.headers.get('location')?.endsWith('/order-status?payment=failed') === true && !secretLink(u), u.headers.get('location'));
+
+        const processing = await newCard();
+        await recordPaymentAttempt(processing.id, { provider: 'stripe', ref: 'cs_ret_processing' });
+        answers.cs_ret_processing = { ...session('cs_ret_processing', processing, false), status: 'complete', client_reference_id: processing.number };
+        const p = await stripeReturn(new Request(url('cs_ret_processing')));
+        check('a session with a delayed payment goes to the pending page, without the secret link', p.headers.get('location')?.endsWith('/order-status?payment=pending') === true && !secretLink(p), p.headers.get('location'));
+        check('…and the checkout is marked as processing', (await attemptOf('cs_ret_processing'))?.status === 'processing', (await attemptOf('cs_ret_processing'))?.status);
+
+        console.log('  Stripe: the return route is throttled per address');
+        fromIp('198.51.100.7');
+        answers.cs_ret_limit = { ...session('cs_ret_limit', unpaid, false), status: 'open', client_reference_id: unpaid.number };
+        let allowed = 0;
+        let refused: Response | null = null;
+        for (let i = 1; i <= 21; i++) {
+          const res = await stripeReturn(new Request(url('cs_ret_limit')));
+          if (res.headers.get('location')?.endsWith('/order-status')) refused = res;
+          else allowed++;
+        }
+        check('the 21st return from one address within ten minutes is sent to the order-status page', allowed === 20 && refused !== null, { allowed, refused: refused?.headers.get('location') });
+        fromIp(null);
+      } finally {
+        sessions.retrieve = realRetrieve;
+      }
     }
 
     console.log('  A renamed coupon');
