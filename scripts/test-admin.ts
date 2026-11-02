@@ -1189,12 +1189,16 @@ async function main() {
     const run = async (fields: Record<string, string>) => (await saveSettings(null, form({ ...base, ...fields })))!; // null only before the first submit
     const snap = async () => {
       const g = await getSettings();
-      return { phone: g.shop.phone, iban: g.payments.bankAccounts[0]?.iban ?? null, bank: g.payments.bankAccounts[0]?.bank ?? null, accounts: g.payments.bankAccounts.length, open: g.storefront.ordersEnabled, vat: g.tax.vatRate, card: g.payments.card };
+      return { phone: g.shop.phone, iban: g.payments.bankAccounts[0]?.iban ?? null, bank: g.payments.bankAccounts[0]?.bank ?? null, accounts: g.payments.bankAccounts.length, open: g.storefront.ordersEnabled, vat: g.tax.vatRate, card: g.payments.card, demo: g.storefront.demoMode, shipping: g.shipping.baseCents };
     };
 
     // a starting point set WITH the confirmation: one account, ordering closed
     check('(setup) the confirmation is given and a starting account is saved', (await createSudoSession()) && (await run({ ...account(GR) })).ok === true);
     await destroySudoSession();
+    // values different from whatever the local database has, so the checks do not depend on the owner's settings
+    const start = await snap();
+    const otherVat = String(start.vat === 13 ? 14 : 13);
+    const otherFee = ((start.shipping + 100) / 100).toFixed(2).replace('.', ',');
 
     const unchanged = await run({ phone: '2310555555', ...account(GR) });
     check('without the confirmation, a form that leaves the accounts and the ordering switch alone still saves', unchanged.ok === true && (await snap()).phone === '2310555555', unchanged);
@@ -1214,12 +1218,23 @@ async function main() {
     const both = await run({ ordersEnabled: 'on', ...account(DE) });
     check('…a form that changes both names both in one refusal', both.ok === false && both.message.includes('τραπεζικούς λογαριασμούς και το άνοιγμα'), both);
 
-    check('with the confirmation the same changes are saved', (await createSudoSession()) && (await run({ ordersEnabled: 'on', ...account(DE) })).ok === true && (await snap()).iban === 'DE89370400440532013000' && (await snap()).open === true);
+    const paymentSwitch = await run({ ...account(GR), card: 'on' });
+    check('without the confirmation, switching a payment method on is refused', paymentSwitch.ok === false && paymentSwitch.message.includes('τρόπους πληρωμής') && paymentSwitch.message.includes('ενεργοποιήστε την πρώτα') && (await snap()).card === false, paymentSwitch);
+    const vatChange = await run({ ...account(GR), vatRate: otherVat });
+    check('…and so is a VAT change', vatChange.ok === false && vatChange.message.includes('ΦΠΑ') && (await snap()).vat === start.vat, vatChange);
+    const feeChange = await run({ ...account(GR), baseCents: otherFee });
+    check('…and so is a shipping fee', feeChange.ok === false && feeChange.message.includes('μεταφορικά') && (await snap()).shipping === start.shipping, feeChange);
+    const demoChange = await run({ ...account(GR), demoMode: 'on' });
+    check('…and so is switching the test mode', demoChange.ok === false && demoChange.message.includes('δοκιμαστική λειτουργία') && (await snap()).demo === false, demoChange);
+    const many = await run({ ...account(DE), card: 'on', vatRate: otherVat, baseCents: otherFee, demoMode: 'on' });
+    check('…a form that changes several names all of them in one refusal', many.ok === false && ['τρόπους πληρωμής', 'ΦΠΑ', 'μεταφορικά', 'δοκιμαστική λειτουργία'].every((w) => many.message.includes(w)), many);
+
+    check('with the confirmation the same changes are saved', (await createSudoSession()) && (await run({ ordersEnabled: 'on', ...account(DE), card: 'on', vatRate: otherVat, baseCents: otherFee, demoMode: 'on' })).ok === true && (await snap()).iban === 'DE89370400440532013000' && (await snap()).open === true && (await snap()).card === true && (await snap()).vat === Number(otherVat) && (await snap()).shipping === start.shipping + 100 && (await snap()).demo === true);
     await destroySudoSession();
     const closing = await run({ ...account(DE) });
     check('without the confirmation, closing the shop is refused too', closing.ok === false && (await snap()).open === true, closing);
-    const others = await run({ ordersEnabled: 'on', ...account(DE), phone: '2310777777', vatRate: '13', card: 'on' });
-    check('…while everything else (phone, VAT, payment switches) saves without it', others.ok === true && (await snap()).vat === 13 && (await snap()).card === true && (await snap()).phone === '2310777777', others);
+    const others = await run({ ordersEnabled: 'on', ...account(DE), card: 'on', vatRate: otherVat, baseCents: otherFee, demoMode: 'on', phone: '2310777777' });
+    check('…while a form that leaves the guarded settings as they are still saves without it', others.ok === true && (await snap()).phone === '2310777777', others);
 
     for (const group of ['shop', 'storefront', 'payments', 'shipping', 'reviews', 'tax'] as const) await saveSettingsGroup(group, before[group] as never);
     if (savedCommerce === undefined) delete process.env.COMMERCE_ENABLED; else process.env.COMMERCE_ENABLED = savedCommerce;
@@ -1460,6 +1475,40 @@ async function main() {
     check('after the start step is limited, confirming the scanned code still works (separate limit)', confirmed?.ok === true && (await stateOf()).confirmedAt !== null, confirmed);
 
     await db.delete(adminUsers).where(eq(adminUsers.id, me.id));
+    currentIp = '203.0.113.1';
+    await createSession('admin', admin.id, admin.tokenVersion);
+  }
+
+  console.log('Changing an administrator password with 2FA on');
+  {
+    const { hashPassword, verifyPassword } = await import('../src/lib/auth/password');
+    const { newTotpSecret } = await import('../src/lib/auth/totp');
+    const { changeAdminPassword } = await import('../src/app/admin/actions');
+    const { createSudoSession, destroySudoSession } = await import('../src/lib/auth/session');
+    const oldPw = 'παλιός-κωδικός-1';
+    const newPw = 'νέος-κωδικός-2';
+    const passwordOf = async (id: number) => (await db.select({ hash: adminUsers.passwordHash }).from(adminUsers).where(eq(adminUsers.id, id)))[0]!.hash;
+    const change = (fields: Record<string, string>) => changeAdminPassword(null, form(fields));
+    currentIp = '203.0.113.89';
+
+    const [withMfa] = await db.insert(adminUsers).values({ email: 'password-mfa@example.com', name: 'PasswordMfa', passwordHash: await hashPassword(oldPw), totpSecret: newTotpSecret(), totpConfirmedAt: new Date() }).returning();
+    await createSession('admin', withMfa.id, withMfa.tokenVersion);
+    const noSudo = await change({ currentPassword: oldPw, newPassword: newPw, newPasswordRepeat: newPw });
+    check('with 2FA on, the password alone does not change the password', noSudo?.ok === false && (noSudo.message ?? '').includes('Επιβεβαίωση ταυτότητας'), noSudo);
+    check('…and the old password still works', await verifyPassword(oldPw, await passwordOf(withMfa.id)));
+
+    check('(setup) the identity confirmation is given to this session', await createSudoSession());
+    const withSudo = await change({ currentPassword: oldPw, newPassword: newPw, newPasswordRepeat: newPw });
+    check('with the identity confirmation the password is changed', withSudo?.ok === true && (await verifyPassword(newPw, await passwordOf(withMfa.id))), withSudo);
+    await destroySudoSession();
+
+    // an administrator without a factor keeps the old behaviour: the current password is the proof
+    const [plain] = await db.insert(adminUsers).values({ email: 'password-plain@example.com', name: 'PasswordPlain', passwordHash: await hashPassword(oldPw) }).returning();
+    await createSession('admin', plain.id, plain.tokenVersion);
+    const plainChange = await change({ currentPassword: oldPw, newPassword: newPw, newPasswordRepeat: newPw });
+    check('without 2FA, the current password is still enough', plainChange?.ok === true && (await verifyPassword(newPw, await passwordOf(plain.id))), plainChange);
+
+    await db.delete(adminUsers).where(inArray(adminUsers.id, [withMfa.id, plain.id]));
     currentIp = '203.0.113.1';
     await createSession('admin', admin.id, admin.tokenVersion);
   }

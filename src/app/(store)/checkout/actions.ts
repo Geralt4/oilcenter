@@ -12,6 +12,7 @@ import { hasProcessingPayment, recordPaymentAttempt } from '@/lib/payments/attem
 import { deliverPendingMail } from '@/lib/payments/mail-delivery';
 import type { AppliedCoupon } from '@/lib/pricing';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
+import { safeEqual } from '@/lib/secure-compare';
 import { getSettings } from '@/lib/settings.server';
 
 export type PlaceOrderResult =
@@ -85,7 +86,7 @@ export async function retryCardPayment(number: string, token: string): Promise<{
   if (!commerceEnabled()) return { ok: false, message: 'Η πληρωμή με κάρτα είναι απενεργοποιημένη.' };
 
   const order = await getOrderByNumber(number);
-  if (!order || order.accessToken !== token) return { ok: false, message: 'Η παραγγελία δεν βρέθηκε.' };
+  if (!order || !safeEqual(order.accessToken, token)) return { ok: false, message: 'Η παραγγελία δεν βρέθηκε.' };
   // only an open payment can be retried: a paid or REFUNDED order must not be charged again
   if (order.paymentMethod !== 'card' || (order.paymentStatus !== 'pending' && order.paymentStatus !== 'failed') || order.status === 'cancelled') return { ok: false, message: 'Η παραγγελία δεν αναμένει πληρωμή.' };
   // a flagged order may already have been charged (e.g. a payment with the wrong amount): the owner sorts it out, no second charge

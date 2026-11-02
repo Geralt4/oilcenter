@@ -6,7 +6,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { cloneDatabase } from './test-db';
 
 let dir = '';
@@ -157,6 +157,40 @@ async function main() {
     check('…while a cookie signed with the real secret still passes the gate', passed.status === 200 || passed.headers.get('x-middleware-next') === '1', [passed.status, passed.headers.get('location')]);
     if (savedEnv.secret === undefined) delete process.env.AUTH_SECRET; else process.env.AUTH_SECRET = savedEnv.secret;
     if (savedEnv.opt === undefined) delete process.env.ALLOW_DEV_AUTH_SECRET; else process.env.ALLOW_DEV_AUTH_SECRET = savedEnv.opt;
+  }
+
+  console.log('Constant-time secret comparison');
+  {
+    const { safeEqual } = await import('../src/lib/secure-compare');
+    check('equal secrets compare equal', safeEqual('order-token', 'order-token'));
+    check('a one-character difference is not equal', !safeEqual('order-token', 'order-tokeN'));
+    check('a length difference is not equal and does not throw', !safeEqual('short', 'a-much-longer-value'));
+    check('an empty value never matches a real secret', !safeEqual('', 'order-token'));
+    const orderPage = readFileSync('src/app/(store)/order/[number]/page.tsx', 'utf8');
+    const retry = readFileSync('src/app/(store)/checkout/actions.ts', 'utf8');
+    check('the order page and the card retry compare the access token in constant time', orderPage.includes('safeEqual(token, order.accessToken)') && retry.includes('safeEqual(order.accessToken, token)') && !/accessToken\s*(===|!==)/.test(orderPage + retry));
+  }
+
+  console.log('Admin pages and downloads check the session themselves');
+  {
+    const pathMod = (await import('node:path')).default;
+    const walk = async (d: string): Promise<string[]> => {
+      const entries = await readdir(d, { withFileTypes: true });
+      const out: string[] = [];
+      for (const e of entries) {
+        const p = pathMod.join(d, e.name);
+        if (e.isDirectory()) out.push(...(await walk(p)));
+        else out.push(p);
+      }
+      return out;
+    };
+    const files = (await walk(pathMod.join('src', 'app', 'admin', '(panel)'))).filter((f) => ['page.tsx', 'route.ts'].includes(pathMod.basename(f)));
+    const missing = files.filter((f) => {
+      const text = readFileSync(f, 'utf8');
+      // a page redirects to the login form; a download route answers 401 and never renders HTML
+      return pathMod.basename(f) === 'page.tsx' ? !/\brequireAdmin\s*\(/.test(text) : !/\b(getAdmin|requireAdmin)\s*\(/.test(text);
+    });
+    check('every admin page and route handler checks the admin session itself, not only the layout', files.length >= 17 && missing.length === 0, { files: files.length, missing });
   }
 
   console.log('Startup configuration checks');
@@ -816,6 +850,22 @@ async function main() {
   await rm(stuckPath, { recursive: true, force: true });
   await finishUpload(stuckToken);
   check('the record is removed once the bytes are gone', (await db.select().from(pendingUploads).where(eq(pendingUploads.token, stuckToken))).length === 0);
+
+  console.log('Media files cannot leave the uploads folder');
+  {
+    const uploads = path.join(process.env.DATA_DIR!, 'uploads');
+    await mkdir(uploads, { recursive: true });
+    await writeFile(path.join(uploads, 'real.webp'), Buffer.from('synthetic-webp'));
+    const outside = path.join(dir, 'outside.webp');
+    await writeFile(outside, Buffer.from('not for the public'));
+    await symlink(outside, path.join(uploads, 'link.webp'));
+    const { GET } = await import('../src/app/media/[...path]/route');
+    const get = (name: string) => GET(new Request(`http://localhost/media/${name}`), { params: Promise.resolve({ path: [name] }) });
+    const real = await get('real.webp');
+    const link = await get('link.webp');
+    check('a regular uploaded file is served', real.status === 200 && real.headers.get('content-type') === 'image/webp', real.status);
+    check('a symlink in the uploads folder is refused, even when it points at a file', link.status === 404, link.status);
+  }
 
   console.log('Upload submit coordination');
   const { beginUpload, endUpload, pendingUploads: pendingUploadCount } = await import('../src/components/admin/upload-pending');

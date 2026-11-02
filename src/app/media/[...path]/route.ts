@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, lstat } from 'node:fs/promises';
 import path from 'node:path';
 import { NextResponse } from 'next/server';
 
@@ -18,7 +18,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pat
   if (!type || !file.startsWith(root + path.sep)) return new NextResponse('Not found', { status: 404 });
 
   try {
-    const info = await stat(file);
+    // lstat, not stat: a symlink is never a file, even when it points at one, so nothing outside uploads is served
+    const info = await lstat(file);
     if (!info.isFile()) throw new Error('not a file');
     const body = await readFile(file);
     return new NextResponse(new Uint8Array(body), {

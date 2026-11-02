@@ -61,7 +61,7 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
         </p>
       )}
 
-      <Card title="Επιβεβαίωση ταυτότητας" description="Η προσθήκη ή αφαίρεση διαχειριστών, η επαναφορά 2FA, η λήψη αντιγράφου της βάσης, η αλλαγή των τραπεζικών λογαριασμών και το άνοιγμα ή κλείσιμο των online παραγγελιών απαιτούν φρέσκια επιβεβαίωση, ώστε μια κλεμμένη συνεδρία να μην αρκεί. Η επιβεβαίωση ισχύει για 5 λεπτά." className="mb-6 max-w-xl">
+      <Card title="Επιβεβαίωση ταυτότητας" description="Η προσθήκη ή αφαίρεση διαχειριστών, η επαναφορά 2FA, η λήψη αντιγράφου της βάσης και η αλλαγή κωδικού (όταν έχετε ενεργή επαλήθευση δύο βημάτων) απαιτούν φρέσκια επιβεβαίωση. Το ίδιο και οι ρυθμίσεις που επηρεάζουν τα χρήματα ή το αν το κατάστημα είναι δημόσιο: τραπεζικοί λογαριασμοί, τρόποι πληρωμής, μεταφορικά, ΦΠΑ, δοκιμαστική λειτουργία και άνοιγμα ή κλείσιμο των online παραγγελιών. Έτσι μια κλεμμένη συνεδρία δεν αρκεί. Η επιβεβαίωση ισχύει για 5 λεπτά." className="mb-6 max-w-xl">
         <div id="identity">
         {sudo ? (
           <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-medium text-emerald-800">Η ταυτότητα είναι επιβεβαιωμένη για αυτή τη συνεδρία (έως 5 λεπτά από την επιβεβαίωση).</p>
@@ -196,7 +196,7 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
         </Card>
       </AdminForm>
 
-      <Card title="Αλλαγή κωδικού διαχειριστή" className="mt-10 max-w-xl">
+      <Card title="Αλλαγή κωδικού διαχειριστή" description="Με ενεργή επαλήθευση δύο βημάτων, η αλλαγή κωδικού χρειάζεται πρώτα επιβεβαίωση ταυτότητας (πρώτη κάρτα της σελίδας)." className="mt-10 max-w-xl">
         <AdminForm action={changeAdminPassword} submitLabel="Αλλαγή κωδικού" variant="dark" resetOnSuccess>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Τρέχων κωδικός"><input type="password" name="currentPassword" autoComplete="current-password" required className="field" /></Field>
