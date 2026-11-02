@@ -103,7 +103,7 @@ in "Before going live" above and in [`VIVA.md`](VIVA.md) section 10.
 
 1. **Enable 2FA** on the owner's admin account: *Ρυθμίσεις → «Επαλήθευση δύο βημάτων (2FA)» → «Ενεργοποίηση»* (it asks
    for the current password), scan the QR code, type the code. Without 2FA the identity confirmation in step 2 cannot be
-   given, and without that, changing the IBAN (step 3) and opening ordering (step 7) are refused.
+   given, and without that, changing the IBAN (step 3) and opening ordering (step 8) are refused.
 2. **Confirm identity:** *Ρυθμίσεις → «Επιβεβαίωση ταυτότητας»* (password + the 2FA code). It lasts 5 minutes, for that
    session only.
 3. **Set the IBAN** in *Τρόποι πληρωμής* and save while the confirmation is valid. It is needed if bank transfer is
@@ -120,9 +120,13 @@ in "Before going live" above and in [`VIVA.md`](VIVA.md) section 10.
    `COMMERCE_ENABLED=false`; (5) **then** register the webhook and press «Verify» (it is answered with 503 while commerce
    is off, so registering it earlier fails). If card payments are not offered at launch, still remove
    `COMMERCE_ENABLED=false`: while it is set the site takes no orders, whatever the settings say.
-7. **Open ordering:** confirm identity again if more than 5 minutes have passed since step 2, then *Ρυθμίσεις →
+7. **Check the Stripe return route.** With `COMMERCE_ENABLED=false` removed (step 6), request
+   `/api/payments/stripe/return?session_id=cs_test_invalid` on the live site. It must redirect to `/order-status`
+   (a bad session must not reach an order page or answer 500). While commerce is off it answers 503, which is
+   correct for catalogue mode.
+8. **Open ordering:** confirm identity again if more than 5 minutes have passed since step 2, then *Ρυθμίσεις →
    «Λειτουργία καταστήματος» → «Το κατάστημα δέχεται online παραγγελίες»*, and save.
-8. **Place one real small order and refund it** (VIVA.md section 10, step 7). Refund it in Viva's dashboard (the app has
+9. **Place one real small order and refund it** (VIVA.md section 10, step 7). Refund it in Viva's dashboard (the app has
    no refund button) and mark the order «Επιστροφή χρημάτων». Check that the customer's confirmation e-mail and the
    shop's notice arrive.
 
