@@ -277,6 +277,11 @@ export async function changeAdminPassword(_prev: AdminFormState, fd: FormData): 
   if (!limited.ok) return { ok: false, message: `Πολλές προσπάθειες. Δοκιμάστε ξανά σε ${Math.ceil(limited.retryAfterSec / 60)} λεπτά.` };
   const [row] = await db.select().from(adminUsers).where(eq(adminUsers.id, me.id));
   if (!row || !(await verifyPassword(String(fd.get('currentPassword') ?? ''), row.passwordHash))) return { ok: false, message: 'Ο τρέχων κωδικός δεν είναι σωστός.' };
+  // With a confirmed authenticator, a stolen session and the password must not be enough to take the account over:
+  // the new password signs every other session out. The same fresh proof addAdmin asks for.
+  if (row.totpConfirmedAt && !(await hasSudoSession())) {
+    return { ok: false, message: 'Για να αλλάξετε τον κωδικό όταν είναι ενεργή η επαλήθευση δύο βημάτων, επιβεβαιώστε πρώτα την ταυτότητά σας (κωδικός και κωδικός εφαρμογής) στην ενότητα «Επιβεβαίωση ταυτότητας».' };
+  }
   // Bump the session version so other sessions are signed out; re-issue this one so the admin stays logged in here.
   const nextVersion = row.tokenVersion + 1;
   await db.update(adminUsers).set({ passwordHash: await hashPassword(next), tokenVersion: nextVersion }).where(eq(adminUsers.id, me.id));

@@ -1464,6 +1464,40 @@ async function main() {
     await createSession('admin', admin.id, admin.tokenVersion);
   }
 
+  console.log('Changing an administrator password with 2FA on');
+  {
+    const { hashPassword, verifyPassword } = await import('../src/lib/auth/password');
+    const { newTotpSecret } = await import('../src/lib/auth/totp');
+    const { changeAdminPassword } = await import('../src/app/admin/actions');
+    const { createSudoSession, destroySudoSession } = await import('../src/lib/auth/session');
+    const oldPw = 'παλιός-κωδικός-1';
+    const newPw = 'νέος-κωδικός-2';
+    const passwordOf = async (id: number) => (await db.select({ hash: adminUsers.passwordHash }).from(adminUsers).where(eq(adminUsers.id, id)))[0]!.hash;
+    const change = (fields: Record<string, string>) => changeAdminPassword(null, form(fields));
+    currentIp = '203.0.113.89';
+
+    const [withMfa] = await db.insert(adminUsers).values({ email: 'password-mfa@example.com', name: 'PasswordMfa', passwordHash: await hashPassword(oldPw), totpSecret: newTotpSecret(), totpConfirmedAt: new Date() }).returning();
+    await createSession('admin', withMfa.id, withMfa.tokenVersion);
+    const noSudo = await change({ currentPassword: oldPw, newPassword: newPw, newPasswordRepeat: newPw });
+    check('with 2FA on, the password alone does not change the password', noSudo?.ok === false && (noSudo.message ?? '').includes('Επιβεβαίωση ταυτότητας'), noSudo);
+    check('…and the old password still works', await verifyPassword(oldPw, await passwordOf(withMfa.id)));
+
+    check('(setup) the identity confirmation is given to this session', await createSudoSession());
+    const withSudo = await change({ currentPassword: oldPw, newPassword: newPw, newPasswordRepeat: newPw });
+    check('with the identity confirmation the password is changed', withSudo?.ok === true && (await verifyPassword(newPw, await passwordOf(withMfa.id))), withSudo);
+    await destroySudoSession();
+
+    // an administrator without a factor keeps the old behaviour: the current password is the proof
+    const [plain] = await db.insert(adminUsers).values({ email: 'password-plain@example.com', name: 'PasswordPlain', passwordHash: await hashPassword(oldPw) }).returning();
+    await createSession('admin', plain.id, plain.tokenVersion);
+    const plainChange = await change({ currentPassword: oldPw, newPassword: newPw, newPasswordRepeat: newPw });
+    check('without 2FA, the current password is still enough', plainChange?.ok === true && (await verifyPassword(newPw, await passwordOf(plain.id))), plainChange);
+
+    await db.delete(adminUsers).where(inArray(adminUsers.id, [withMfa.id, plain.id]));
+    currentIp = '203.0.113.1';
+    await createSession('admin', admin.id, admin.tokenVersion);
+  }
+
   console.log('Registration does not tell who has an account; activation');
   {
     const { customers } = await import('../src/lib/db/schema');

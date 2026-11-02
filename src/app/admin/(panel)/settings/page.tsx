@@ -196,7 +196,7 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
         </Card>
       </AdminForm>
 
-      <Card title="Αλλαγή κωδικού διαχειριστή" className="mt-10 max-w-xl">
+      <Card title="Αλλαγή κωδικού διαχειριστή" description="Με ενεργή επαλήθευση δύο βημάτων, η αλλαγή κωδικού χρειάζεται πρώτα επιβεβαίωση ταυτότητας (πρώτη κάρτα της σελίδας)." className="mt-10 max-w-xl">
         <AdminForm action={changeAdminPassword} submitLabel="Αλλαγή κωδικού" variant="dark" resetOnSuccess>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Τρέχων κωδικός"><input type="password" name="currentPassword" autoComplete="current-password" required className="field" /></Field>
