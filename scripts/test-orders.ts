@@ -4,9 +4,9 @@
  * Covers the things that cost real money when they go wrong: overselling, double cancel,
  * payment amount mismatch, duplicate gateway callbacks, coupon maths and shipping tiers.
  */
-import { readdirSync, readFileSync, rmSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { cloneDatabase } from './test-db';
+import { cloneDatabase, removeClone } from './test-db';
 
 let dir = '';
 
@@ -1466,8 +1466,8 @@ main()
     console.error(err);
     failures++;
   })
-  .finally(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true });
+  .finally(async () => {
+    if (dir) await removeClone(dir);
     console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
     process.exit(failures ? 1 : 0);
   });

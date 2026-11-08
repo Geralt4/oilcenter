@@ -6,9 +6,9 @@
  * The request shapes asserted here are the ones src/lib/payments/viva.ts is meant to send, per the Smart Checkout
  * integration guide linked from that file.
  */
-import { readdirSync, readFileSync, rmSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { cloneDatabase } from './test-db';
+import { cloneDatabase, removeClone } from './test-db';
 
 // Fake credentials, set BEFORE anything imports the payment modules (viva.ts reads VIVA_ENV at import time).
 process.env.VIVA_ENV = 'demo';
@@ -998,8 +998,8 @@ main()
     console.error(err);
     failures++;
   })
-  .finally(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true });
+  .finally(async () => {
+    if (dir) await removeClone(dir);
     console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
     process.exit(failures ? 1 : 0);
   });

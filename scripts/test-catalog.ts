@@ -4,8 +4,7 @@
  * Covers what a visitor (or Google) would notice: a viscosity page that lists the wrong oils or the wrong count,
  * a facet whose numbers do not add up, a grade missing from the pages the sitemap advertises.
  */
-import { rmSync } from 'node:fs';
-import { cloneDatabase } from './test-db';
+import { cloneDatabase, removeClone } from './test-db';
 
 let dir = '';
 let failures = 0;
@@ -452,8 +451,8 @@ main()
     console.error(err);
     failures++;
   })
-  .finally(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true });
+  .finally(async () => {
+    if (dir) await removeClone(dir);
     console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
     process.exit(failures ? 1 : 0);
   });

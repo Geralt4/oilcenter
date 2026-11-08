@@ -5,9 +5,9 @@
  * left, a price read ten times too small, a product that stops answering to «λαδι» after it is saved.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { cloneDatabase } from './test-db';
+import { cloneDatabase, removeClone, TSX } from './test-db';
 
 // There is no built-in session secret (lib/auth/secret.ts): this script signs admin sessions, so it brings its own.
 process.env.AUTH_SECRET = 'admin-test-only-secret-not-used-anywhere-0123456789';
@@ -1765,7 +1765,7 @@ async function main() {
     const email = 'script-admin@example.com';
     await db.insert(adminUsers).values({ email, name: 'Ηλίας', passwordHash: await hashPassword('old-password-1') });
     // a real run of the script against this test's copy of the database (DATABASE_URL points at it; env files never override it)
-    const run = (...args: string[]) => spawnSync(path.resolve('node_modules/.bin/tsx'), ['scripts/create-admin.ts', ...args], { env: process.env, encoding: 'utf8' });
+    const run = (...args: string[]) => spawnSync(TSX.node, [TSX.cli, 'scripts/create-admin.ts', ...args], { env: process.env, encoding: 'utf8' });
     const row = async (mail: string) => (await db.select().from(adminUsers).where(eq(adminUsers.email, mail)))[0];
     const before = await row(email);
     const reset = run(email, 'new-password-12345');
@@ -1987,8 +1987,8 @@ main()
     console.error(err);
     failures++;
   })
-  .finally(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true });
+  .finally(async () => {
+    if (dir) await removeClone(dir);
     console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
     process.exit(failures ? 1 : 0);
   });

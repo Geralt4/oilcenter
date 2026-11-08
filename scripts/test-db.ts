@@ -1,6 +1,7 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createClient } from '@libsql/client';
 import { drizzle } from 'drizzle-orm/libsql';
 import { migrate } from 'drizzle-orm/libsql/migrator';
@@ -27,3 +28,31 @@ export async function cloneDatabase(prefix: string): Promise<string> {
   process.env.DATABASE_URL = `file:${file}`;
   return dir;
 }
+
+/**
+ * Deletes a folder made by cloneDatabase. Windows refuses to delete a database file that is still open, so the shop's own
+ * client (src/lib/db keeps it on globalThis outside production) is closed first. The close lets go of the file only once
+ * the event loop runs again, so the retries wait asynchronously. A folder that still can't be removed is reported, not
+ * fatal: it sits in the temp folder, and the run's result must not depend on it.
+ */
+export async function removeClone(dir: string): Promise<void> {
+  (globalThis as { __ocDbClient?: { close(): void } }).__ocDbClient?.close();
+  for (let attempt = 1; ; attempt++) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      if (attempt === 10) {
+        console.warn(`(could not remove the test folder ${dir}: ${(err as Error).message})`);
+        return;
+      }
+      await delay(100 * attempt);
+    }
+  }
+}
+
+/**
+ * `node <tsx cli>`: runs a script in a child process the same way on macOS, Linux and Windows. `npx` and
+ * `node_modules/.bin/tsx` are .cmd shims on Windows, which spawn and execFile can't start without a shell.
+ */
+export const TSX = { node: process.execPath, cli: path.resolve('node_modules/tsx/dist/cli.mjs') };
