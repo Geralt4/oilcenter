@@ -44,6 +44,8 @@ RUN chmod 755 /usr/local/bin/entrypoint.sh
 EXPOSE 3000
 # Migrations are idempotent; the seed only fills an EMPTY catalogue and never touches orders; data patches
 # (scripts/patches.ts) run once per database. tsx (a dev dependency) stays in the image on purpose: the
-# startup command runs the migration scripts through it.
+# startup command runs the migration scripts through it. The server is started with `exec next start`, not
+# `npm run start`: npm and the shell would otherwise stay in memory for the life of the container, and
+# `exec` lets the stop signal from the host reach Next.js directly.
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["sh", "-c", "npm run db:snapshot && npm run db:migrate && npm run db:seed && npm run db:patch && npm run start"]
+CMD ["sh", "-c", "npm run db:snapshot && npm run db:migrate && npm run db:seed && npm run db:patch && exec node_modules/.bin/next start"]
