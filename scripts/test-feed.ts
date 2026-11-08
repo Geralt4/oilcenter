@@ -5,9 +5,9 @@
  * available, broken XML (one "&" in a product name is enough), ids that are not unique, a mistyped barcode.
  */
 import { spawnSync } from 'node:child_process';
-import { rmSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { cloneDatabase } from './test-db';
+import { cloneDatabase, removeClone } from './test-db';
 
 process.env.SITE_URL = 'https://www.oilcenter.gr';
 // There is no built-in session secret (lib/auth/secret.ts): this script signs an admin session, so it brings its own.
@@ -455,8 +455,8 @@ main()
     console.error(err);
     failures++;
   })
-  .finally(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true });
+  .finally(async () => {
+    if (dir) await removeClone(dir);
     console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
     process.exit(failures ? 1 : 0);
   });

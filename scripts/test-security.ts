@@ -7,7 +7,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdir, readdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
-import { cloneDatabase } from './test-db';
+import { cloneDatabase, removeClone, TSX } from './test-db';
 
 let dir = '';
 let failures = 0;
@@ -103,7 +103,7 @@ async function main() {
   // A fresh process against the SAME database simulates a deploy/restart.
   const { execFileSync } = await import('node:child_process');
   const probe = (mode: string, key: string) =>
-    JSON.parse(execFileSync('npx', ['tsx', 'scripts/limiter-probe.ts', mode, key, '2'], { encoding: 'utf8', env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })) as { ok: boolean };
+    JSON.parse(execFileSync(TSX.node, [TSX.cli, 'scripts/limiter-probe.ts', mode, key, '2'], { encoding: 'utf8', env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })) as { ok: boolean };
   const exhaustedBefore = probe('exhaust', 'restart-probe');
   const afterRestart = probe('check', 'restart-probe');
   check('an exhausted budget stays exhausted in a fresh process (restart)', !exhaustedBefore.ok && !afterRestart.ok, { exhaustedBefore, afterRestart });
@@ -504,7 +504,7 @@ async function main() {
 
       // restore drill: open the stored copy with the developer tool and compare it with the live database
       const out = nodePath.join(dir, 'restored', 'shop.db');
-      const run = spawnSync('npx', ['tsx', 'scripts/backup-decrypt.ts', sealedFile, out], { encoding: 'utf8', env: { ...process.env, BACKUP_ENCRYPTION_KEY: KEY_A } });
+      const run = spawnSync(TSX.node, [TSX.cli, 'scripts/backup-decrypt.ts', sealedFile, out], { encoding: 'utf8', env: { ...process.env, BACKUP_ENCRYPTION_KEY: KEY_A } });
       check('npm run backup:decrypt writes a SQLite file from the stored copy', run.status === 0 && isSqlite(await readF(out)), run.stderr || run.stdout);
       const restored = createClient({ url: `file:${out}` });
       const live = createClient({ url: process.env.DATABASE_URL! });
@@ -513,7 +513,7 @@ async function main() {
       const [rc, lc] = [await counts(restored), await counts(live)];
       check('…the restored copy passes the integrity check and has the same rows as the live database', integrity === 'ok' && JSON.stringify(rc) === JSON.stringify(lc), { integrity, rc, lc });
       restored.close(); live.close();
-      const wrongKeyRun = spawnSync('npx', ['tsx', 'scripts/backup-decrypt.ts', sealedFile, nodePath.join(dir, 'restored', 'bad.db')], { encoding: 'utf8', env: { ...process.env, BACKUP_ENCRYPTION_KEY: KEY_B } });
+      const wrongKeyRun = spawnSync(TSX.node, [TSX.cli, 'scripts/backup-decrypt.ts', sealedFile, nodePath.join(dir, 'restored', 'bad.db')], { encoding: 'utf8', env: { ...process.env, BACKUP_ENCRYPTION_KEY: KEY_B } });
       check('…and with the wrong key it fails with a message and writes nothing', wrongKeyRun.status !== 0 && /Decrypt failed/.test(wrongKeyRun.stderr) && !existsSync(nodePath.join(dir, 'restored', 'bad.db')), wrongKeyRun.stderr.slice(0, 200));
 
       // plain snapshots from an older version are sealed once, verified, and only then removed
@@ -649,9 +649,9 @@ async function main() {
     };
     const run = (install: { data: string; file: string }, extra: Record<string, string> = {}, chain = false) => {
       const env: NodeJS.ProcessEnv = { ...process.env, DATABASE_URL: `file:${install.file}`, DATA_DIR: install.data, BACKUP_ENCRYPTION_KEY: '', ...extra };
-      if (!chain) return spawnSync('npx', ['tsx', 'scripts/pre-migrate-snapshot.ts'], { encoding: 'utf8', env });
-      // the same && chain as the Docker CMD: what follows the snapshot only runs when it succeeds
-      return spawnSync('sh', ['-c', 'npx tsx scripts/pre-migrate-snapshot.ts && echo THE-NEXT-STEP-RAN'], { encoding: 'utf8', env });
+      if (!chain) return spawnSync(TSX.node, [TSX.cli, 'scripts/pre-migrate-snapshot.ts'], { encoding: 'utf8', env });
+      // the same && chain as the Docker CMD, in the platform shell (sh, or cmd on Windows): what follows the snapshot only runs when it succeeds
+      return spawnSync('npx tsx scripts/pre-migrate-snapshot.ts && echo THE-NEXT-STEP-RAN', { shell: true, encoding: 'utf8', env });
     };
     const filesIn = async (folder: string) => (await readD(folder).catch(() => [] as string[])).sort();
     const rowsOf = async (file: string, sql: string) => {
@@ -1087,7 +1087,7 @@ async function main() {
     const { count } = await import('drizzle-orm');
     const catalogue = JSON.parse(readFileSync('catalog/catalog.json', 'utf8')) as { products: Array<{ slug: string; variants: unknown[] }> };
     const seed = (env: Record<string, string>, cwd = process.cwd()) =>
-      spawnSync(path.resolve('node_modules/.bin/tsx'), [path.resolve('scripts/seed.ts'), '--force'], { cwd, env: { ...process.env, TSX_TSCONFIG_PATH: path.resolve('tsconfig.json'), ...env }, encoding: 'utf8' });
+      spawnSync(TSX.node, [TSX.cli, path.resolve('scripts/seed.ts'), '--force'], { cwd, env: { ...process.env, TSX_TSCONFIG_PATH: path.resolve('tsconfig.json'), ...env }, encoding: 'utf8' });
     const totals = async () => [(await db.select({ n: count() }).from(products))[0].n, (await db.select({ n: count() }).from(variants))[0].n];
     const before = await totals();
 
@@ -1128,8 +1128,8 @@ main()
     console.error(err);
     failures++;
   })
-  .finally(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true });
+  .finally(async () => {
+    if (dir) await removeClone(dir);
     console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
     process.exit(failures ? 1 : 0);
   });

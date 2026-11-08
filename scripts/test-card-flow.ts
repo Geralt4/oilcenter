@@ -8,13 +8,13 @@
  * built from scratch (nothing is inherited from the shell) and mail lands in the throwaway DATA_DIR/outbox.
  * Playwright's browser binary is detected from the standard cache; set CHROMIUM_PATH to override it.
  */
-import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
-import { cloneDatabase } from './test-db';
+import { cloneDatabase, removeClone } from './test-db';
 import { startFakeViva } from './fake-viva';
 
 let failures = 0;
@@ -750,7 +750,7 @@ async function main() {
     }
     await fake.close();
     client.close();
-    rmSync(dir, { recursive: true, force: true });
+    await removeClone(dir);
   }
 }
 

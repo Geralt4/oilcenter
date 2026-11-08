@@ -9,14 +9,14 @@
  * No production account, database, uploads or backups are touched. Playwright's browser binary is
  * detected from the standard cache; set CHROMIUM_PATH to override it.
  */
-import { existsSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium, type Browser, type BrowserContext } from 'playwright-core';
 import sharp from 'sharp';
-import { cloneDatabase } from './test-db';
+import { cloneDatabase, removeClone } from './test-db';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail?: unknown) {
@@ -642,7 +642,7 @@ async function main() {
       if (server.exitCode === null) server.kill('SIGKILL');
     }
     client.close();
-    rmSync(dir, { recursive: true, force: true });
+    await removeClone(dir);
   }
 }
 
