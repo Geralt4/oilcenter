@@ -8,8 +8,9 @@
  *   paper  – warm off-white page background so white product tiles still read as tiles
  */
 @theme {
-  --font-sans: var(--font-text), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-display: var(--font-display), var(--font-text), ui-sans-serif, system-ui, sans-serif;
+  /* the --font-*-latin / -greek variables are set on <html> by next/font in app/layout.tsx; Greek file last, it has the fallback face */
+  --font-sans: var(--font-text-latin), var(--font-text-greek), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: var(--font-display-latin), var(--font-display-greek), var(--font-text-latin), var(--font-text-greek), ui-sans-serif, system-ui, sans-serif;
 
   --color-ink-950: #0a0c0f;
   --color-ink-900: #11141a;

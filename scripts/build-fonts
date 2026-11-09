@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Rebuilds the self-hosted web fonts in src/app/fonts/ (run: bash scripts/build-fonts).
+#
+# Why: next/font/google downloads the fonts during `next build`, so a network blip fails a deploy.
+# next/font/local reads these files from the repo instead.
+#
+# The files are Google's own "latin" and "greek" subsets, byte for byte as the Google Fonts API serves
+# them today (the URLs carry the font version: Commissioner v24, Sofia Sans Condensed v6, so they do not
+# change). Each download is checked against the SHA-256 below.
+#   css2 request that lists them:
+#     https://fonts.googleapis.com/css2?family=Commissioner:wght@100..900&display=swap
+#     https://fonts.googleapis.com/css2?family=Sofia+Sans+Condensed:wght@600;700;800&display=swap
+#   Commissioner          variable, weight axis 100–900
+#   Sofia Sans Condensed  variable, used at weights 600, 700 and 800
+#
+# Why not subset the full official font ourselves (pyftsubset, fonttools 4.68.0, same glyph ranges and axes,
+# from google/fonts@5bb28733cec313b63fbd415b574b5ae35c8aa8b8)? Tried on 2026-11-09: the text is not pixel
+# identical to Google's files (84 of 180 comparison screenshots differed, only on text), so the files are
+# taken as served instead.
+#
+# Licence: SIL Open Font License 1.1 for both families (the OFL texts are fetched into the same folder).
+# To change a font: update the URL and SHA-256 here, run the script, then compare the pages before and after.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OUT="$ROOT/src/app/fonts"
+OFL="https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl"
+mkdir -p "$OUT"
+
+fetch() { # <file name> <url> <sha256>
+  local name="$1" url="$2" sha="$3" tmp
+  tmp="$(mktemp)"
+  curl -fsSL -o "$tmp" "$url"
+  if [ "$(sha256sum "$tmp" | cut -d' ' -f1)" != "$sha" ]; then
+    echo "SHA-256 mismatch for $name (the file at $url changed)" >&2; rm -f "$tmp"; exit 1
+  fi
+  mv "$tmp" "$OUT/$name"
+  echo "$name  $(wc -c < "$OUT/$name") bytes"
+}
+
+fetch commissioner-latin.woff2 \
+  'https://fonts.gstatic.com/s/commissioner/v24/tDbw2o2WnlgI0FNDgduEk4jAhwgumbU1SVfU5BD8OuRL8OstC6KOhgvBYWSFJ-Mgdrgiju6fF8m0akXa.woff2' \
+  e3d539b926881fbb3592788297eee24d6d179c1c06dbad36805fc722775247ce
+fetch commissioner-greek.woff2 \
+  'https://fonts.gstatic.com/s/commissioner/v24/tDbw2o2WnlgI0FNDgduEk4jAhwgumbU1SVfU5BD8OuRL8OstC6KOhgvBYWSFJ-Mgdrgiju6fF8m0aUXaexs.woff2' \
+  75d4734b1d207892feee610186e34fe02912d604025906fdeca5c7b8c295a622
+fetch sofia-sans-condensed-latin.woff2 \
+  'https://fonts.gstatic.com/s/sofiasanscondensed/v6/r05EGKVS5aVKd567NYXawnFKJaTtoAuLnIcIptE.woff2' \
+  a9b02e437ca9cea66ea1839a365f553eb85deb47dfbf90f5f711ddc9257a25c9
+fetch sofia-sans-condensed-greek.woff2 \
+  'https://fonts.gstatic.com/s/sofiasanscondensed/v6/r05EGKVS5aVKd567NYXawnFKJaTtoAuLnIcLptHleg.woff2' \
+  f199176174dce67992b70fa2e95f0c4df9bd00d2a3d9ed47e4c877b4dd92caf8
+
+curl -fsSL -o "$OUT/commissioner-OFL.txt" "$OFL/commissioner/OFL.txt"
+curl -fsSL -o "$OUT/sofia-sans-condensed-OFL.txt" "$OFL/sofiasanscondensed/OFL.txt"
+echo "done: $OUT"
