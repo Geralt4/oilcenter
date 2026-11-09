@@ -1,20 +1,39 @@
 import type { Metadata, Viewport } from 'next';
-import { Commissioner, Sofia_Sans_Condensed } from 'next/font/google';
+import localFont from 'next/font/local';
 import { siteUrl } from '@/lib/site-url';
 import './globals.css';
 import { OG_BASE, OG_IMAGE } from '@/lib/seo';
 
-// Both families ship a proper Greek subset, which most display faces do not.
-const text = Commissioner({
-  subsets: ['latin', 'greek'],
-  variable: '--font-text',
+// Both families have a proper Greek subset, which most display faces do not. The files are in the repo
+// (not fetched during `next build`); scripts/build-fonts lists their source and checks them.
+// Each family is a Latin file plus a Greek file, chained in globals.css (--font-sans, --font-display). Only the
+// Greek one keeps the metric-adjusted fallback face: that face covers Greek too, so on the Latin one it would
+// catch Greek text before the Greek file was tried.
+const textLatin = localFont({
+  src: './fonts/commissioner-latin.woff2',
+  weight: '100 900',
+  variable: '--font-text-latin',
+  display: 'swap',
+  adjustFontFallback: false,
+});
+const textGreek = localFont({
+  src: './fonts/commissioner-greek.woff2',
+  weight: '100 900',
+  variable: '--font-text-greek',
   display: 'swap',
 });
 
-const display = Sofia_Sans_Condensed({
-  subsets: ['latin', 'greek'],
-  weight: ['600', '700', '800'],
-  variable: '--font-display',
+const displayLatin = localFont({
+  src: './fonts/sofia-sans-condensed-latin.woff2',
+  weight: '600 800',
+  variable: '--font-display-latin',
+  display: 'swap',
+  adjustFontFallback: false,
+});
+const displayGreek = localFont({
+  src: './fonts/sofia-sans-condensed-greek.woff2',
+  weight: '600 800',
+  variable: '--font-display-greek',
   display: 'swap',
 });
 
@@ -52,7 +71,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="el" className={`${text.variable} ${display.variable}`}>
+    <html lang="el" className={`${textLatin.variable} ${textGreek.variable} ${displayLatin.variable} ${displayGreek.variable}`}>
       <body className="min-h-dvh">{children}</body>
     </html>
   );
