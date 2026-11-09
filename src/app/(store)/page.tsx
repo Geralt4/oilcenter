@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowRight, Headset, Phone, ShieldCheck, Store, Truck } from 'lucide-react';
-import { CategoryIcon } from '@/components/category-icon';
 import { ProductGrid } from '@/components/store/product-card';
 import { LaunchSignupForm } from '@/components/store/launch-signup-form';
 import { StoreLocation } from '@/components/store/store-location';
@@ -136,46 +135,8 @@ export default async function HomePage() {
         </ul>
       </section>
 
-      {/* ── Categories ───────────────────────────────────────────────────── */}
-      <section className="container-page pt-14">
-        <div className="flex items-end justify-between gap-4">
-          <h2 className="display text-3xl sm:text-4xl">Τι ψάχνετε;</h2>
-          <Link href="/products" className="hidden items-center gap-1 text-sm font-semibold text-ink-700 hover:text-ink-950 sm:flex">
-            Όλα τα προϊόντα <ArrowRight className="h-4 w-4" />
-          </Link>
-        </div>
-        <ul className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {tree.map((cat) => (
-            <li key={cat.id}>
-              <div className="group h-full rounded-2xl border border-line bg-white p-5 shadow-tile transition-[box-shadow,border-color] hover:border-ink-200 hover:shadow-lift">
-                <Link href={`/category/${cat.slug}`} className="flex items-center gap-4">
-                  <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-ink-900 text-oil-400 transition-colors group-hover:bg-oil-500 group-hover:text-ink-950">
-                    <CategoryIcon name={cat.icon} className="h-6 w-6" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="display block text-xl text-ink-900">{cat.name}</span>
-                    <span className="text-sm text-ink-500">{cat.productCount} προϊόντα</span>
-                  </span>
-                </Link>
-                {cat.children.length > 0 && (
-                  <ul className="mt-4 flex flex-wrap gap-1.5">
-                    {cat.children.filter((c) => c.productCount > 0).map((child) => (
-                      <li key={child.id}>
-                        <Link href={`/category/${child.slug}`} className="inline-flex h-8 items-center rounded-lg bg-ink-50 px-2.5 text-[0.8125rem] font-medium text-ink-700 hover:bg-oil-100 hover:text-ink-950">
-                          {child.name}
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
-      </section>
-
       {/* ── «Ποιο λάδι;» — the shop's answer to the big sites' vehicle selectors: a person who knows ── */}
-      <section className="container-page pt-8">
+      <section className="container-page pt-14">
         <div className="steel flex flex-col gap-5 rounded-3xl p-6 text-white sm:flex-row sm:items-center sm:justify-between sm:p-8">
           <div className="flex items-start gap-4">
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-oil-500 text-ink-950">
