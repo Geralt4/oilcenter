@@ -73,7 +73,11 @@ export function VariantsEditor({ initial, images }: { initial: VariantRow[]; ima
                 </td>
                 <td className="pr-2"><input value={r.price} onChange={(e) => patch(i, { price: e.target.value, priceVerified: true })} inputMode="decimal" placeholder="12,90" aria-label="Τιμή" className={`${cell} tabular w-24`} /></td>
                 <td className="pr-2"><input value={r.compareAt} onChange={(e) => patch(i, { compareAt: e.target.value })} inputMode="decimal" placeholder="—" aria-label="Αρχική τιμή" className={`${cell} tabular w-24`} /></td>
-                <td className="pr-2"><input value={r.weightGrams || ''} onChange={(e) => patch(i, { weightGrams: Number(e.target.value) || 0 })} inputMode="numeric" aria-label="Βάρος σε γραμμάρια" className={`${cell} tabular w-24`} /></td>
+                <td className="pr-2">
+                  <input value={r.weightGrams || ''} onChange={(e) => patch(i, { weightGrams: Number(e.target.value) || 0 })} inputMode="numeric" aria-label="Βάρος σε γραμμάρια" className={`${cell} tabular w-24`} />
+                  {/* a hint only: a size without a weight still saves, but the courier cost is worked out from zero grams */}
+                  {r.weightGrams === 0 && <p role="note" className="mt-1 w-44 text-xs leading-snug font-medium text-amber-700">Συμπληρώστε το βάρος, αλλιώς τα μεταφορικά υπολογίζονται λάθος.</p>}
+                </td>
                 <td className="pr-2">
                   <div className="flex items-center gap-1.5">
                     <input type="checkbox" checked={r.trackStock} onChange={(e) => patch(i, { trackStock: e.target.checked })} title="Παρακολούθηση αποθέματος" aria-label="Παρακολούθηση αποθέματος" className="h-4 w-4 cursor-pointer accent-ink-900" />

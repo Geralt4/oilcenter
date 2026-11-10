@@ -1974,6 +1974,34 @@ async function main() {
     }
   }
 
+  console.log('Piece products (filters)');
+  {
+    const { saveProduct } = await import('../src/app/admin/actions');
+    const { getProductBySlug } = await import('../src/lib/catalog');
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { createElement } = await import('react');
+    const { VariantsEditor } = await import('../src/components/admin/variants-editor');
+    const runProduct = async (fd: FormData) => saveProduct(null, fd).catch((err: unknown) => (String((err as { digest?: string })?.digest ?? err).startsWith('NEXT_REDIRECT') ? { ok: true as const, message: 'redirect' } : Promise.reject(err)));
+    const hint = 'Συμπληρώστε το βάρος, αλλιώς τα μεταφορικά υπολογίζονται λάθος.';
+    const sizeRow = (weightGrams: number) => ({ label: 'Τεμάχιο', sku: '', price: '12,90', compareAt: '', stock: 0, trackStock: false, availability: 'in_stock' as const, weightGrams, barcode: '', mpn: 'W 712/75', imageUrl: '', isActive: true, priceVerified: false });
+    const editorHtml = (weightGrams: number) => renderToStaticMarkup(createElement(VariantsEditor, { initial: [sizeRow(weightGrams)], images: [] }));
+    check('the size editor warns in amber when a size has no weight', editorHtml(0).includes(hint) && editorHtml(0).includes('text-amber-700'));
+    check('…and says nothing once a weight is entered', !editorHtml(300).includes(hint));
+
+    // a filter: sold per piece, no liters, no viscosity, a manufacturer number, 0,3 kg
+    const filterName = 'Φίλτρο λαδιού ελέγχου';
+    const saved = await runProduct(form({ name: filterName, isActive: 'on', variants: JSON.stringify([sizeRow(300)]), removedVariantIds: '[]' }));
+    const [filter] = await db.select().from(products).where(eq(products.name, filterName));
+    check('a product with only a «Τεμάχιο» size, no viscosity and no liters saves', saved?.ok === true && !!filter && filter.viscosity === null, saved);
+    const [piece] = filter ? await db.select().from(variants).where(eq(variants.productId, filter.id)) : [];
+    check('…the size keeps its manufacturer number and weight, has no liters, and its price stays unconfirmed', piece?.mpn === 'W 712/75' && piece.weightGrams === 300 && piece.volumeMl === null && piece.priceVerified === false, piece);
+    const onPage = filter ? await getProductBySlug(filter.slug) : null;
+    check('the product page data carries the manufacturer number', !!onPage && onPage.variants.some((v) => v.mpn === 'W 712/75'), onPage?.variants);
+    check('search finds it by «W 712/75» and by «W71275»', !!filter && (await found('W 712/75', filter.slug)) && (await found('W71275', filter.slug)));
+    if (filter) await db.delete(products).where(eq(products.id, filter.id));
+    check('the test product is gone again', (await db.select().from(products).where(eq(products.name, filterName))).length === 0);
+  }
+
   console.log('Cleanup');
   for (const code of fixCodes) await db.delete(coupons).where(eq(coupons.code, code));
   for (const name of fixSaleNames) await db.delete(sales).where(eq(sales.name, name));
