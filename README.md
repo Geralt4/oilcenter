@@ -86,6 +86,8 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
 11. **Demo mode** (*Ρυθμίσεις → Λειτουργία καταστήματος*) keeps the site out of Google (`noindex` + robots.txt) and
     flags orders as tests. It can be switched off while ordering stays closed — that is the public *catalogue* of the
     test run. Product structured data carries offers only when demo mode is off **and** ordering is open.
+    **Switching demo mode off needs the identity confirmation, which needs 2FA: enrol 2FA first** (step 1 of "Launch day"
+    below). Without it the save is refused and the site stays hidden from search engines.
 
 12. **Hazard labelling of chemicals.** The live catalogue has 76 chemicals (antifreeze & fluids, additives, sprays,
     2-stroke oils, checked 2026-11-01): 14 carry prefilled label data and none is ticked as checked against the pack,
@@ -103,7 +105,7 @@ in "Before going live" above and in [`VIVA.md`](VIVA.md) section 10.
 
 1. **Enable 2FA** on the owner's admin account: *Ρυθμίσεις → «Επαλήθευση δύο βημάτων (2FA)» → «Ενεργοποίηση»* (it asks
    for the current password), scan the QR code, type the code. Without 2FA the identity confirmation in step 2 cannot be
-   given, and without that, changing the IBAN (step 3) and opening ordering (step 8) are refused.
+   given, and without that, switching demo mode off, changing the IBAN (step 3) and opening ordering (step 8) are refused.
 2. **Confirm identity:** *Ρυθμίσεις → «Επιβεβαίωση ταυτότητας»* (password + the 2FA code). It lasts 5 minutes, for that
    session only.
 3. **Set the IBAN** in *Τρόποι πληρωμής* and save while the confirmation is valid. It is needed if bank transfer is
