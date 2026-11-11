@@ -83,6 +83,8 @@ first as a catalogue, later with ordering — is in [`TEST-RUN.md`](TEST-RUN.md)
     off by default). Visitors can browse, see prices and fill a cart, but the cart and `/checkout` show "οι online
     παραγγελίες ανοίγουν σύντομα — καλέστε μας" and the `placeOrder` action refuses them server-side. A logged-in admin
     still gets the full checkout, and whatever they place is flagged as a test order — that is how to test before launch.
+    That holds only while commerce is on: with `COMMERCE_ENABLED=false` the box does nothing and nobody, an admin included,
+    gets the cart or the checkout.
 11. **Demo mode** (*Ρυθμίσεις → Λειτουργία καταστήματος*) keeps the site out of Google (`noindex` + robots.txt) and
     flags orders as tests. It can be switched off while ordering stays closed — that is the public *catalogue* of the
     test run. Product structured data carries offers only when demo mode is off **and** ordering is open.
