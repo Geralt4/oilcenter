@@ -558,6 +558,8 @@ async function main() {
     await page.setViewportSize({ width: 1280, height: 500 });
     await page.goto(`${base}/admin`);
     check('the dashboard checklist lists the payment-mail line (no mail has been given up)', (await page.getByText('E-mail πληρωμών που δεν στάλθηκαν').count()) > 0 && (await page.getByText('Κανένα e-mail πληρωμής δεν έμεινε απέσταλτο.').count()) > 0);
+    // this server has no mail service: the two e-mail lines both say so, instead of one claiming the site cannot send while the other says it is set up
+    check('the dashboard says the site does not send e-mail yet, in both e-mail lines', (await page.getByText('Δεν έχει ρυθμιστεί: τα e-mail γράφονται σε αρχεία').count()) === 1 && (await page.getByText('το site δεν στέλνει ακόμη e-mail').count()) === 1 && (await page.getByText('Ρυθμισμένο.', { exact: true }).count()) === 0);
     // a data patch that failed at start-up (and one that waits for it) shows on the checklist, and the line goes when they have applied
     {
       const { settings } = await import('../src/lib/db/schema');
