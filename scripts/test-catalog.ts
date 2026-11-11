@@ -300,6 +300,29 @@ async function main() {
     const offers = (detail: NonNullable<typeof s.detail>) => productJsonLd(detail, asSettings(false, true)).offers;
     check('structured data offers only the confirmed size', offers(s.detail!)?.lowPrice === '10.00' && offers(s.detail!)?.highPrice === '10.00' && offers(s.detail!)?.offerCount === 1, offers(s.detail!));
 
+    // The owner's «online παραγγελίες» box counts only together with the deployment switch (lib/commerce-flag.ts: ordersOpen).
+    {
+      const { ordersOpen } = await import('../src/lib/commerce-flag');
+      const savedCommerce = process.env.COMMERCE_ENABLED;
+      const withCommerce = <T,>(value: string | undefined, run: () => T): T => {
+        if (value === undefined) delete process.env.COMMERCE_ENABLED; else process.env.COMMERCE_ENABLED = value;
+        try {
+          return run();
+        } finally {
+          if (savedCommerce === undefined) delete process.env.COMMERCE_ENABLED; else process.env.COMMERCE_ENABLED = savedCommerce;
+        }
+      };
+      check('ordersOpen: box ticked, commerce unset → open', withCommerce(undefined, () => ordersOpen({ ordersEnabled: true })) === true);
+      check('ordersOpen: box ticked, COMMERCE_ENABLED=true → open', withCommerce('true', () => ordersOpen({ ordersEnabled: true })) === true);
+      check('ordersOpen: box ticked, COMMERCE_ENABLED=false → closed', withCommerce('false', () => ordersOpen({ ordersEnabled: true })) === false);
+      check('ordersOpen: box unticked, commerce unset → closed', withCommerce(undefined, () => ordersOpen({ ordersEnabled: false })) === false);
+      check('ordersOpen: box unticked, COMMERCE_ENABLED=false → closed', withCommerce('false', () => ordersOpen({ ordersEnabled: false })) === false);
+      const ticked = withCommerce('false', () => productJsonLd(s.detail!, asSettings(false, true)));
+      check('COMMERCE_ENABLED=false with the box ticked: structured data has no offer, and no price anywhere in it', ticked.offers === undefined && !/"price"|lowPrice|highPrice|10\.00/.test(JSON.stringify(ticked)), ticked);
+      check('…with commerce on the same product and settings offer the confirmed size as before', withCommerce(undefined, () => productJsonLd(s.detail!, asSettings(false, true)).offers?.lowPrice) === '10.00');
+      check('…and with the box unticked there is no offer with commerce on either', withCommerce(undefined, () => productJsonLd(s.detail!, asSettings(false, false)).offers) === undefined);
+    }
+
     const [sale] = await db.insert(sales).values({ name: 'Τεστ έκπτωση τιμής', type: 'percent', value: 20, productIds: [up.id], isActive: true }).returning();
     s = await sizes();
     check('a running sale lowers the confirmed size and shows its regular price as «was»', s.confirmed?.priceCents === 800 && s.confirmed.compareAtCents === 1000, s.confirmed);

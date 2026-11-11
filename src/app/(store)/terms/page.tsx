@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LegalShell } from '@/components/store/legal-shell';
+import { ordersOpen } from '@/lib/commerce-flag';
 import { fullAddress } from '@/lib/settings';
 import { getSettings } from '@/lib/settings.server';
 
@@ -11,7 +12,7 @@ export default async function TermsPage() {
   // Catalogue mode (lib/catalogue-mode.ts): while the shop takes no online orders, the clauses about ordering, paying,
   // shipping and returning are left out rather than describing a service that is not offered. Nothing is added in
   // their place — the remaining clauses are the same text, and the numbering follows.
-  const selling = storefront.ordersEnabled;
+  const selling = ordersOpen(storefront);
   const no = selling ? { liability: 6, ip: 7, data: 8, law: 9 } : { liability: 4, ip: 5, data: 6, law: 7 };
   return (
     <LegalShell href="/terms" title="Όροι χρήσης" updated="Οκτώβριος 2026">

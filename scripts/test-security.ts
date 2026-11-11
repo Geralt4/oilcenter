@@ -242,6 +242,34 @@ async function main() {
     return cfg('x'.repeat(48), 'https://www.oilcenter.gr', undefined);
   })();
   check('the warning is not a boot-stopping problem', fatalToo.length === 0, fatalToo);
+
+  // The two e-mail lines of the admin dashboard are worked out together and must not contradict each other.
+  const { mailDashboardLines } = await import('../src/lib/startup-check');
+  const { mailConfigured } = await import('../src/lib/email');
+  const linesWith = (env: Partial<Record<(typeof mailEnv)[number], string>>, shopAddress = true) => {
+    for (const n of mailEnv) delete process.env[n];
+    for (const [n, v] of Object.entries(env)) process.env[n] = v;
+    return mailDashboardLines(shopAddress);
+  };
+  const nothing = linesWith({});
+  check('no mail service: «Αποστολή e-mail» says it is not set up, and the address line says the site does not send yet', !nothing.send.done && nothing.send.detail.includes('Δεν έχει ρυθμιστεί') && !nothing.notify.done && nothing.notify.detail.includes('δεν στέλνει ακόμη'), nothing);
+  const smtp = linesWith({ SMTP_HOST: 'smtp.example.gr' });
+  check('SMTP: both lines are fine', smtp.send.done && smtp.send.detail === 'Ρυθμισμένο.' && smtp.notify.done && smtp.notify.detail.includes('Εκεί έρχονται'), smtp);
+  const resendOk = linesWith({ RESEND_API_KEY: 're_test', MAIL_FROM: 'Oil Center <no-reply@oilcenter.gr>' });
+  check('Resend with MAIL_FROM: both lines are fine, and the address line no longer claims the site cannot send', resendOk.send.done && resendOk.notify.done && !resendOk.notify.detail.includes('δεν στέλνει ακόμη'), resendOk);
+  const resendBare = linesWith({ RESEND_API_KEY: 're_test' });
+  check('Resend without MAIL_FROM: both lines warn and name MAIL_FROM', !resendBare.send.done && resendBare.send.detail.includes('MAIL_FROM') && !resendBare.notify.done && resendBare.notify.detail.includes('MAIL_FROM'), resendBare);
+  check('…a blank MAIL_FROM counts as unset', !linesWith({ RESEND_API_KEY: 're_test', MAIL_FROM: '   ' }).send.done);
+  check('…and the warning does not claim that the site sends nothing', !resendBare.notify.detail.includes('δεν στέλνει ακόμη') && !resendBare.send.detail.includes('Δεν έχει ρυθμιστεί'));
+  const noAddress = linesWith({ SMTP_HOST: 'smtp.example.gr' }, false);
+  check('no shop address: the address line says so, whatever the mail setup', !noAddress.notify.done && noAddress.notify.detail.includes('Δεν έχει οριστεί') && noAddress.send.done, noAddress);
+  const agree = [{}, { SMTP_HOST: 'smtp.example.gr' }, { RESEND_API_KEY: 're_test' }, { RESEND_API_KEY: 're_test', MAIL_FROM: 'a@b.gr' }, { RESEND_API_KEY: 're_test', SMTP_HOST: 'smtp.example.gr' }]
+    .map((env) => {
+      const lines = linesWith(env);
+      // the sending line and mailConfigured() (what the rest of the app uses) agree on whether anything is configured
+      return { env, sendsAgree: mailConfigured() === (lines.send.done || lines.send.detail.startsWith('Ρυθμισμένο μέσω Resend')), contradiction: lines.send.done && !lines.notify.done };
+    });
+  check('in every combination the lines agree with mailConfigured() and never contradict each other', agree.every((a) => a.sendsAgree && !a.contradiction), agree);
   for (const n of mailEnv) { if (savedMail[n] === undefined) delete process.env[n]; else process.env[n] = savedMail[n]; }
 
   if (saved.secret === undefined) delete process.env.AUTH_SECRET; else process.env.AUTH_SECRET = saved.secret;

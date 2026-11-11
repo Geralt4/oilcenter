@@ -4,6 +4,7 @@ import { Boxes, PackageSearch, Phone, Truck } from 'lucide-react';
 import { Breadcrumbs } from '@/components/store/product-listing';
 import { QuoteForm } from '@/components/store/quote-form';
 import { getBrands } from '@/lib/catalog';
+import { ordersOpen } from '@/lib/commerce-flag';
 import { BRANDS_ON_SHELF } from '@/lib/settings';
 import { getSettings } from '@/lib/settings.server';
 import { telHref } from '@/lib/utils';
@@ -27,7 +28,7 @@ export default async function ProfessionalsPage() {
     { icon: Boxes, title: `${Math.max(BRANDS_ON_SHELF, brands.length)}+ μάρκες από ένα σημείο`, text: 'Λάδια κινητήρα, βαλβολίνες, ATF, αντιψυκτικά, υγρά φρένων, πρόσθετα και σπρέι.' },
     { icon: PackageSearch, title: 'Και ό,τι δεν βλέπετε στο site', text: 'Το ηλεκτρονικό κατάστημα δείχνει ένα μέρος της γκάμας. Ζητήστε μας συγκεκριμένο προϊόν, προδιαγραφή ή συσκευασία.' },
     // delivery is promised only while the shop really takes online orders (catalogue mode otherwise)
-    storefront.ordersEnabled && shipping.courierEnabled
+    ordersOpen(storefront) && shipping.courierEnabled
       ? { icon: Truck, title: 'Παραλαβή ή αποστολή', text: `Από το κατάστημα στη ${shop.street} ή με courier σε όλη την Ελλάδα.` }
       : { icon: Truck, title: 'Παραλαβή από το κατάστημα', text: `Στη ${shop.street}.` },
   ];

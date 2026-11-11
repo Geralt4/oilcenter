@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LegalShell } from '@/components/store/legal-shell';
+import { ordersOpen } from '@/lib/commerce-flag';
 import { getSettings } from '@/lib/settings.server';
 
 export const metadata: Metadata = { title: 'Πολιτική cookies', alternates: { canonical: '/cookies' } };
 
 export default async function CookiesPage() {
   // the cart, the customer account and card payments exist only while the shop takes online orders
-  const selling = (await getSettings()).storefront.ordersEnabled;
+  const selling = ordersOpen((await getSettings()).storefront);
   return (
     <LegalShell href="/cookies" title="Cookies" updated="Οκτώβριος 2026">
       <p>Ο ιστότοπός μας χρησιμοποιεί <strong>μόνο τα απολύτως απαραίτητα</strong> cookies και τοπική αποθήκευση για να λειτουργεί {selling ? 'το ηλεκτρονικό κατάστημα' : 'ο ιστότοπος'}. Δεν χρησιμοποιούμε cookies διαφήμισης ή παρακολούθησης, ούτε εργαλεία στατιστικών τρίτων. Τα στατιστικά επισκεψιμότητας που κρατάμε είναι συγκεντρωτικά και <strong>δεν αποθηκεύουν τίποτα στη συσκευή σας</strong> — λεπτομέρειες στην <Link href="/privacy">Πολιτική απορρήτου</Link>.</p>

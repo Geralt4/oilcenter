@@ -227,8 +227,10 @@ function cleanSpec(s: string): string {
 // ─── Build ───────────────────────────────────────────────────────────────────
 function ensurePhotos() {
   if (existsSync(PHOTOS_DIR) && readdirSync(PHOTOS_DIR).length) return;
-  const zips = path.join(ROOT, 'Tsakiridis ');
-  if (!existsSync(zips)) throw new Error(`Photos not found. Pass --photos <dir> or place the client zips in "${zips}".`);
+  // the folder is called "Tsakiridis" on some machines and "Tsakiridis " (trailing space) on others
+  const candidates = ['Tsakiridis', 'Tsakiridis '].map((name) => path.join(ROOT, name));
+  const zips = candidates.find((dir) => existsSync(dir));
+  if (!zips) throw new Error(`Photos not found. Pass --photos <dir> or place the client zips in "${candidates[0]}" (or "${candidates[1]}").`);
   mkdirSync(PHOTOS_DIR, { recursive: true });
   for (const zip of readdirSync(zips).filter((f) => f.endsWith('.zip'))) {
     const dest = path.join(PHOTOS_DIR, zip.replace(/\.zip$/, '').trim());

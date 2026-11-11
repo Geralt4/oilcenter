@@ -21,6 +21,32 @@ export function resendWithoutSender(): boolean {
   return resendConfigured() && !process.env.MAIL_FROM?.trim();
 }
 
+/**
+ * The two e-mail lines of the admin dashboard checklist: «E-mail καταστήματος» (where the form messages are meant to go) and
+ * «Αποστολή e-mail» (whether the site can send at all). They are worked out together so that they cannot contradict each
+ * other. Sending is configured when Resend or SMTP is (the same test as `mailConfigured` in src/lib/email.ts). With Resend and no
+ * MAIL_FROM the sender is Resend's test address, which delivers only to the Resend account's own mailbox: a warning on both.
+ * `shopAddress`: the shop has an e-mail address, or ORDERS_NOTIFY_EMAIL is set.
+ */
+export type MailLine = { done: boolean; detail: string };
+export function mailDashboardLines(shopAddress: boolean): { notify: MailLine; send: MailLine } {
+  const sends = resendConfigured() || Boolean(process.env.SMTP_HOST);
+  const testSender = sends && resendWithoutSender();
+  const sendLine: MailLine = !sends
+    ? { done: false, detail: 'Δεν έχει ρυθμιστεί: τα e-mail γράφονται σε αρχεία αντί να στέλνονται. Ρυθμίζεται από τον προγραμματιστή (.env).' }
+    : testSender
+      ? { done: false, detail: 'Ρυθμισμένο μέσω Resend, αλλά χωρίς MAIL_FROM: τα e-mail φεύγουν από τη δοκιμαστική διεύθυνση της Resend και φτάνουν μόνο στο γραμματοκιβώτιο του λογαριασμού Resend (δείτε και τη γραμμή «Διεύθυνση αποστολέα e-mail»). Ρυθμίζεται από τον προγραμματιστή (.env).' }
+      : { done: true, detail: 'Ρυθμισμένο.' };
+  const notifyLine: MailLine = !shopAddress
+    ? { done: false, detail: 'Δεν έχει οριστεί: τα μηνύματα από τις φόρμες («Επικοινωνία», «Ποιο λάδι;») φαίνονται μόνο εδώ, στα Μηνύματα — δεν σας ειδοποιεί κανείς.' }
+    : !sends
+      ? { done: false, detail: 'Η διεύθυνση έχει οριστεί και φαίνεται στο site, αλλά το site δεν στέλνει ακόμη e-mail (επόμενη γραμμή): μέχρι τότε τα μηνύματα των φορμών φαίνονται μόνο εδώ, στα Μηνύματα.' }
+      : testSender
+        ? { done: false, detail: 'Η διεύθυνση έχει οριστεί, αλλά το site στέλνει μέσω Resend χωρίς MAIL_FROM: τα μηνύματα των φορμών φτάνουν εκεί μόνο αν είναι η διεύθυνση του λογαριασμού Resend. Αλλιώς φαίνονται μόνο εδώ, στα Μηνύματα. Δοκιμάστε με ένα μήνυμα από τη φόρμα «Επικοινωνία».' }
+        : { done: true, detail: 'Εκεί έρχονται τα μηνύματα από τις φόρμες του site.' };
+  return { notify: notifyLine, send: sendLine };
+}
+
 /** Settings that do not stop the boot but will hurt once ordering is open. Logged by src/instrumentation.ts. */
 export function checkProductionWarnings(): string[] {
   const warnings: string[] = [];

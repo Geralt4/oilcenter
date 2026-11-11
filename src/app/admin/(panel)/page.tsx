@@ -6,14 +6,13 @@ import { Card, PageHeader, PaymentBadge, StatusBadge, td, th } from '@/component
 import { buttonClass } from '@/components/ui/button';
 import { requireAdmin } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { mailConfigured } from '@/lib/email';
 import { adminUsers, categories, orderEvents, orders, products, unmatchedPayments, variants } from '@/lib/db/schema';
 import { hazardPriorityCategoryIds, needsHazardCheck } from '@/lib/ghs';
-import { commerceEnabled } from '@/lib/commerce-flag';
+import { commerceEnabled, ordersOpen } from '@/lib/commerce-flag';
 import { releaseAbandonedCardOrders, releaseExpiredBankTransferOrdersQuietly, staleOpenOrderCount, staleOpenOrders } from '@/lib/orders';
 import { OPEN_ORDER_FLAG_DAYS } from '@/lib/order-ageing';
 import { isValidIban } from '@/lib/iban';
-import { resendConfigured, resendWithoutSender } from '@/lib/startup-check';
+import { mailDashboardLines, resendConfigured, resendWithoutSender } from '@/lib/startup-check';
 import { cardProvider } from '@/lib/payments';
 import { countGivenUpMails, GIVEN_UP_WINDOW_DAYS } from '@/lib/payments/mail-delivery';
 import { describePatchProblems, readPatchProblems } from '@/lib/patch-problems';
@@ -84,6 +83,8 @@ export default async function AdminDashboard() {
   const givenUpMails = await countGivenUpMails();
   // data patches that failed at the last start (the boot goes on), and the ones that wait for them
   const patchLine = describePatchProblems(await readPatchProblems());
+  // the two e-mail lines are worked out together, so they cannot disagree (lib/startup-check.ts)
+  const mail = mailDashboardLines(Boolean(shop.email || process.env.ORDERS_NOTIFY_EMAIL));
   const checklist = [
     { done: unverified.n === 0, label: 'Επιβεβαίωση τιμών', detail: unverified.n ? `${unverified.n} συσκευασίες δεν έχουν επιβεβαιωμένη τιμή: στο site γράφουν «Καλέστε για τιμή».` : 'Όλες οι τιμές είναι επιβεβαιωμένες.', href: '/admin/prices?filter=unverified' },
     { done: flagged.n === 0, label: 'Έλεγχος στοιχείων προϊόντων', detail: flagged.n ? `${flagged.n} προϊόντα έχουν σημείωση προς έλεγχο (π.χ. συσκευασία που δεν φαινόταν στη φωτογραφία).` : 'Κανένα προϊόν δεν περιμένει έλεγχο.', href: '/admin/products?filter=review' },
@@ -93,17 +94,17 @@ export default async function AdminDashboard() {
     { done: Boolean(shop.instagramUrl && shop.skroutzUrl), label: 'Σύνδεσμοι Instagram & Skroutz', detail: shop.instagramUrl && shop.skroutzUrl ? 'Εμφανίζονται στην κεφαλίδα, στο μενού, στο υποσέλιδο και δίπλα στον χάρτη.' : `Λείπει: ${[!shop.instagramUrl && 'Instagram', !shop.skroutzUrl && 'Skroutz'].filter(Boolean).join(' και ')}. Επικολλήστε τον σύνδεσμο και θα εμφανιστεί αμέσως στο κατάστημα.`, href: '/admin/settings#social' },
     { forOrders: true, done: !payments.bankTransfer || payments.bankAccounts.some((a) => isValidIban(a.iban)), label: 'Τραπεζικός λογαριασμός (IBAN)', detail: payments.bankAccounts.length > 0 && !payments.bankAccounts.some((a) => isValidIban(a.iban)) ? 'Το IBAN που έχει αποθηκευτεί δεν είναι έγκυρο. Διορθώστε το στις ρυθμίσεις.' : 'Χρειάζεται για την πληρωμή με κατάθεση — αλλιώς απενεργοποιήστε την.', href: '/admin/settings#payments' },
     // having an address is one thing, the site being able to SEND to it (SMTP, next line) is another: say which is true
-    { done: Boolean(shop.email || process.env.ORDERS_NOTIFY_EMAIL), label: 'E-mail καταστήματος', detail: !(shop.email || process.env.ORDERS_NOTIFY_EMAIL) ? 'Δεν έχει οριστεί: τα μηνύματα από τις φόρμες («Επικοινωνία», «Ποιο λάδι;») φαίνονται μόνο εδώ, στα Μηνύματα — δεν σας ειδοποιεί κανείς.' : process.env.SMTP_HOST ? 'Εκεί έρχονται τα μηνύματα από τις φόρμες του site.' : 'Η διεύθυνση έχει οριστεί και φαίνεται στο site, αλλά το site δεν στέλνει ακόμη e-mail (επόμενη γραμμή): μέχρι τότε τα μηνύματα των φορμών φαίνονται μόνο εδώ, στα Μηνύματα.', href: '/admin/settings' },
+    { ...mail.notify, label: 'E-mail καταστήματος', href: '/admin/settings' },
     { done: backupFresh, label: 'Αντίγραφο ασφαλείας', detail: backupFresh ? (newestBackup ? `Τελευταίο αυτόματο αντίγραφο: ${newestBackup}.` : 'Δεν χρειάζεται για αυτή τη βάση.') : `Το καθημερινό αντίγραφο δεν γράφτηκε${newestBackup ? ` από τις ${newestBackup}` : ' ποτέ'}. Ενημερώστε τον προγραμματιστή.`, href: null },
     { done: offsiteFresh, label: 'Αντίγραφο εκτός δίσκου (Backblaze B2)', detail: !offsiteOn ? 'Δεν έχει ρυθμιστεί: τα αντίγραφα μένουν στον ίδιο δίσκο με το site — αν χαθεί ο δίσκος, χάνονται όλα. Ρυθμίζεται από τον προγραμματιστή (.env).' : offsiteFresh ? `Τελευταίο επιτυχές αντίγραφο εκτός server: ${formatDateTime(new Date(lastOffsiteSuccess(offsiteLast)!))}. Κρυπτογραφημένο, ανεβαίνει κάθε βράδυ, μαζί με φωτογραφίες και δελτία ασφαλείας.` : lastOffsiteSuccess(offsiteLast) === null ? `Δεν έχει ανέβει ακόμη κανένα αντίγραφο εκτός server${offsiteLast && !offsiteLast.ok ? ': η τελευταία προσπάθεια απέτυχε' : ''}. Ελέγξτε τα στοιχεία B2 στο Railway.` : `Δεν υπάρχει επιτυχές αντίγραφο εκτός server από ${formatDateTime(new Date(lastOffsiteSuccess(offsiteLast)!))} (πάνω από 26 ώρες). ${offsiteLast && !offsiteLast.ok ? 'Η τελευταία προσπάθεια απέτυχε.' : 'Δεν έχει γίνει νέα προσπάθεια.'} Ελέγξτε τα στοιχεία B2 στο Railway.`, href: null },
     { done: Boolean(mfaRow?.confirmedAt), label: 'Επαλήθευση δύο βημάτων (2FA)', detail: mfaRow?.confirmedAt ? 'Ενεργή: η σύνδεση στη διαχείριση ζητά και κωδικό από την εφαρμογή επαλήθευσης.' : 'Ανενεργή: ένα κλεμμένο συνθηματικό αρκεί για να μπει κάποιος στη διαχείριση. Ενεργοποιήστε την — διαρκεί δύο λεπτά.', href: '/admin/settings#mfa' },
     { done: patchLine.done, label: 'Ενημερώσεις δεδομένων', detail: patchLine.detail, href: null },
-    { done: mailConfigured(), label: 'Αποστολή e-mail', detail: mailConfigured() ? 'Ρυθμισμένο.' : 'Δεν έχει ρυθμιστεί: τα e-mail γράφονται σε αρχεία αντί να στέλνονται. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
+    { ...mail.send, label: 'Αποστολή e-mail', href: null },
     // with Resend and no MAIL_FROM the sender is Resend's test address: fine for the shop's own notices, not for customers (lib/startup-check.ts warns at boot too)
     { forOrders: true, done: !resendWithoutSender(), label: 'Διεύθυνση αποστολέα e-mail', detail: resendWithoutSender() ? 'Λείπει (MAIL_FROM): τα e-mail φεύγουν από τη δοκιμαστική διεύθυνση της Resend και φτάνουν μόνο στο γραμματοκιβώτιο του λογαριασμού Resend — οι πελάτες δεν θα λάβουν επιβεβαίωση παραγγελίας ή πληρωμής. Ρυθμίζεται από τον προγραμματιστή (.env).' : resendConfigured() ? 'Ρυθμισμένο.' : 'Δεν χρειάζεται: τα e-mail δεν στέλνονται μέσω Resend.', href: null },
     { forOrders: true, done: givenUpMails === 0, label: 'E-mail πληρωμών που δεν στάλθηκαν', detail: givenUpMails ? `${givenUpMails} e-mail για πληρωμές (επιβεβαίωση προς πελάτη ή ειδοποίηση προς το κατάστημα) δεν στάλθηκαν ούτε μετά από δοκιμές επί περίπου ένα εικοσιτετράωρο, τις τελευταίες ${GIVEN_UP_WINDOW_DAYS} ημέρες. Αφού διορθωθεί η αποστολή e-mail, ανοίξτε κάθε παραγγελία της λίστας και πατήστε «Επαναποστολή e-mail».` : 'Κανένα e-mail πληρωμής δεν έμεινε απέσταλτο.', href: givenUpMails ? '/admin/orders?mail=failed' : null },
     { forOrders: true, done: cardProvider() !== null, label: 'Πληρωμές με κάρτα', detail: cardProvider() ? `Ενεργός πάροχος: ${cardProvider()}.` : 'Δεν έχει συνδεθεί πάροχος (Viva ή Stripe): η επιλογή «κάρτα» δεν εμφανίζεται στο ταμείο. Ρυθμίζεται από τον προγραμματιστή (.env).', href: null },
-    { forOrders: true, done: storefront.ordersEnabled, label: 'Άνοιγμα online παραγγελιών', detail: storefront.ordersEnabled ? 'Οι επισκέπτες μπορούν να παραγγείλουν.' : 'Κλειστές: το site λειτουργεί ως ιστοσελίδα-κατάλογος — προϊόντα, τιμές και επικοινωνία, χωρίς καλάθι, ταμείο και λογαριασμούς. Εσείς, όσο είστε συνδεδεμένος, βλέπετε ολόκληρο το κατάστημα και μπορείτε να κάνετε δοκιμαστικές παραγγελίες. Ανοίξτε τες όταν είναι όλα έτοιμα.', href: '/admin/settings#storefront' },
+    { forOrders: true, done: ordersOpen(storefront), label: 'Άνοιγμα online παραγγελιών', detail: !commerceEnabled() ? 'Κλειστές από τον διακομιστή (COMMERCE_ENABLED=false): το site λειτουργεί μόνο ως ιστοσελίδα-κατάλογος, ό,τι κι αν δείχνει η επιλογή στις Ρυθμίσεις. Ρυθμίζεται από τον προγραμματιστή (.env).' : storefront.ordersEnabled ? 'Οι επισκέπτες μπορούν να παραγγείλουν.' : 'Κλειστές: το site λειτουργεί ως ιστοσελίδα-κατάλογος — προϊόντα, τιμές και επικοινωνία, χωρίς καλάθι, ταμείο και λογαριασμούς. Εσείς, όσο είστε συνδεδεμένος, βλέπετε ολόκληρο το κατάστημα και μπορείτε να κάνετε δοκιμαστικές παραγγελίες. Ανοίξτε τες όταν είναι όλα έτοιμα.', href: '/admin/settings#storefront' },
     { done: !storefront.demoMode, label: 'Απενεργοποίηση δοκιμαστικής λειτουργίας', detail: storefront.demoMode ? 'Όσο είναι ενεργή, το site μένει κρυφό από το Google και οι παραγγελίες σημειώνονται ως δοκιμαστικές. Κλείστε την όταν το site είναι έτοιμο να το δει ο κόσμος — γίνεται και με τις online παραγγελίες ακόμη κλειστές.' : 'Το site είναι δημόσιο και ορατό στο Google.', href: '/admin/settings#storefront' },
   ];
   // two finish lines: the site can be published as a website (catalogue mode) long before it takes orders

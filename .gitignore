@@ -16,6 +16,8 @@ next-env.d.ts
 .env.*.local
 
 # raw client assets (source photos, ~60 MB of zips). Processed images live in /public/catalog.
+# the folder is called "Tsakiridis" on some machines and "Tsakiridis " (trailing space) on others: both are ignored
+/Tsakiridis/
 /Tsakiridis */
 
 # misc

@@ -8,6 +8,7 @@ import { buttonClass } from '@/components/ui/button';
 import { totpUri } from '@/lib/auth/totp';
 import { backupsSupported, listBackups } from '@/lib/backup';
 import { lastOffsiteSuccess, offsiteConfigured, offsiteStatus } from '@/lib/backup-offsite';
+import { commerceEnabled } from '@/lib/commerce-flag';
 import { db } from '@/lib/db';
 import { adminUsers } from '@/lib/db/schema';
 import { cardProvider } from '@/lib/payments';
@@ -79,7 +80,12 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
       <AdminForm action={saveSettings} submitLabel="Αποθήκευση ρυθμίσεων" stickyBar className="space-y-6">
         <Card title="Λειτουργία καταστήματος">
           <div id="storefront" className="space-y-4">
-            <Check name="ordersEnabled" label="Το κατάστημα δέχεται online παραγγελίες" defaultChecked={storefront.ordersEnabled} hint="Όσο είναι κλειστό, το site λειτουργεί ως ιστοσελίδα-κατάλογος: οι επισκέπτες βλέπουν προϊόντα, τιμές και στοιχεία επικοινωνίας, χωρίς καλάθι, ταμείο, λογαριασμούς και σελίδες αποστολών. Εσείς, όσο είστε συνδεδεμένος εδώ, βλέπετε ολόκληρο το κατάστημα για δοκιμαστικές παραγγελίες. Η αλλαγή αυτής της επιλογής χρειάζεται πρώτα επιβεβαίωση ταυτότητας (πρώτη κάρτα της σελίδας)." />
+            {!commerceEnabled() && (
+              <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-950">
+                Αυτή η εγκατάσταση έχει ρυθμιστεί μόνο ως ιστοσελίδα (COMMERCE_ENABLED=false). Όσο ισχύει αυτό, η επιλογή που ακολουθεί δεν έχει καμία επίδραση: ακόμη κι αν την ενεργοποιήσετε, το site μένει κατάλογος, χωρίς καλάθι και ταμείο, και δεν υπάρχει δοκιμαστικό ταμείο ούτε για εσάς. Ρυθμίζεται από τον προγραμματιστή (.env).
+              </p>
+            )}
+            <Check name="ordersEnabled" label="Το κατάστημα δέχεται online παραγγελίες" defaultChecked={storefront.ordersEnabled} hint={`Όσο είναι κλειστό, το site λειτουργεί ως ιστοσελίδα-κατάλογος: οι επισκέπτες βλέπουν προϊόντα, τιμές και στοιχεία επικοινωνίας, χωρίς καλάθι, ταμείο, λογαριασμούς και σελίδες αποστολών. ${commerceEnabled() ? 'Εσείς, όσο είστε συνδεδεμένος εδώ, βλέπετε ολόκληρο το κατάστημα για δοκιμαστικές παραγγελίες. ' : ''}Η αλλαγή αυτής της επιλογής χρειάζεται πρώτα επιβεβαίωση ταυτότητας (πρώτη κάρτα της σελίδας).`} />
             <Check name="launchSignup" label="«Ειδοποιήστε με όταν ανοίξουν οι παραγγελίες»" defaultChecked={storefront.launchSignup} hint="Όσο οι online παραγγελίες είναι κλειστές, στην αρχική σελίδα εμφανίζεται μια μικρή φόρμα όπου ο επισκέπτης αφήνει το e-mail του. Τα e-mail τα βρίσκετε στα Στατιστικά." />
             <Check name="demoMode" label="Δοκιμαστική λειτουργία" defaultChecked={storefront.demoMode} hint="Όσο είναι ενεργή, το site μένει κρυφό από το Google και οι παραγγελίες σημειώνονται ως δοκιμαστικές. Απενεργοποιήστε την όταν το site είναι έτοιμο να το δει ο κόσμος (ωράριο, στοιχεία επιχείρησης). Μπορεί να κλείσει και με τις online παραγγελίες ακόμη κλειστές: τότε το site λειτουργεί ως κατάλογος με τιμές, τηλέφωνο και χάρτη. Όσες τιμές δεν έχετε επιβεβαιώσει δεν εμφανίζονται ποτέ — ο επισκέπτης βλέπει «Καλέστε για τιμή»." />
             <Check name="b2bPage" label="Σελίδα «Για συνεργεία & επαγγελματίες»" defaultChecked={storefront.b2bPage} hint="Μια σελίδα με φόρμα αιτήματος προσφοράς για συνεργεία, στόλους και μεταπωλητές, με συνδέσμους στην κεφαλίδα και στο υποσέλιδο. Τα αιτήματα έρχονται στα Μηνύματα. Ανοίξτε την μόνο αν θέλετε τέτοια αιτήματα — η σελίδα δεν υπόσχεται εκπτώσεις ή πίστωση, μόνο ότι θα απαντήσετε με προσφορά." />
