@@ -8,6 +8,7 @@ import { MobileNav } from '@/components/store/mobile-nav';
 import { SocialLinks } from '@/components/store/social-links';
 import { SearchBox } from '@/components/store/search-box';
 import type { BrandWithCount, CategoryNode } from '@/lib/catalog';
+import { ordersOpen } from '@/lib/commerce-flag';
 import { fullAddress, mapsDirectionsUrl, mapsPlaceUrl, openStatus, type ShopSettings } from '@/lib/settings';
 import { cn, telHref } from '@/lib/utils';
 
@@ -35,7 +36,7 @@ export function Header({ settings, tree, brands, customerName, canOrder, adminPr
         </div>
       ) : storefront.demoMode ? (
         <div className="bg-petrol-700 px-4 py-1.5 text-center text-xs font-medium text-white">
-          {storefront.ordersEnabled ? (
+          {ordersOpen(storefront) ? (
             'Δοκιμαστική λειτουργία — οι τιμές είναι ενδεικτικές και οι παραγγελίες δεν εκτελούνται.'
           ) : (
             <>

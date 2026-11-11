@@ -8,7 +8,7 @@ import { StoreProvider, type PublicStoreConfig } from '@/components/store/store-
 import { Tracker } from '@/components/store/tracker';
 import { getAdmin, getCustomer } from '@/lib/auth/session';
 import { getBrands, getCategoryTree } from '@/lib/catalog';
-import { commerceEnabled } from '@/lib/commerce-flag';
+import { commerceEnabled, ordersOpen } from '@/lib/commerce-flag';
 import { cardProvider } from '@/lib/payments';
 import { mapsDirectionsUrl } from '@/lib/settings';
 import { getSettings } from '@/lib/settings.server';
@@ -23,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     ...(storefront.demoMode ? { robots: { index: false, follow: false } } : {}),
     // the promise of delivery belongs to the site only while it really takes orders (catalogue mode otherwise)
-    ...(storefront.ordersEnabled ? { description: 'Λιπαντικά κινητήρα, βαλβολίνες, αντιψυκτικά, χημικά και ανταλλακτικά από Castrol, Motul, Mobil, Valvoline, Shell, Liqui Moly και accelerate. Αποστολή σε όλη την Ελλάδα, παραλαβή από το κατάστημα στη Θεσσαλονίκη.' } : {}),
+    ...(ordersOpen(storefront) ? { description: 'Λιπαντικά κινητήρα, βαλβολίνες, αντιψυκτικά, χημικά και ανταλλακτικά από Castrol, Motul, Mobil, Valvoline, Shell, Liqui Moly και accelerate. Αποστολή σε όλη την Ελλάδα, παραλαβή από το κατάστημα στη Θεσσαλονίκη.' } : {}),
   };
 }
 

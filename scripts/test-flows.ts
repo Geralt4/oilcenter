@@ -60,7 +60,7 @@ async function main() {
   process.env.COMMERCE_ENABLED = 'false';
   process.env.SITE_URL = base;
 
-  const { eq, asc } = await import('drizzle-orm');
+  const { and, eq, asc } = await import('drizzle-orm');
   const { db, client } = await import('../src/lib/db');
   const { adminUsers, pendingUploads, products, productImages, variants } = await import('../src/lib/db/schema');
   const { hashPassword } = await import('../src/lib/auth/password');
@@ -634,6 +634,74 @@ async function main() {
     await secondPage.locator('#mfa').getByRole('button', { name: 'Ενεργοποίηση' }).click();
     check('the right password starts the enrolment: the QR code appears', await secondPage.locator('img[alt^="QR"]').waitFor({ timeout: 20_000 }).then(() => true, () => false));
     await secondContext.close();
+
+    // ── Website-only deployment (COMMERCE_ENABLED=false) with the owner's «online παραγγελίες» box ticked ──────────────
+    // The box must do nothing: no offer for Google, no pages about buying in the sitemap, no sentence that promises an order or
+    // a delivery, and the terms and privacy policy keep the text for a site that takes no orders. Everything is read as a
+    // visitor would, from the running server.
+    console.log('Ordering box ticked while the deployment is website-only');
+    const { getSettings, saveSettingsGroup } = await import('../src/lib/settings.server');
+    const storefrontBefore = (await getSettings()).storefront;
+    await saveSettingsGroup('storefront', { ...storefrontBefore, ordersEnabled: true, demoMode: false, launchSignup: true });
+    try {
+      const read = async (route: string) => {
+        const res = await fetch(`${base}${route}`, { redirect: 'manual' });
+        return { status: res.status, location: res.headers.get('location'), text: await res.text() };
+      };
+      const [priced] = await db
+        .select({ slug: products.slug })
+        .from(products)
+        .innerJoin(variants, eq(variants.productId, products.id))
+        .where(and(eq(products.isActive, true), eq(variants.isActive, true), eq(variants.priceVerified, true)))
+        .limit(1);
+      check('the throwaway database has a product with a confirmed price to look at', !!priced);
+
+      const productPage = await read(`/product/${priced?.slug}`);
+      const ld = [...productPage.text.matchAll(/<script type="application\/ld\+json">([^<]*)<\/script>/g)].map((m) => JSON.parse(m[1]) as { '@type': string; offers?: unknown });
+      const productLd = ld.find((block) => block['@type'] === 'Product');
+      check('the product page still carries its structured data…', productPage.status === 200 && !!productLd);
+      check('…with no offer in it', !!productLd && productLd.offers === undefined && !/AggregateOffer|"lowPrice"/.test(productPage.text));
+      check('its description does not offer «Αγορά online»', !productPage.text.includes('Αγορά online'));
+
+      const sitemap = await read('/sitemap.xml');
+      check('the sitemap does not list /shipping-payments or /returns', sitemap.status === 200 && !sitemap.text.includes('/shipping-payments') && !sitemap.text.includes('/returns'));
+      check('…and still lists the terms, so the check is not reading an empty file', sitemap.text.includes('/terms') && sitemap.text.includes(`/product/${priced?.slug}`));
+      for (const route of ['/shipping-payments', '/returns', '/cart', '/checkout']) {
+        const closed = await read(route);
+        check(`${route} is still closed to visitors`, closed.status === 307 && (closed.location === '/' || closed.location === `${base}/`), { status: closed.status, location: closed.location });
+      }
+
+      const home = await read('/');
+      check('the home page does not say «Παραγγείλετε online»', home.status === 200 && !home.text.includes('Παραγγείλετε online'));
+      check('…nor promise «Αποστολή σε όλη την Ελλάδα» (text or description)', !home.text.includes('Αποστολή σε όλη την Ελλάδα'));
+      check('…it asks people to call instead', home.text.includes('Καλέστε μας ή επισκεφθείτε'));
+
+      const terms = await read('/terms');
+      check('the terms keep the catalogue text: «Ο ιστότοπος λειτουργεί ως κατάλογος»', terms.status === 200 && terms.text.includes('Ο ιστότοπος λειτουργεί ως κατάλογος'));
+      check('…without the clauses about ordering, paying and shipping', !terms.text.includes('Παραγγελία και σύναψη της σύμβασης') && !terms.text.includes('Πληρωμή, αποστολή, επιστροφές'));
+      check('…and the legal pages do not link to the closed shipping and returns pages', !terms.text.includes('href="/shipping-payments"') && !terms.text.includes('href="/returns"'));
+
+      const privacy = await read('/privacy');
+      check('the privacy policy keeps the catalogue text: no order processing, no courier, no card provider', privacy.status === 200 && !privacy.text.includes('Εκτέλεση και παράδοση της παραγγελίας') && !privacy.text.includes('Στον πάροχο ηλεκτρονικών πληρωμών'));
+      const cookies = await read('/cookies');
+      check('the cookie policy lists no cart and no customer cookie', cookies.status === 200 && !cookies.text.includes('oilcenter-cart') && !cookies.text.includes('oc_customer'));
+
+      // the launch sign-up form is shown on the home page while ordering is closed; it must also be accepted
+      const visitor = await browser.newContext();
+      const visitorPage = await visitor.newPage();
+      await visitorPage.goto(`${base}/`);
+      const signup = visitorPage.locator('form').filter({ has: visitorPage.locator('button', { hasText: 'Ειδοποιήστε με' }) });
+      check('the home page shows the «Ειδοποιήστε με» sign-up', (await signup.count()) === 1);
+      if ((await signup.count()) === 1) {
+        await signup.locator('input[name="email"]').fill('e2e-ordering-box@example.invalid');
+        await signup.locator('input[name="consent"]').check();
+        await signup.locator('button', { hasText: 'Ειδοποιήστε με' }).click();
+        check('…and accepts an address', await visitorPage.getByText('Ευχαριστούμε!').first().waitFor({ timeout: 20_000 }).then(() => true, () => false));
+      }
+      await visitor.close();
+    } finally {
+      await saveSettingsGroup('storefront', storefrontBefore);
+    }
   } finally {
     await browser?.close().catch(() => undefined);
     if (server && server.exitCode === null) {

@@ -9,6 +9,7 @@ import { CopyField } from '@/components/admin/copy-field';
 import { Card, Check, Field, PageHeader } from '@/components/admin/ui';
 import { buttonClass } from '@/components/ui/button';
 import { requireAdmin } from '@/lib/auth/session';
+import { ordersOpen } from '@/lib/commerce-flag';
 import { db } from '@/lib/db';
 import { brands, products, variants } from '@/lib/db/schema';
 import { SKROUTZ_AVAILABILITY } from '@/lib/settings';
@@ -58,7 +59,7 @@ export default async function AdminSkroutzPage() {
   // Anything but the canonical origin counts as temporary: the preview address, localhost, http, and also the bare
   // oilcenter.gr or a typo in SITE_URL — the feed address handed to Skroutz must never need re-sending.
   if (base !== CANONICAL_ORIGIN) warnings.push(`Η διεύθυνση του site είναι προσωρινή (${base}). Δώστε τη διεύθυνση του αρχείου στο Skroutz μόνο όταν το site είναι στο ${CANONICAL_ORIGIN} — αν αλλάξει αργότερα, πρέπει να τη στείλετε ξανά.`);
-  if (!storefront.ordersEnabled) warnings.push('Οι online παραγγελίες είναι κλειστές. Αν το Skroutz στέλνει τους πελάτες στο site σας για να αγοράσουν (και όχι μέσα από το καλάθι του Skroutz), θα βρουν κλειστό ταμείο.');
+  if (!ordersOpen(storefront)) warnings.push('Οι online παραγγελίες είναι κλειστές. Αν το Skroutz στέλνει τους πελάτες στο site σας για να αγοράσουν (και όχι μέσα από το καλάθι του Skroutz), θα βρουν κλειστό ταμείο.');
 
   return (
     <>

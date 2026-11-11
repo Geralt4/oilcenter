@@ -2,6 +2,7 @@
 
 import { z } from 'zod';
 import { db } from '@/lib/db';
+import { ordersOpen } from '@/lib/commerce-flag';
 import { launchSignups } from '@/lib/db/schema';
 import { formTooBig } from '@/lib/form-size';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
@@ -24,7 +25,7 @@ export async function signupForLaunch(_prev: SignupState, formData: FormData): P
   if (formTooBig(formData, 32)) return { ok: false, message: 'Η εγγραφή δεν είναι διαθέσιμη αυτή τη στιγμή.' };
 
   const { storefront } = await getSettings();
-  if (storefront.ordersEnabled || !storefront.launchSignup) return { ok: false, message: 'Η εγγραφή δεν είναι διαθέσιμη αυτή τη στιγμή.' };
+  if (ordersOpen(storefront) || !storefront.launchSignup) return { ok: false, message: 'Η εγγραφή δεν είναι διαθέσιμη αυτή τη στιγμή.' };
 
   const parsed = Schema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {

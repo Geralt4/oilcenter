@@ -7,6 +7,7 @@ import { LaunchSignupForm } from '@/components/store/launch-signup-form';
 import { StoreLocation } from '@/components/store/store-location';
 import { TrustBadges } from '@/components/store/trust-badges';
 import { buttonClass } from '@/components/ui/button';
+import { ordersOpen } from '@/lib/commerce-flag';
 import { getBrands, getCategoryTree, getFeaturedProducts, getPopularViscosities, listProducts, viscositySlug } from '@/lib/catalog';
 import { jsonLdString, localBusinessJsonLd } from '@/lib/seo';
 import { BRANDS_ON_SHELF } from '@/lib/settings';
@@ -27,7 +28,7 @@ export default async function HomePage() {
   ]);
   const { shop, shipping, storefront } = settings;
   // catalogue mode (lib/catalogue-mode.ts): nothing on this page may promise an online order or a delivery
-  const selling = storefront.ordersEnabled;
+  const selling = ordersOpen(storefront);
   const totalProducts = tree.reduce((n, c) => n + c.productCount, 0);
 
   const usps: Array<{ icon: typeof Truck; title: string; text: string; href?: string; more?: string }> = [

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LegalShell } from '@/components/store/legal-shell';
+import { ordersOpen } from '@/lib/commerce-flag';
 import { fullAddress } from '@/lib/settings';
 import { getSettings } from '@/lib/settings.server';
 
@@ -10,7 +11,7 @@ export default async function PrivacyPage() {
   const { shop, storefront } = await getSettings();
   // Catalogue mode (lib/catalogue-mode.ts): with online ordering closed there are no orders, accounts, card payments or
   // parcels, so the lines about them are left out — the policy describes what the site does today.
-  const selling = storefront.ordersEnabled;
+  const selling = ordersOpen(storefront);
   return (
     <LegalShell href="/privacy" title="Πολιτική απορρήτου" updated="Οκτώβριος 2026">
       <h2>Υπεύθυνος επεξεργασίας</h2>

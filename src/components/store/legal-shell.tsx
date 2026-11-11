@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Breadcrumbs } from '@/components/store/product-listing';
+import { ordersOpen } from '@/lib/commerce-flag';
 import { getSettings } from '@/lib/settings.server';
 
 const PAGES = [
@@ -18,7 +19,7 @@ const PAGES = [
 export async function LegalShell({ href, title, updated, children }: { href: string; title: string; updated: string; children: React.ReactNode }) {
   // catalogue mode: the two pages about buying online are not part of the site (lib/catalogue-mode.ts)
   const { storefront } = await getSettings();
-  const pages = PAGES.filter((p) => storefront.ordersEnabled || !('shopOnly' in p) || p.href === href);
+  const pages = PAGES.filter((p) => ordersOpen(storefront) || !('shopOnly' in p) || p.href === href);
   return (
     <div className="container-page py-6 sm:py-8">
       <Breadcrumbs items={[{ name: title, href }]} />

@@ -1,4 +1,5 @@
 import { getAdmin } from '@/lib/auth/session';
+import { ordersOpen } from '@/lib/commerce-flag';
 import { clientIp, rateLimit } from '@/lib/rate-limit';
 import { getSettings } from '@/lib/settings.server';
 import { isBot, recordEvent, StatEvent } from '@/lib/stats';
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
     if (await getAdmin()) return done;
 
     const { storefront } = await getSettings();
-    await recordEvent(event.data, { ip, userAgent, host: new URL(request.url).hostname, ordersEnabled: storefront.ordersEnabled });
+    await recordEvent(event.data, { ip, userAgent, host: new URL(request.url).hostname, ordersEnabled: ordersOpen(storefront) });
   } catch (err) {
     console.error('[stats] could not record event', err);
   }

@@ -13,3 +13,14 @@
 export function commerceEnabled(): boolean {
   return process.env.COMMERCE_ENABLED !== 'false';
 }
+
+/**
+ * Is the shop really taking online orders from the public? That needs the owner's «δέχεται online παραγγελίες» box
+ * (`storefront.ordersEnabled`) AND the deployment switch above. Everything a visitor or a search engine can read that
+ * depends on ordering being open — the sitemap, structured-data offers, the delivery sentences, the terms — asks this,
+ * never the box alone: with COMMERCE_ENABLED=false the box does nothing.
+ * Not for admin screens that edit or show the box itself, which need the stored value.
+ */
+export function ordersOpen(storefront: { ordersEnabled: boolean }): boolean {
+  return storefront.ordersEnabled && commerceEnabled();
+}

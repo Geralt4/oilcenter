@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { Phone } from 'lucide-react';
 import { ProductListing } from '@/components/store/product-listing';
+import { ordersOpen } from '@/lib/commerce-flag';
 import { getViscosities, getViscosityBySlug, viscosityLabel, type ViscosityInfo } from '@/lib/catalog';
 import type { RawSearchParams } from '@/lib/listing-params';
 import { getSettings } from '@/lib/settings.server';
@@ -35,7 +36,7 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   return {
     title: heading(v),
     // no price here: prices move every few days and a search-result snippet outlives them
-    description: `${v.count === 1 ? '1 λιπαντικό' : `${v.count} λιπαντικά`} ${viscosityLabel(v.grade)}${brandPhrase(v)}. ${storefront.ordersEnabled ? 'Παραλαβή από το κατάστημα στη Θεσσαλονίκη ή αποστολή σε όλη την Ελλάδα.' : 'Στο Oil Center, Θεσσαλονίκη.'}`,
+    description: `${v.count === 1 ? '1 λιπαντικό' : `${v.count} λιπαντικά`} ${viscosityLabel(v.grade)}${brandPhrase(v)}. ${ordersOpen(storefront) ? 'Παραλαβή από το κατάστημα στη Θεσσαλονίκη ή αποστολή σε όλη την Ελλάδα.' : 'Στο Oil Center, Θεσσαλονίκη.'}`,
     alternates: { canonical: `/viscosity/${v.slug}` },
     // spread, not `robots: undefined`: an explicit undefined would erase the store layout's demo-mode noindex
     ...(Object.keys(sp).length > 0 ? { robots: { index: false, follow: true } } : {}),

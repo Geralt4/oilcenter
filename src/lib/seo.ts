@@ -1,4 +1,5 @@
 import { bestAvailability, effectiveAvailability } from '@/lib/availability';
+import { ordersOpen } from '@/lib/commerce-flag';
 import type { ProductDetail } from '@/lib/catalog';
 import type { ShopSettings } from '@/lib/settings';
 import { siteUrl } from '@/lib/site-url';
@@ -77,7 +78,7 @@ export function productJsonLd(product: ProductDetail, settings: ShopSettings) {
   const prices = sellable.map((v) => v.priceCents / 100);
   // best state among the sizes: on the shelf → InStock, comes from the supplier / on order → BackOrder
   const best = bestAvailability(sellable.map(effectiveAvailability));
-  const { demoMode, ordersEnabled } = settings.storefront;
+  const { demoMode } = settings.storefront;
   return {
     '@context': 'https://schema.org',
     '@type': 'Product',
@@ -93,7 +94,7 @@ export function productJsonLd(product: ProductDetail, settings: ShopSettings) {
     brand: product.brand ? { '@type': 'Brand', name: product.brand.name } : undefined,
     category: product.category?.name,
     url,
-    ...(!demoMode && ordersEnabled && prices.length > 0 && {
+    ...(!demoMode && ordersOpen(settings.storefront) && prices.length > 0 && {
       offers: {
         '@type': 'AggregateOffer',
         priceCurrency: 'EUR',
