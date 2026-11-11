@@ -67,6 +67,7 @@ export default defineRailway(() => {
       "VIVA_SOURCE_CODE",
       "VIVA_MERCHANT_ID",
       "VIVA_API_KEY",
+      "VIVA_WEBHOOK_IPS",
       "STRIPE_SECRET_KEY",
       "STRIPE_WEBHOOK_SECRET",
     ),
