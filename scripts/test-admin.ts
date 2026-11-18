@@ -1184,12 +1184,12 @@ async function main() {
     delete process.env.COMMERCE_ENABLED;
     const GR = 'GR16 0110 1250 0000 0001 2300 695';
     const DE = 'DE89 3704 0044 0532 0130 00';
-    const base = { name: 'Oil Center', phone: '2310111111', street: 'Οδός 1', city: 'Θεσσαλονίκη', cod: 'on' };
+    const base = { name: 'Oil Center', email: 'shop@example.com', phone: '2310111111', street: 'Οδός 1', city: 'Θεσσαλονίκη', cod: 'on' };
     const account = (iban: string, bank = 'Τράπεζα Δοκιμής', holder = 'Oil Center') => ({ 'bank0-name': bank, 'bank0-iban': iban, 'bank0-holder': holder });
     const run = async (fields: Record<string, string>) => (await saveSettings(null, form({ ...base, ...fields })))!; // null only before the first submit
     const snap = async () => {
       const g = await getSettings();
-      return { phone: g.shop.phone, iban: g.payments.bankAccounts[0]?.iban ?? null, bank: g.payments.bankAccounts[0]?.bank ?? null, accounts: g.payments.bankAccounts.length, open: g.storefront.ordersEnabled, vat: g.tax.vatRate, card: g.payments.card, demo: g.storefront.demoMode, shipping: g.shipping.baseCents };
+      return { phone: g.shop.phone, email: g.shop.email, iban: g.payments.bankAccounts[0]?.iban ?? null, bank: g.payments.bankAccounts[0]?.bank ?? null, accounts: g.payments.bankAccounts.length, open: g.storefront.ordersEnabled, vat: g.tax.vatRate, card: g.payments.card, demo: g.storefront.demoMode, shipping: g.shipping.baseCents };
     };
 
     // a starting point set WITH the confirmation: one account, ordering closed
@@ -1229,11 +1229,19 @@ async function main() {
     const many = await run({ ...account(DE), card: 'on', vatRate: otherVat, baseCents: otherFee, demoMode: 'on' });
     check('…a form that changes several names all of them in one refusal', many.ok === false && ['τρόπους πληρωμής', 'ΦΠΑ', 'μεταφορικά', 'δοκιμαστική λειτουργία'].every((w) => many.message.includes(w)), many);
 
+    const phoneBeforeMail = (await snap()).phone;
+    const mailChange = await run({ ...account(GR), email: 'other@example.com', phone: '2310888888' });
+    check('without the confirmation, a different shop e-mail is refused', mailChange.ok === false && mailChange.message.includes('Δεν αποθηκεύτηκε τίποτα') && mailChange.message.includes('το e-mail του καταστήματος') && (await snap()).email === 'shop@example.com', mailChange);
+    check('…nothing else in that form was saved either', (await snap()).phone === phoneBeforeMail, await snap());
+    const mailEmptied = await run({ ...account(GR), email: '' });
+    check('…an emptied e-mail field counts as a change too', mailEmptied.ok === false && (await snap()).email === 'shop@example.com', mailEmptied);
+
     check('with the confirmation the same changes are saved', (await createSudoSession()) && (await run({ ordersEnabled: 'on', ...account(DE), card: 'on', vatRate: otherVat, baseCents: otherFee, demoMode: 'on' })).ok === true && (await snap()).iban === 'DE89370400440532013000' && (await snap()).open === true && (await snap()).card === true && (await snap()).vat === Number(otherVat) && (await snap()).shipping === start.shipping + 100 && (await snap()).demo === true);
+    check('with the confirmation the new shop e-mail is saved', (await run({ ordersEnabled: 'on', ...account(DE), card: 'on', vatRate: otherVat, baseCents: otherFee, demoMode: 'on', email: 'other@example.com' })).ok === true && (await snap()).email === 'other@example.com');
     await destroySudoSession();
-    const closing = await run({ ...account(DE) });
+    const closing = await run({ ...account(DE), email: 'other@example.com' });
     check('without the confirmation, closing the shop is refused too', closing.ok === false && (await snap()).open === true, closing);
-    const others = await run({ ordersEnabled: 'on', ...account(DE), card: 'on', vatRate: otherVat, baseCents: otherFee, demoMode: 'on', phone: '2310777777' });
+    const others = await run({ ordersEnabled: 'on', ...account(DE), card: 'on', vatRate: otherVat, baseCents: otherFee, demoMode: 'on', phone: '2310777777', email: 'other@example.com' });
     check('…while a form that leaves the guarded settings as they are still saves without it', others.ok === true && (await snap()).phone === '2310777777', others);
 
     for (const group of ['shop', 'storefront', 'payments', 'shipping', 'reviews', 'tax'] as const) await saveSettingsGroup(group, before[group] as never);

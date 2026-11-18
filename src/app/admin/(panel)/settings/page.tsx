@@ -102,7 +102,7 @@ export default async function AdminSettingsPage({ searchParams }: { searchParams
             <Field label="Τηλέφωνο καταστήματος"><input name="phone" required defaultValue={shop.phone} className="field tabular" /></Field>
             <Field label="Κινητό"><input name="mobile" defaultValue={shop.mobile} className="field tabular" /></Field>
             <Field label="Fax"><input name="fax" defaultValue={shop.fax} className="field tabular" /></Field>
-            <Field label="E-mail" className="md:col-span-3"><input name="email" type="email" defaultValue={shop.email} className="field" /></Field>
+            <Field label="E-mail" hint="Η αλλαγή του χρειάζεται πρώτα επιβεβαίωση ταυτότητας (πρώτη κάρτα της σελίδας)." className="md:col-span-3"><input name="email" type="email" defaultValue={shop.email} className="field" /></Field>
             <Field label="Οδός & αριθμός"><input name="street" required defaultValue={shop.street} className="field" /></Field>
             <Field label="Πόλη"><input name="city" required defaultValue={shop.city} className="field" /></Field>
             <Field label="Τ.Κ."><input name="postalCode" defaultValue={shop.postalCode} className="field tabular" /></Field>

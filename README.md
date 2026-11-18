@@ -107,7 +107,8 @@ in "Before going live" above and in [`VIVA.md`](VIVA.md) section 10.
 
 1. **Enable 2FA** on the owner's admin account: *Ρυθμίσεις → «Επαλήθευση δύο βημάτων (2FA)» → «Ενεργοποίηση»* (it asks
    for the current password), scan the QR code, type the code. Without 2FA the identity confirmation in step 2 cannot be
-   given, and without that, switching demo mode off, changing the IBAN (step 3) and opening ordering (step 8) are refused.
+   given, and without that, switching demo mode off, changing the shop e-mail, changing the IBAN (step 3) and opening
+   ordering (step 8) are refused.
 2. **Confirm identity:** *Ρυθμίσεις → «Επιβεβαίωση ταυτότητας»* (password + the 2FA code). It lasts 5 minutes, for that
    session only.
 3. **Set the IBAN** in *Τρόποι πληρωμής* and save while the confirmation is valid. It is needed if bank transfer is

@@ -1272,7 +1272,8 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
   if (problems.length) return { ok: false, message: `Δεν αποθηκεύτηκε τίποτα. ${problems.slice(0, 3).join(' · ')}${problems.length > 3 ? ` · και ${problems.length - 3} ακόμη` : ''}.` };
 
   // These settings decide where customers' money goes, what they are charged and whether the shop is public: the bank
-  // accounts, the online-orders switch, the payment methods, the shipping fees, VAT and demo mode. A stolen session alone
+  // accounts, the online-orders switch, the payment methods, the shipping fees, VAT and demo mode. The shop e-mail is guarded
+  // too, because the site sends its order and form notices there. A stolen session alone
   // must not change them (an IBAN swapped in the middle of the night, a fee set to zero), so they need the identity
   // confirmation (password + authenticator code, five minutes) like the administrator changes. Everything else in this form
   // saves without it. Nothing is saved when the confirmation is missing, as with every other refusal here.
@@ -1284,6 +1285,7 @@ export async function saveSettings(_prev: AdminFormState, fd: FormData): Promise
   if (shipping.baseCents !== current.shipping.baseCents || shipping.perExtraKgCents !== current.shipping.perExtraKgCents || shipping.freeOverCents !== current.shipping.freeOverCents || shipping.codFeeCents !== current.shipping.codFeeCents) guarded.push('τα μεταφορικά');
   if (vatRate !== current.tax.vatRate) guarded.push('τον ΦΠΑ');
   if (bool(fd, 'demoMode') !== current.storefront.demoMode) guarded.push('τη δοκιμαστική λειτουργία');
+  if (shop.email !== current.shop.email) guarded.push('το e-mail του καταστήματος');
   if (guarded.length && !(await hasSudoSession())) {
     const list = guarded.length === 1 ? guarded[0] : `${guarded.slice(0, -1).join(', ')} και ${guarded[guarded.length - 1]}`;
     return { ok: false, message: `Δεν αποθηκεύτηκε τίποτα. Για να αλλάξετε ${list} χρειάζεται πρώτα επιβεβαίωση ταυτότητας (κωδικός και κωδικός εφαρμογής) στην ενότητα «Επιβεβαίωση ταυτότητας» στην κορυφή της σελίδας. Αν δεν έχετε ενεργή επαλήθευση δύο βημάτων, ενεργοποιήστε την πρώτα από την ίδια σελίδα.` };
