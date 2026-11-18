@@ -124,11 +124,13 @@ export function Header({ settings, tree, brands, customerName, canOrder, adminPr
             20rem panel has room; «Μάρκες» is pushed to the end of its line so that its wider,
             right-aligned panel lands inside the page as well. overflow-x-clip is the backstop
             should the catalogue outgrow this again: it clips sideways only, so the panels still
-            hang below the bar. */}
+            hang below the bar. From xl up the items sit on one line, and the padding is tightened
+            there (6px a side instead of 10px) so that «Φίλτρα» and «Μάρκες» still fit on it
+            with room to spare at 1280px. */}
         <nav className="hidden overflow-x-clip border-t border-line lg:block" aria-label="Κατηγορίες">
           <ul className="container-page flex flex-wrap items-center gap-x-0.5 gap-y-1 py-1.5 text-sm font-medium whitespace-nowrap xl:text-[0.9375rem]">
             <li>
-              <Link href="/products" className="flex h-9 items-center rounded-lg bg-ink-900 px-4 font-semibold text-white hover:bg-ink-700">
+              <Link href="/products" className="flex h-9 items-center rounded-lg bg-ink-900 px-4 font-semibold text-white hover:bg-ink-700 xl:px-3">
                 Όλα τα προϊόντα
               </Link>
             </li>
@@ -138,7 +140,7 @@ export function Header({ settings, tree, brands, customerName, canOrder, adminPr
                 <li className="group relative">
                   <Link
                     href={`/category/${cat.slug}`}
-                    className="flex h-9 items-center gap-1 rounded-lg px-2.5 text-ink-700 group-focus-within:bg-ink-100 group-hover:bg-ink-100 hover:text-ink-950"
+                    className="flex h-9 items-center gap-1 rounded-lg px-2.5 text-ink-700 xl:px-1.5 group-focus-within:bg-ink-100 group-hover:bg-ink-100 hover:text-ink-950"
                   >
                     {cat.name}
                     {cat.children.length > 0 && <ChevronDown className="h-3.5 w-3.5 text-ink-500 transition-transform group-hover:rotate-180" />}
@@ -166,7 +168,7 @@ export function Header({ settings, tree, brands, customerName, canOrder, adminPr
               </Fragment>
             ))}
             <li className="group relative ml-auto">
-              <Link href="/brands" className="flex h-9 items-center gap-1 rounded-lg px-2.5 text-ink-700 group-focus-within:bg-ink-100 group-hover:bg-ink-100 hover:text-ink-950">
+              <Link href="/brands" className="flex h-9 items-center gap-1 rounded-lg px-2.5 text-ink-700 xl:px-1.5 group-focus-within:bg-ink-100 group-hover:bg-ink-100 hover:text-ink-950">
                 Μάρκες
                 <ChevronDown className="h-3.5 w-3.5 text-ink-500 transition-transform group-hover:rotate-180" />
               </Link>

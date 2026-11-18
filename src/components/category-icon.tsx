@@ -1,5 +1,5 @@
 import {
-  Bike, Boxes, Car, Cog, Droplet, Droplets, FlaskConical, Fuel, Gauge, Snowflake, SprayCan, Thermometer, Tractor, Truck, Wrench, Zap,
+  Bike, Boxes, Car, Cog, Droplet, Droplets, Filter, FlaskConical, Fuel, Gauge, Snowflake, SprayCan, Thermometer, Tractor, Truck, Wrench, Zap,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -21,6 +21,7 @@ export const CATEGORY_ICONS: Record<string, { icon: LucideIcon; label: string }>
   fuel: { icon: Fuel, label: 'Καύσιμο' },
   spray: { icon: SprayCan, label: 'Σπρέι' },
   grease: { icon: Boxes, label: 'Γράσα' },
+  filter: { icon: Filter, label: 'Φίλτρο' },
 };
 
 export function CategoryIcon({ name, className }: { name?: string | null; className?: string }) {
