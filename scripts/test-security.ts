@@ -1148,6 +1148,19 @@ async function main() {
     // scripts/env.ts calls process.loadEnvFile, which arrived in Node 20.12
     const [major, minor] = (/(\d+)\.(\d+)/.exec(pkg.engines?.node ?? '') ?? []).slice(1).map(Number);
     check('engines.node asks for at least 20.12 (process.loadEnvFile in scripts/env.ts)', major > 20 || (major === 20 && minor >= 12), pkg.engines);
+    // the lockfile (not node_modules) records what CI and the deploy install
+    const lock = JSON.parse(readFileSync('package-lock.json', 'utf8')) as { packages: Record<string, { version?: string }> };
+    const locked = (name: string) => lock.packages[`node_modules/${name}`]?.version;
+    const parts = (v?: string) => (/^(\d+)\.(\d+)\.(\d+)/.exec(v ?? '') ?? []).slice(1).map(Number);
+    const atLeast = (name: string, wantMajor: number, wantMinor: number, minPatch: number) => {
+      const [a, b, c] = parts(locked(name));
+      return a === wantMajor && b === wantMinor && c >= minPatch;
+    };
+    check('next is locked at 16.4.5 or a later 16.4 release (the November 2026 security release)', atLeast('next', 16, 4, 5), locked('next'));
+    check('zod is locked at 4.6.6 or later in the 4.6 line', atLeast('zod', 4, 6, 6), locked('zod'));
+    check('nodemailer is locked at 10.1.4 or later in the 10.1 line', atLeast('nodemailer', 10, 1, 4), locked('nodemailer'));
+    const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
+    check('the CI workflow audits the production dependencies', ci.includes('npm audit --omit=dev --audit-level=high'), 'no audit step in ci.yml');
   }
 }
 

@@ -35,6 +35,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # fails the run when a production dependency has a known high or critical advisory
+      - name: Known advisories in production dependencies
+        run: npm audit --omit=dev --audit-level=high
       - name: Session secret for this run
         run: echo "AUTH_SECRET=$(openssl rand -base64 48 | tr -d '\n')" >> "$GITHUB_ENV"
       # next-env.d.ts and the route types are generated, not committed
