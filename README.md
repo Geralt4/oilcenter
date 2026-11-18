@@ -171,6 +171,8 @@ What the deployment-level protections do and where they live — read together w
   `/resend-activation` (5 requests per 30 minutes per address of the visitor, 3 per hour per e-mail, same answer whatever
   the e-mail). A password reset also activates the account. Customers from before migration 0022 were activated by its
   backfill. Guest checkout and the order lookup do not need an account.
+- **Admin sessions:** a session lasts 12 hours. A successful sign-in ends that administrator's earlier sessions, so an
+  account is signed in on one device at a time. «Αποσύνδεση», a password change and a 2FA change end all of them.
 - **Admin two-step verification (TOTP):** Admin → Ρυθμίσεις → «Επαλήθευση δύο βημάτων» enrolls an authenticator app
   (QR code). Once confirmed, every admin login also requires the 6-digit code; each code is **single-use** (its time step
   is burned in the database, so replay inside the 30 s window fails), and separate limits guard guessing the code (5 wrong codes per address and 10 per account, per 15 minutes; the account cap is only reachable with the right password). Turning

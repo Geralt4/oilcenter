@@ -115,8 +115,16 @@ export async function loginAdmin(_prev: AdminFormState, fd: FormData): Promise<A
     }
   }
 
-  await db.update(adminUsers).set({ lastLoginAt: new Date() }).where(eq(adminUsers.id, admin.id));
-  await createSession('admin', admin.id, admin.tokenVersion);
+  // A completed sign-in raises the token version, and the new cookie is signed with the value this same statement returned: the
+  // admin's earlier sessions end, so the account is signed in on one device at a time. Only a completed sign-in gets here
+  // (password, and the code when there is one), so nobody else can use it to sign the owner out.
+  const [signedIn] = await db
+    .update(adminUsers)
+    .set({ lastLoginAt: new Date(), tokenVersion: sql`${adminUsers.tokenVersion} + 1` })
+    .where(eq(adminUsers.id, admin.id))
+    .returning({ tokenVersion: adminUsers.tokenVersion });
+  if (!signedIn) return { ok: false, message: 'Λάθος e-mail ή κωδικός.' };
+  await createSession('admin', admin.id, signedIn.tokenVersion);
   redirect('/admin');
 }
 

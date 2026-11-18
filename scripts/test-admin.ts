@@ -1432,6 +1432,59 @@ async function main() {
     await createSession('admin', admin.id, admin.tokenVersion); // the sign-ins above replaced the session cookie
   }
 
+  console.log('A new admin sign-in ends the earlier sessions');
+  {
+    const { hashPassword } = await import('../src/lib/auth/password');
+    const { totpFor, newTotpSecret } = await import('../src/lib/auth/totp');
+    const { getAdmin } = await import('../src/lib/auth/session');
+    const { loginAdmin } = await import('../src/app/admin/actions');
+    // redirect() throws: a sign-in that succeeds ends in NEXT_REDIRECT, anything else answers with a message
+    const signIn = async (ip: string, email: string, password: string, totp = '') => {
+      currentIp = ip;
+      try {
+        const r = (await loginAdmin(null, form({ email, password, totp }))) as { ok: boolean; message: string } | null;
+        return { redirected: false, message: r?.message ?? '' };
+      } catch (err) {
+        if (String((err as { digest?: string }).digest ?? '').startsWith('NEXT_REDIRECT')) return { redirected: true, message: '' };
+        throw err;
+      }
+    };
+    const versionOf = async (id: number) => (await db.select().from(adminUsers).where(eq(adminUsers.id, id)))[0].tokenVersion;
+    const pw = 'κωδικός-μίας-συσκευής-3';
+    const email = 'one-device@example.com';
+    const [one] = await db.insert(adminUsers).values({ email, name: 'One', passwordHash: await hashPassword(pw) }).returning();
+    await createSession('admin', one.id, one.tokenVersion);
+    const earlierCookie = cookieJar.get('oc_admin')!;
+    check('(setup) a session opened for the admin works', (await getAdmin())?.id === one.id);
+
+    const first = await signIn('198.51.101.1', email, pw);
+    const raised = await versionOf(one.id);
+    check('a successful sign-in raises the token version by one', first.redirected && raised === one.tokenVersion + 1, [first, one.tokenVersion, raised]);
+    const newCookie = cookieJar.get('oc_admin')!;
+    check('…the new session works', (await getAdmin())?.id === one.id);
+    cookieJar.set('oc_admin', earlierCookie);
+    check('…and the session opened before it is signed out', (await getAdmin()) === null);
+
+    cookieJar.set('oc_admin', newCookie);
+    const wrong = await signIn('198.51.101.2', email, 'λάθος-κωδικός');
+    cookieJar.set('oc_admin', newCookie);
+    check('a sign-in with a wrong password leaves the version and the current session alone', wrong.message === 'Λάθος e-mail ή κωδικός.' && (await versionOf(one.id)) === raised && (await getAdmin())?.id === one.id, [wrong, await versionOf(one.id)]);
+
+    const secret = newTotpSecret();
+    const mfaEmail = 'one-device-2fa@example.com';
+    const [two] = await db.insert(adminUsers).values({ email: mfaEmail, name: 'Two', passwordHash: await hashPassword(pw), totpSecret: secret, totpConfirmedAt: new Date() }).returning();
+    const wrongCode = totpFor(secret, mfaEmail).generate() === '000000' ? '111111' : '000000';
+    const badCode = await signIn('198.51.101.3', mfaEmail, pw, wrongCode);
+    check('with 2FA, the right password and a wrong code leave the version alone too', !badCode.redirected && (await versionOf(two.id)) === two.tokenVersion, [badCode, await versionOf(two.id)]);
+    const goodCode = await signIn('198.51.101.4', mfaEmail, pw, totpFor(secret, mfaEmail).generate());
+    check('…and the right code signs in and raises it', goodCode.redirected && (await versionOf(two.id)) === two.tokenVersion + 1, [goodCode, await versionOf(two.id)]);
+
+    await db.delete(adminUsers).where(inArray(adminUsers.email, [email, mfaEmail]));
+    currentIp = '203.0.113.1';
+    const [mainAdmin] = await db.select().from(adminUsers).where(eq(adminUsers.id, admin.id));
+    await createSession('admin', admin.id, mainAdmin.tokenVersion); // the sign-ins above replaced the session cookie
+  }
+
   console.log('Starting 2FA enrolment');
   {
     const { hashPassword } = await import('../src/lib/auth/password');
